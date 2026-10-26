@@ -1,0 +1,196 @@
+﻿# pack_build.ps1, datasets_download.ps1 이 같이 쓰는 함수. 직접 실행하지 않는다.
+
+$script:Fails = 0
+
+# micromamba, uv 등이 내는 UTF-8 출력을 깨지지 않게 읽는다(한국어 윈도우 기본은 CP949)
+try {
+    [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
+    $OutputEncoding = [Console]::OutputEncoding
+} catch { }
+
+function Write-Step($n, $total, $title) {
+    Write-Host ''
+    Write-Host "==== [$n/$total] $title ====" -ForegroundColor Cyan
+}
+function Write-Ok($msg)   { Write-Host "  [정상] $msg" -ForegroundColor Green }
+function Write-Warn($msg) { Write-Host "  [주의] $msg" -ForegroundColor Yellow }
+function Write-Bad($msg)  { Write-Host "  [문제] $msg" -ForegroundColor Red; $script:Fails++ }
+function Write-Info($msg) { Write-Host "  $msg" }
+
+function Start-Log($path) {
+    $script:LogPath = $path
+    New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
+    Start-Transcript -Append $path | Out-Null
+}
+
+# 멈추고 할 일을 알려 준다
+function Stop-Run($what, $fix) {
+    Write-Host ''
+    Write-Host '################ 멈춤 ################' -ForegroundColor Red
+    Write-Host "무엇이: $what" -ForegroundColor Red
+    Write-Host "할 일 : $fix"
+    Write-Host '고친 뒤 같은 명령을 다시 실행하면 된 데까지 건너뛰고 이어서 한다.'
+    Write-Host "해결이 안 되면 이 파일을 담당자에게 보내 준다: $script:LogPath"
+    Stop-Transcript | Out-Null
+    [B200.Power]::SetThreadExecutionState([uint32]2147483648) | Out-Null
+    exit 1
+}
+
+# 실제 exe 경로를 찾는다. PowerShell 별칭·함수는 건너뛴다
+# (micromamba shell init 을 하면 micromamba 가 'Mamba' 모듈의 별칭이 되어 exe 경로가 아니다)
+function Find-Exe($name, $root) {
+    $c = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($c) { return $c.Source }
+    $cand = @((Join-Path $root "$name.exe"))
+    if ($name -eq 'micromamba') {
+        $cand += $env:MAMBA_EXE                                              # shell init 이 정해 둔 경로
+        $cand += Join-Path $env:LOCALAPPDATA 'micromamba\micromamba.exe'     # 공식 설치 스크립트 기본 위치
+        $cand += Join-Path $env:USERPROFILE 'micromamba\micromamba.exe'
+    }
+    if ($name -eq 'uv') {
+        $cand += Join-Path $env:USERPROFILE '.local\bin\uv.exe'              # 공식 설치 스크립트 기본 위치
+        $cand += Join-Path $env:USERPROFILE '.cargo\bin\uv.exe'
+    }
+    foreach ($p in $cand) { if ($p -and (Test-Path $p)) { return $p } }
+    return $null
+}
+
+# 회사망에서 curl 이 막히는 흔한 경우를 스스로 찾아 우회한다. 모든 curl 호출에 @CurlExtra 를 붙인다.
+$script:CurlExtra = @()
+$script:NoRevoke  = $false
+$env:UV_NATIVE_TLS = '1'   # uv 가 윈도우 인증서 저장소를 쓰게 한다(회사 보안 장비 인증서 포함)
+
+function Invoke-Probe($url) {
+    # HEAD 를 막는 장비가 있어 GET 으로 1바이트만 받는다. 오류 문구는 화면에 보이도록 받아 둔다.
+    $msg = & curl.exe -sS -o NUL -L -r 0-0 --connect-timeout 15 --max-time 40 --stderr - @CurlExtra $url | Out-String
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Msg = $msg.Trim() }
+}
+
+function Get-WindowsProxy {
+    $s = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue
+    if (-not $s -or $s.ProxyEnable -ne 1 -or -not $s.ProxyServer) { return $null }
+    $p = $s.ProxyServer
+    if ($p -match 'https=([^;]+)') { $p = $Matches[1] } elseif ($p -match 'http=([^;]+)') { $p = $Matches[1] }
+    if ($p -notmatch '://') { $p = "http://$p" }
+    return $p
+}
+
+function Get-NetHint($code) {
+    switch ($code) {
+        6       { return '주소를 찾지 못했다(DNS). 브라우저만 프록시를 쓰는 망일 수 있다.' }
+        7       { return '연결이 거부됐다. 방화벽이 막거나 프록시를 거쳐야 하는 망이다.' }
+        28      { return '시간 초과. 방화벽이 막거나 프록시를 거쳐야 하는 망이다.' }
+        35      { return '보안 연결(TLS)에 실패했다. 회사 보안 장비가 막을 수 있다.' }
+        60      { return '인증서를 믿지 못했다. 회사 보안 장비가 인증서를 바꾸는 망이다.' }
+        default { return '' }
+    }
+}
+
+# 사이트에 접속되는지 보고 [정상]/[문제] 를 찍는다. HTTP 코드는 상관없다.
+function Test-Site($name, $url) {
+    $first = Invoke-Probe $url
+    if ($first.Code -eq 0) { Write-Ok "인터넷: $name"; return $true }
+
+    # 1) 인증서 폐기 확인 서버가 막힌 망: 브라우저는 그냥 넘어가지만 curl 은 실패한다
+    if (-not $script:NoRevoke) {
+        $script:CurlExtra = @('--ssl-no-revoke')
+        if ((Invoke-Probe $url).Code -eq 0) {
+            $script:NoRevoke = $true
+            $env:MAMBA_SSL_NO_REVOKE = 'true'
+            Write-Ok "인터넷: $name"
+            Write-Warn '이 망은 인증서 폐기 확인이 막혀 있어 그 확인을 끄고 진행한다(브라우저와 같은 동작).'
+            return $true
+        }
+        $script:CurlExtra = @()
+    }
+
+    # 2) 브라우저만 윈도우 프록시 설정을 쓰는 망: 같은 프록시를 스크립트에도 쓴다
+    $proxy = Get-WindowsProxy
+    if (-not $env:HTTPS_PROXY -and $proxy) {
+        $env:HTTPS_PROXY = $proxy; $env:HTTP_PROXY = $proxy
+        $ok = (Invoke-Probe $url).Code -eq 0
+        if (-not $ok -and -not $script:NoRevoke) {
+            $script:CurlExtra = @('--ssl-no-revoke')
+            $ok = (Invoke-Probe $url).Code -eq 0
+            if ($ok) { $script:NoRevoke = $true; $env:MAMBA_SSL_NO_REVOKE = 'true' } else { $script:CurlExtra = @() }
+        }
+        if ($ok) {
+            Write-Ok "인터넷: $name"
+            Write-Warn "윈도우 프록시 설정($proxy)을 찾아 스크립트에도 쓴다."
+            return $true
+        }
+        Remove-Item Env:HTTPS_PROXY, Env:HTTP_PROXY -ErrorAction SilentlyContinue
+    }
+
+    Write-Bad "인터넷: $name 에 접속 안 됨 ($url)"
+    Write-Info "    curl 오류 $($first.Code): $($first.Msg)"
+    $hint = Get-NetHint $first.Code
+    if ($hint) { Write-Info "    $hint" }
+    $pac = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue).AutoConfigURL
+    if ($pac) { Write-Info "    이 PC 브라우저는 자동 프록시 설정(PAC)을 쓴다: $pac" }
+    return $false
+}
+
+function Get-FreeGB($dir) {
+    return [math]::Round((Get-Item $dir).PSDrive.Free / 1GB)
+}
+
+function Format-Size($bytes) {
+    if ($bytes -ge 1GB) { return '{0:N1} GB' -f ($bytes / 1GB) }
+    return '{0:N0} MB' -f ($bytes / 1MB)
+}
+
+# 파일이면 크기, 폴더면 안의 파일 크기 합(없으면 0)
+function Get-Size($path) {
+    if (Test-Path -LiteralPath $path -PathType Leaf) { return (Get-Item -LiteralPath $path).Length }
+    if (Test-Path -LiteralPath $path) {
+        $s = (Get-ChildItem -LiteralPath $path -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+        if ($s) { return [int64]$s }
+    }
+    return [int64]0
+}
+
+# 끊긴 뒤 기다리기. 받은 양이 늘었으면 진전이 있는 것이라 센 횟수를 0으로 되돌리고 10초만 쉰다.
+# 진전 없이 끊긴 횟수만 세고, 기다리는 시간을 30초씩 늘린다(최대 5분). 새 횟수를 돌려준다.
+function Step-Retry($stall, $before, $after, $max, $what) {
+    if ($after -gt $before) {
+        Write-Warn "$what 끊김. 받은 만큼($(Format-Size $after)) 이어서 받는다"
+        Start-Sleep 10
+        return 0
+    }
+    $stall++
+    $wait = [math]::Min(300, 30 * $stall)
+    Write-Warn "$what 끊김, 진전 없음. $wait 초 뒤 다시 (진전 없이 $stall/$max 번)"
+    Start-Sleep $wait
+    return $stall
+}
+
+# 이어받기 + 다시 시도. md5 를 주면 받은 뒤 맞는지 본다. 성공하면 $true.
+# 받은 양이 늘고 있는 동안은 몇 번 끊겨도 계속하고, 진전 없이 $tries 번 끊기면 포기한다.
+function Get-File($url, $file, $md5, $tries) {
+    if ((Test-Path $file) -and $md5 -and ((Get-FileHash $file -Algorithm MD5).Hash -eq $md5.ToUpper())) { return $true }
+    $stall = 0
+    while ($stall -lt $tries) {
+        $before = Get-Size $file
+        & curl.exe -sS -L -C - --fail --retry 3 --connect-timeout 30 -Y 1024 -y 120 @CurlExtra -o $file $url
+        $code = $LASTEXITCODE
+        if ($code -eq 0) {
+            if (-not $md5 -or (Get-FileHash $file -Algorithm MD5).Hash -eq $md5.ToUpper()) { return $true }
+            Write-Warn "깨진 파일이라 다시 받는다: $(Split-Path -Leaf $file)"
+            Remove-Item -Force $file
+            $stall++
+            continue
+        }
+        if ($code -eq 33 -or $code -eq 36 -or $code -eq 22) {
+            Remove-Item -Force -ErrorAction SilentlyContinue $file   # 이어받기가 안 되면 처음부터
+        }
+        $stall = Step-Retry $stall $before (Get-Size $file) $tries "$(Split-Path -Leaf $file) (curl $code)"
+    }
+    return $false
+}
+
+# 실행 중 접근 PC 절전 막기(끝나면 원래대로)
+Add-Type -Namespace B200 -Name Power -MemberDefinition `
+    '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);' -ErrorAction SilentlyContinue
+function Stop-Sleep  { [B200.Power]::SetThreadExecutionState([uint32]2147483649) | Out-Null }  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+function Allow-Sleep { [B200.Power]::SetThreadExecutionState([uint32]2147483648) | Out-Null }  # ES_CONTINUOUS
