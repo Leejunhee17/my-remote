@@ -2,8 +2,8 @@
 [접근 PC] 공용 휠 + 기초 프로그램 묶음(pack\b200-pack.tar)을 만든다.
 점검 → 받기 → 묶기 → 검사까지 한 번에 한다. 끊기면 다시 실행하면 이어서 한다.
 
-  powershell -ExecutionPolicy Bypass -File .\pack_build.ps1              # B200 서버 RHEL 9 (glibc 2.34)
-  powershell -ExecutionPolicy Bypass -File .\pack_build.ps1 -Glibc 2.28  # B200 서버가 RHEL 8일 때만
+  powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1              # B200 서버 RHEL 9 (glibc 2.34)
+  powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1 -Glibc 2.28  # B200 서버가 RHEL 8일 때만
 #>
 param(
     [string]$Glibc = '2.34',
@@ -11,8 +11,9 @@ param(
     [int]$MaxTries = 20      # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 포기
 )
 $here = $PSScriptRoot
+$root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\b200). 결과 폴더와 uv.exe 는 여기
 . (Join-Path $here 'b200_common.ps1')
-$out   = Join-Path $here 'pack'
+$out   = Join-Path $root 'pack'
 $torch = 'https://download.pytorch.org/whl/cu130'
 $ml    = 'manylinux_' + ($Glibc -replace '\.', '_')   # 예: manylinux_2_34
 # pip download 는 낮은 manylinux 를 알아서 넣지 않으므로 서버 glibc 이하를 모두 적는다
@@ -32,8 +33,8 @@ function Write-Lf($path, $lines) {
 
 # ------------------------------------------------------------------ 1. 점검
 Write-Step 1 $T '점검'
-$uv = Find-Exe 'uv' $here
-$mm = Find-Exe 'micromamba' $here
+$uv = Find-Exe 'uv' $root
+$mm = Find-Exe 'micromamba' $root
 if ($uv) { Write-Ok "uv : $uv" } else { Write-Bad 'uv 가 없다' }
 if ($mm) { Write-Ok "micromamba : $mm" } else { Write-Bad 'micromamba 가 없다' }
 foreach ($e in 'curl.exe', 'tar.exe') {
@@ -42,8 +43,8 @@ foreach ($e in 'curl.exe', 'tar.exe') {
 if ($script:Fails) {
     Stop-Run '필요한 프로그램이 없다' 'uv, micromamba 를 설치하고 PowerShell 창을 새로 연다. 또는 uv.exe, micromamba.exe 를 이 폴더에 넣는다.'
 }
-foreach ($f in 'tools.txt', 'wheels.txt', 'pack_install.sh', 'move_shared.sh') {
-    if (-not (Test-Path (Join-Path $here $f))) { Stop-Run "$f 가 없다" 'git pull 로 저장소를 최신으로 받는다.' }
+foreach ($f in 'lists\tools.txt', 'lists\wheels.txt', 'server\pack_install.sh', 'server\move_shared.sh') {
+    if (-not (Test-Path (Join-Path $root $f))) { Stop-Run "$f 가 없다" 'git pull 로 저장소를 최신으로 받는다.' }
 }
 Write-Ok '목록 파일(tools.txt, wheels.txt) 있음'
 
@@ -71,7 +72,7 @@ if ($script:Fails) {
 Write-Step 2 $T '기초 프로그램 버전 정하기 (B200 서버 linux-64 기준)'
 $env:CONDA_OVERRIDE_GLIBC = $Glibc
 $env:CONDA_OVERRIDE_CUDA  = $Cuda
-$tools = (Get-Content (Join-Path $here 'tools.txt')) -split '\s+' | Where-Object { $_ }
+$tools = (Get-Content (Join-Path $root 'lists\tools.txt')) -split '\s+' | Where-Object { $_ }
 Write-Info "목록 $($tools.Count)개를 conda-forge 에서 푸는 중 (1~3분)"
 # 지난 실행에서 망 문제로 잘못 받은 목록 캐시를 쓰지 않도록 매번 지운다
 $mmroot = Join-Path $out 'mmroot'
@@ -131,7 +132,7 @@ Write-Ok '서버용 micromamba 받음'
 # ------------------------------------------------------------------ 4. 휠 버전
 Write-Step 4 $T "공용 휠 버전 정하기 (Python 3.12, $ml)"
 $lock = Join-Path $out 'lock.txt'
-& $uv pip compile (Join-Path $here 'wheels.txt') -o $lock --generate-hashes --no-header `
+& $uv pip compile (Join-Path $root 'lists\wheels.txt') -o $lock --generate-hashes --no-header `
     --python-version 3.12 --python-platform "x86_64-$ml" `
     --extra-index-url $torch --index-strategy unsafe-best-match
 if ($LASTEXITCODE -ne 0) {
@@ -166,7 +167,7 @@ Write-Ok "$wcount 개 받음, 해시 확인함"
 # ------------------------------------------------------------------ 6. 묶기 + 검사
 Write-Step 6 $T '묶기와 검사'
 foreach ($f in 'pack_install.sh', 'move_shared.sh') {
-    $sh = [IO.File]::ReadAllText((Join-Path $here $f)) -replace "`r", ''
+    $sh = [IO.File]::ReadAllText((Join-Path $root "server\$f")) -replace "`r", ''
     [IO.File]::WriteAllText((Join-Path $out $f), $sh, (New-Object Text.UTF8Encoding $false))
 }
 Write-Lf (Join-Path $out 'pack_info.txt') @(
@@ -201,7 +202,7 @@ Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝. B200 서버에 올릴 것 (이 파일 하나):' -ForegroundColor Green
 Write-Host "   $tar  ($size)"
 Write-Host ''
-Write-Host ' 회사 프로그램으로 B200 서버 ~/inbox 에 올린 뒤, B200 서버 터미널에서:' -ForegroundColor Green
-Write-Host '   cd ~/inbox && tar xf b200-pack.tar && bash pack_install.sh'
+Write-Host ' 회사 프로그램으로 B200 서버 /app/inbox 에 올린 뒤, B200 서버 터미널에서:' -ForegroundColor Green
+Write-Host '   cd /app/inbox && tar xf b200-pack.tar && bash pack_install.sh'
 Write-Host '##############################################################' -ForegroundColor Green
 Stop-Transcript | Out-Null

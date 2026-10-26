@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # [B200 서버] 접근 PC에서 올린 datasets 폴더를 ~/shared/datasets 아래 푼다. root 없이 된다.
 # 점검(체크섬) → 풀기 → 학습 코드가 찾는 라벨이 있는지 검사까지 한 번에 한다.
-#   bash ~/inbox/datasets/datasets_install.sh
+#   bash /app/inbox/datasets/datasets_install.sh
 # 다시 실행해도 된다. 이미 푼 것은 건너뛴다.
 set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행한다. 접근 PC에서는 .ps1 을 쓴다."; exit 1; fi
@@ -35,7 +35,7 @@ echo "푸는 곳: $D"
 
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
-[ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 이 없다" "접근 PC의 datasets 폴더를 통째로 ~/inbox/datasets 에 올렸는지 본다."
+[ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 이 없다" "접근 PC의 datasets 폴더를 통째로 /app/inbox/datasets 에 올렸는지 본다."
 command -v unzip >/dev/null || [ -x "$HOME/shared/tools/bin/unzip" ] ||
     stop "unzip 이 없다" "공용 기초 프로그램(pack_install.sh)을 먼저 설치하거나 source ~/.bashrc 를 한다."
 export PATH="$PATH:$HOME/shared/tools/bin"
@@ -127,13 +127,13 @@ if [ "$FAILS" -eq 0 ]; then
     echo "${c_g}############################ 완료 ############################${c_0}"
     echo " 받은 데이터셋은 모두 정상. 위치: $D"
     echo " 엑셀 '데이터셋 목록' 시트의 진행 상황을 '서버 반입'으로 바꾼다."
-    echo " 정리: rm -rf ~/inbox/datasets"
+    echo " 정리: rm -rf /app/inbox/datasets"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"
     echo " 빨간 줄을 본다. '라벨을 못 찾음'은 압축 안 폴더 이름이 한 단계 다른 경우가 많다:"
-    echo " 지금 구조를 보고 학습 코드가 찾는 모양으로 옮긴다(데이터셋_명령어.md 의 "학습 코드가 읽는 라벨 위치")."
+    echo " 지금 구조를 보고 학습 코드가 찾는 모양으로 옮긴다(docs/2_데이터셋.md 의 "학습 코드가 읽는 라벨 위치")."
     echo " 해결이 안 되면 이 파일을 담당자에게 보내 준다: $LOG"
-    echo " ~/inbox/datasets 는 문제가 풀릴 때까지 지우지 않는다."
+    echo " /app/inbox/datasets 는 문제가 풀릴 때까지 지우지 않는다."
     exit 1
 fi

@@ -1,19 +1,20 @@
 ﻿<#
-[접근 PC] 세그멘테이션 데이터셋을 받는다. 설명은 데이터셋_명령어.md.
+[접근 PC] 세그멘테이션 데이터셋을 받는다. 설명은 docs\2_데이터셋.md.
 점검 → 받기(끊기면 이어받기) → 검사 → B200 서버에 올릴 목록 만들기까지 한 번에 한다.
 끊기거나 실패하면 같은 명령을 다시 실행한다. 받은 것은 건너뛴다.
 
-  powershell -ExecutionPolicy Bypass -File .\datasets_download.ps1               # WildScenes 빼고
-  powershell -ExecutionPolicy Bypass -File .\datasets_download.ps1 -WildScenes   # WildScenes 포함(접속 정보를 물어본다)
-  powershell -ExecutionPolicy Bypass -File .\datasets_download.ps1 -Only goose,RUGD
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1               # WildScenes 빼고
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenes   # WildScenes 포함(접속 정보를 물어본다)
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only goose,RUGD
 #>
 param(
-    [string]$Dest = (Join-Path $PSScriptRoot 'datasets'),
+    [string]$Dest = (Join-Path (Split-Path $PSScriptRoot -Parent) 'datasets'),
     [switch]$WildScenes,              # WildScenes 도 받는다. CSIRO 포털의 S3 접속 정보를 물어본다
     [string[]]$Only = @(),            # 이 폴더만 받는다(쉼표로 여러 개)
     [int]$MaxTries = 30               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 2시간)
 )
 $here = $PSScriptRoot
+$root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\b200). 결과 폴더와 uv.exe 는 여기
 . (Join-Path $here 'b200_common.ps1')
 $Only   = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $check  = Join-Path $here 'check_archive.py'
@@ -210,13 +211,13 @@ function Read-Plain($prompt) {
 
 # ------------------------------------------------------------------ 1. 점검
 Write-Step 1 $T '점검'
-$uv = Find-Exe 'uv' $here
+$uv = Find-Exe 'uv' $root
 if ($uv) { Write-Ok "uv : $uv" } else { Write-Bad 'uv 가 없다' }
 foreach ($e in 'curl.exe', 'tar.exe') {
     if (Get-Command $e -ErrorAction SilentlyContinue) { Write-Ok $e } else { Write-Bad "$e 가 없다(윈도우 10 1803 이후에 기본으로 있다)" }
 }
 if (-not (Test-Path $check)) { Write-Bad 'check_archive.py 가 없다(git pull 로 받는다)' }
-if (-not (Test-Path (Join-Path $here 'datasets_install.sh'))) { Write-Bad 'datasets_install.sh 가 없다(git pull 로 받는다)' }
+if (-not (Test-Path (Join-Path $root 'server\datasets_install.sh'))) { Write-Bad 'datasets_install.sh 가 없다(git pull 로 받는다)' }
 if ($script:Fails) { Stop-Run '필요한 파일이 없다' 'uv 를 설치하고 PowerShell 창을 새로 연다. 저장소 파일은 git pull 로 받는다.' }
 
 $sites = [ordered]@{ 'PyPI (검사 도구)' = 'https://pypi.org/simple/pip/' }
@@ -251,7 +252,7 @@ Write-Ok 'Python 3.12 준비됨'
 if ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
     Write-Host ''
     Write-Host '  WildScenes 접속 정보를 넣는다. CSIRO 포털 "Download files via S3 Client" 의 값을 복사해 붙여 넣는다.' -ForegroundColor Cyan
-    Write-Host '  (데이터셋_명령어.md 의 "WildScenes 접속 정보 받기". 정보는 약 48시간 유효하다)'
+    Write-Host '  (docs\2_데이터셋.md 의 "WildScenes 접속 정보 받기". 정보는 약 48시간 유효하다)'
     $server = (Read-Host '  Server (예: s3.data.csiro.au)').Trim()
     $wsDir  = (Read-Host '  Remote Directory (예: dapprd/000012345v001/)').Trim().TrimStart('/')
     $env:AWS_ACCESS_KEY_ID     = (Read-Plain '  Access Key').Trim()
@@ -384,7 +385,7 @@ Write-Step 3 $T 'B200 서버에서 확인할 체크섬 목록 만들기'
 $oks = @(Get-ChildItem $Dest -Recurse -Filter '*.ok' -File | Where-Object { $_.Name -ne 'wildscenes.ok' })
 $lines = @($oks | ForEach-Object { (Get-Content -Raw $_.FullName).Trim() })
 [IO.File]::WriteAllText((Join-Path $Dest 'MANIFEST.sha256'), (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
-$sh = [IO.File]::ReadAllText((Join-Path $here 'datasets_install.sh')) -replace "`r", ''
+$sh = [IO.File]::ReadAllText((Join-Path $root 'server\datasets_install.sh')) -replace "`r", ''
 [IO.File]::WriteAllText((Join-Path $Dest 'datasets_install.sh'), $sh, (New-Object Text.UTF8Encoding $false))
 Write-Ok "압축 $($lines.Count)개 기록, datasets_install.sh 넣음"
 
@@ -412,8 +413,8 @@ Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝. B200 서버에 올릴 것 (폴더 통째로):' -ForegroundColor Green
 Write-Host "   $Dest  ($(Format-Size $total))"
 Write-Host ''
-Write-Host ' 회사 프로그램으로 B200 서버 ~/inbox/datasets 에 올린 뒤, B200 서버 터미널에서:' -ForegroundColor Green
-Write-Host '   bash ~/inbox/datasets/datasets_install.sh'
+Write-Host ' 회사 프로그램으로 B200 서버 /app/inbox/datasets 에 올린 뒤, B200 서버 터미널에서:' -ForegroundColor Green
+Write-Host '   bash /app/inbox/datasets/datasets_install.sh'
 Write-Host '##############################################################'
 Stop-Transcript | Out-Null
 if ($failed.Count) { exit 1 }

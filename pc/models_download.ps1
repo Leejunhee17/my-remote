@@ -1,24 +1,25 @@
 ﻿<#
-[접근 PC] Hugging Face 사전학습 모델을 받는다. 목록은 models.txt, 설명은 모델_명령어.md.
+[접근 PC] Hugging Face 사전학습 모델을 받는다. 목록은 lists\models.txt, 설명은 docs\3_모델.md.
 점검 → 받기(끊기면 이어받기) → 크기·sha256 검사 → B200 서버에 올릴 목록 만들기까지 한 번에 한다.
 끊기거나 실패하면 같은 명령을 다시 실행한다. 받은 것은 건너뛴다.
 
-  powershell -ExecutionPolicy Bypass -File .\models_download.ps1                    # models.txt 에서 # 없는 줄 전부
-  powershell -ExecutionPolicy Bypass -File .\models_download.ps1 -Only seg,vlm      # 그룹만
+  powershell -ExecutionPolicy Bypass -File .\pc\models_download.ps1                    # models.txt 에서 # 없는 줄 전부
+  powershell -ExecutionPolicy Bypass -File .\pc\models_download.ps1 -Only seg,vlm      # 그룹만
 #>
 param(
-    [string]$Dest = (Join-Path $PSScriptRoot 'models'),
+    [string]$Dest = (Join-Path (Split-Path $PSScriptRoot -Parent) 'models'),
     [string[]]$Only = @(),            # 이 그룹만 받는다(쉼표로 여러 개)
     [int]$MaxTries = 30               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 모델은 포기(약 2시간)
 )
 $here = $PSScriptRoot
+$root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\b200). 결과 폴더와 uv.exe 는 여기
 . (Join-Path $here 'b200_common.ps1')
 $Only  = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $fetch = Join-Path $here 'hf_fetch.py'
 $T = 4
 
-# models.txt : "그룹  저장소  [gated]" 한 줄에 하나. # 뒤는 무시
-$Models = @(Get-Content (Join-Path $here 'models.txt') | ForEach-Object {
+# lists\models.txt : "그룹  저장소  [gated]" 한 줄에 하나. # 뒤는 무시
+$Models = @(Get-Content (Join-Path $root 'lists\models.txt') | ForEach-Object {
     $l = ($_ -replace '#.*', '').Trim()
     if ($l) {
         $f = $l -split '\s+'
@@ -41,11 +42,11 @@ function Get-Dir($repo) { return Join-Path $Dest ($repo -replace '/', '__') }
 
 # ------------------------------------------------------------------ 1. 점검
 Write-Step 1 $T '점검'
-$uv = Find-Exe 'uv' $here
+$uv = Find-Exe 'uv' $root
 if ($uv) { Write-Ok "uv : $uv" } else { Stop-Run 'uv 가 없다' 'uv 를 설치하고 PowerShell 창을 새로 연다.' }
 if (-not (Test-Path $fetch)) { Stop-Run 'hf_fetch.py 가 없다' 'git pull 로 저장소를 최신으로 받는다.' }
-if (-not (Test-Path (Join-Path $here 'models_install.sh'))) { Stop-Run 'models_install.sh 가 없다' 'git pull 로 저장소를 최신으로 받는다.' }
-if (-not $Models.Count) { Stop-Run '받을 모델이 없다' 'models.txt 와 -Only 그룹 이름을 확인한다.' }
+if (-not (Test-Path (Join-Path $root 'server\models_install.sh'))) { Stop-Run 'models_install.sh 가 없다' 'git pull 로 저장소를 최신으로 받는다.' }
+if (-not $Models.Count) { Stop-Run '받을 모델이 없다' 'lists\models.txt 와 -Only 그룹 이름을 확인한다.' }
 Write-Ok "받을 모델 $($Models.Count)개 ($(@($Models | ForEach-Object { $_.Group } | Select-Object -Unique) -join ', '))"
 
 Test-Site 'Hugging Face' 'https://huggingface.co/' | Out-Null
@@ -117,7 +118,7 @@ foreach ($m in $Models) {
     switch ($code) {
         0 { Write-Ok "$label 받음"; $result[$label] = '받음' }
         3 { Write-Bad "$label : 승인 필요. 모델 페이지에서 약관에 동의했는지, 토큰이 맞는지 본다"; $result[$label] = '실패(승인)' }
-        4 { Write-Bad "$label : 저장소를 찾지 못했다. models.txt 의 이름을 확인한다"; $result[$label] = '실패(이름)' }
+        4 { Write-Bad "$label : 저장소를 찾지 못했다. lists\models.txt 의 이름을 확인한다"; $result[$label] = '실패(이름)' }
         default { Write-Bad "$label 못 받음"; $result[$label] = '실패' }
     }
 }
@@ -130,7 +131,7 @@ $lines = @(Get-ChildItem $Dest -Directory | ForEach-Object {
     if ((Test-Path $s) -and (Test-Path (Join-Path $_.FullName 'b200_model.json'))) { (Get-Content $s) }
 } | Where-Object { $_ })
 [IO.File]::WriteAllText((Join-Path $Dest 'MANIFEST.sha256'), (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
-$sh = [IO.File]::ReadAllText((Join-Path $here 'models_install.sh')) -replace "`r", ''
+$sh = [IO.File]::ReadAllText((Join-Path $root 'server\models_install.sh')) -replace "`r", ''
 [IO.File]::WriteAllText((Join-Path $Dest 'models_install.sh'), $sh, (New-Object Text.UTF8Encoding $false))
 Write-Ok "파일 $($lines.Count)개 기록, models_install.sh 넣음"
 
@@ -156,8 +157,8 @@ Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝. B200 서버에 올릴 것 (폴더 통째로):' -ForegroundColor Green
 Write-Host "   $Dest  ($(Format-Size $total))"
 Write-Host ''
-Write-Host ' 회사 프로그램으로 B200 서버 ~/inbox/models 에 올린 뒤, B200 서버 터미널에서:' -ForegroundColor Green
-Write-Host '   bash ~/inbox/models/models_install.sh'
+Write-Host ' 회사 프로그램으로 B200 서버 /app/inbox/models 에 올린 뒤, B200 서버 터미널에서:' -ForegroundColor Green
+Write-Host '   bash /app/inbox/models/models_install.sh'
 Write-Host '##############################################################'
 Stop-Transcript | Out-Null
 if ($failed.Count) { exit 1 }

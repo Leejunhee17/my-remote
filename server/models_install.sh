@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # [B200 서버] 접근 PC에서 올린 models 폴더를 ~/shared/models/<만든 곳>/<모델> 아래 둔다. root 없이 된다.
 # 점검(체크섬) → 옮기기 → 가중치 파일을 열어 보는 검사까지 한 번에 한다.
-#   bash ~/inbox/models/models_install.sh
+#   bash /app/inbox/models/models_install.sh
 # 다시 실행해도 된다. 이미 옮긴 것은 건너뛴다.
 set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행한다. 접근 PC에서는 .ps1 을 쓴다."; exit 1; fi
@@ -35,7 +35,7 @@ echo "두는 곳: $D"
 
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
-[ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 이 없다" "접근 PC의 models 폴더를 통째로 ~/inbox/models 에 올렸는지 본다."
+[ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 이 없다" "접근 PC의 models 폴더를 통째로 /app/inbox/models 에 올렸는지 본다."
 n=$(grep -c . MANIFEST.sha256 || true)
 echo "  파일 ${n}개 체크섬 확인 중 (100 GB면 10분 안팎)"
 bad_files=$(sha256sum -c --quiet MANIFEST.sha256 2>/dev/null | sed 's/: .*//')
@@ -106,13 +106,13 @@ echo
 if [ "$FAILS" -eq 0 ]; then
     echo "${c_g}############################ 완료 ############################${c_0}"
     echo " 모델 ${#dirs[@]}개 정상. 위치: $D"
-    echo " 불러오기 예: from_pretrained(\"$D/<만든 곳>/<모델>\")  (모델_명령어.md)"
-    echo " 정리: rm -rf ~/inbox/models"
+    echo " 불러오기 예: from_pretrained(\"$D/<만든 곳>/<모델>\")  (docs/3_모델.md)"
+    echo " 정리: rm -rf /app/inbox/models"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"
     echo " 빨간 줄의 모델 폴더만 접근 PC에서 다시 올린다."
     echo " 해결이 안 되면 이 파일을 담당자에게 보내 준다: $LOG"
-    echo " ~/inbox/models 는 문제가 풀릴 때까지 지우지 않는다."
+    echo " /app/inbox/models 는 문제가 풀릴 때까지 지우지 않는다."
     exit 1
 fi
