@@ -11,7 +11,7 @@
 | `pc/` | **접근 PC**에서 실행하는 스크립트(`.ps1`)와 보조 파일 |
 | `server/` | **B200 서버**에서 실행하는 스크립트(`.sh`). 받은 파일에 자동으로 함께 들어가요 |
 | `lists/` | 받을 목록: 기초 프로그램(`tools.txt`), 공용 휠(`wheels.txt`), 사전학습 모델(`models.txt`) |
-| `docs/` | 자세한 설명: 1 공용 휠·기초 프로그램, 2 데이터셋, 3 모델, 4 문제 해결 |
+| `docs/` | 자세한 설명: 1 공용 휠·기초 프로그램, 2 데이터셋, 3 모델, 4 문제 해결, 5 우분투 재설치 |
 | `서버_사용_규칙.xlsx` | 팀원용 서버 사용 규칙, GPU 배분, 데이터셋·휠·기초 프로그램·모델 목록 |
 
 받은 결과는 저장소 맨 위의 `pack\`, `datasets\`, `models\` 폴더에 생겨요(git에는 올라가지 않아요).
@@ -21,9 +21,9 @@
 | | 접근 PC | B200 서버 |
 |---|---|---|
 | 하는 일 | B200 서버에 접속할 때 쓰는 PC | 학습을 실행하는 서버(B200 GPU 8장) |
-| 운영체제 | 윈도우 | RHEL(Red Hat Enterprise Linux) 9 |
+| 운영체제 | 윈도우 | Ubuntu 22.04 이상(버전 확정 전) |
 | 인터넷 | 돼요. 여기서 내려받아요 | 안 돼요 |
-| 명령 입력 창 | PowerShell (`PS D:\b200>`) | 터미널 (`[아이디@서버이름 ~]$`) |
+| 명령 입력 창 | PowerShell (`PS D:\b200>`) | 터미널 (`아이디@서버이름:~$`) |
 | 저장 공간 | | 홈(`~`) 10 GB, `/app` 2 TB SSD. 팀원 모두 같은 계정 |
 | 파일 놓는 곳 | `D:\b200` | 올리는 곳 `/app/inbox`, 공용 폴더 `/app/shared`(홈의 `~/shared` 는 링크) |
 
@@ -31,10 +31,12 @@
 
 | 단계 | ⓐ 접근 PC (PowerShell, `D:\b200` 에서) | ⓑ B200 서버에 올릴 것 | ⓒ B200 서버 (터미널) |
 |---|---|---|---|
+| 0. 서버 점검(OS 설치 직후 한 번) | 없음 | `server\check_server.sh` → `/app/inbox` | `bash /app/inbox/check_server.sh` |
 | 1. 공용 휠·기초 프로그램 | `powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1` | `pack\b200-pack.tar` → `/app/inbox` | `cd /app/inbox && tar xf b200-pack.tar && bash pack_install.sh /app/shared` |
 | 2. 데이터셋 | `powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenes` | `datasets` 폴더 전체 → `/app/inbox/datasets` | `bash /app/inbox/datasets/datasets_install.sh` |
 | 3. 사전학습 모델 | `powershell -ExecutionPolicy Bypass -File .\pc\models_download.ps1` | `models` 폴더 전체 → `/app/inbox/models` | `bash /app/inbox/models/models_install.sh` |
 
+- 0단계에서 `[문제]` 가 나오면 화면 끝의 "고칠 것" 목록을 서버 관리 팀에 보내세요. 자세한 내용은 `docs/5_우분투_재설치.md` 에 있어요.
 - 1단계를 먼저 하세요. 2·3단계의 B200 서버 스크립트가 1단계에서 설치한 프로그램을 써요.
 - 모든 명령은 여러 번 다시 실행해도 돼요. 끝난 것은 건너뛰고, 받다 만 것은 이어서 받아요.
 - 단계마다 자세한 내용은 `docs/` 의 문서를 보세요.

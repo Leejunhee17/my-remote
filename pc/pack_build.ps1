@@ -2,11 +2,11 @@
 [접근 PC] 공용 휠 + 기초 프로그램 묶음(pack\b200-pack.tar)을 만든다.
 점검 → 받기 → 묶기 → 검사까지 한 번에 한다. 끊기면 다시 실행하면 이어서 한다.
 
-  powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1              # B200 서버 RHEL 9 (glibc 2.34)
-  powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1 -Glibc 2.28  # B200 서버가 RHEL 8일 때만
+  powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1              # B200 서버 Ubuntu 22.04 이상 (glibc 2.35)
+  powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1 -Glibc 2.31  # 서버 glibc 가 더 낮을 때만(check_server.sh 가 알려 준다)
 #>
 param(
-    [string]$Glibc = '2.34',
+    [string]$Glibc = '2.35',
     [string]$Cuda  = '13.0',
     [int]$MaxTries = 20      # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 포기
 )
@@ -43,7 +43,7 @@ foreach ($e in 'curl.exe', 'tar.exe') {
 if ($script:Fails) {
     Stop-Run '필요한 프로그램이 없다' 'uv, micromamba 를 설치하고 PowerShell 창을 새로 연다. 또는 uv.exe, micromamba.exe 를 이 폴더에 넣는다.'
 }
-foreach ($f in 'lists\tools.txt', 'lists\wheels.txt', 'server\pack_install.sh', 'server\move_shared.sh') {
+foreach ($f in 'lists\tools.txt', 'lists\wheels.txt', 'server\pack_install.sh', 'server\move_shared.sh', 'server\check_server.sh') {
     if (-not (Test-Path (Join-Path $root $f))) { Stop-Run "$f 가 없다" 'git pull 로 저장소를 최신으로 받는다.' }
 }
 Write-Ok '목록 파일(tools.txt, wheels.txt) 있음'
@@ -166,7 +166,7 @@ Write-Ok "$wcount 개 받음, 해시 확인함"
 
 # ------------------------------------------------------------------ 6. 묶기 + 검사
 Write-Step 6 $T '묶기와 검사'
-foreach ($f in 'pack_install.sh', 'move_shared.sh') {
+foreach ($f in 'pack_install.sh', 'move_shared.sh', 'check_server.sh') {
     $sh = [IO.File]::ReadAllText((Join-Path $root "server\$f")) -replace "`r", ''
     [IO.File]::WriteAllText((Join-Path $out $f), $sh, (New-Object Text.UTF8Encoding $false))
 }
@@ -175,7 +175,7 @@ Write-Lf (Join-Path $out 'pack_info.txt') @(
     "tools=$($pkgs.Count)", "wheels=$($pins.Count)", "torch=$torchPin")
 
 Write-Info '체크섬 목록 만드는 중'
-$files = @('micromamba', 'explicit.txt', 'lock.txt', 'pack_install.sh', 'move_shared.sh', 'pack_info.txt') +
+$files = @('micromamba', 'explicit.txt', 'lock.txt', 'pack_install.sh', 'move_shared.sh', 'check_server.sh', 'pack_info.txt') +
     @(Get-ChildItem $pdir -File | ForEach-Object { "pkgs/$($_.Name)" }) +
     @(Get-ChildItem $wdir -File | ForEach-Object { "wheels/$($_.Name)" })
 Write-Lf (Join-Path $out 'MANIFEST.sha256') ($files | ForEach-Object {
@@ -185,7 +185,7 @@ Write-Info 'tar 로 묶는 중'
 $tar = Join-Path $out 'b200-pack.tar'
 Remove-Item -Force -ErrorAction SilentlyContinue $tar
 Push-Location $out
-& tar.exe -cf b200-pack.tar MANIFEST.sha256 micromamba explicit.txt lock.txt pack_install.sh move_shared.sh pack_info.txt pkgs wheels
+& tar.exe -cf b200-pack.tar MANIFEST.sha256 micromamba explicit.txt lock.txt pack_install.sh move_shared.sh check_server.sh pack_info.txt pkgs wheels
 $code = $LASTEXITCODE
 $listed = @(& tar.exe -tf b200-pack.tar | Where-Object { $_ -notmatch '/$' }).Count
 Pop-Location
@@ -203,6 +203,6 @@ Write-Host ' 접근 PC에서 할 일은 끝. B200 서버에 올릴 것 (이 파�
 Write-Host "   $tar  ($size)"
 Write-Host ''
 Write-Host ' 회사 프로그램으로 B200 서버 /app/inbox 에 올린 뒤, B200 서버 터미널에서:' -ForegroundColor Green
-Write-Host '   cd /app/inbox && tar xf b200-pack.tar && bash pack_install.sh'
+Write-Host '   cd /app/inbox && tar xf b200-pack.tar && bash pack_install.sh /app/shared'
 Write-Host '##############################################################' -ForegroundColor Green
 Stop-Transcript | Out-Null

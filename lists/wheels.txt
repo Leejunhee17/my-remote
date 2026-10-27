@@ -33,6 +33,7 @@ albumentations
 imageio
 shapely
 pyquaternion
+open3d
 rosbags
 lmdb
 msgpack

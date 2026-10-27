@@ -2,7 +2,8 @@
 # [B200 서버] b200-pack.tar 를 공용 폴더(~/shared) 아래 설치한다. root 없이 된다.
 # 점검 → 설치 → 검사까지 한 번에 한다. 실패하면 고친 뒤 다시 실행하면 된다.
 #   bash pack_install.sh               ~/shared 에 설치
-#   bash pack_install.sh /app/shared   큰 디스크에 설치하고 ~/shared 는 그곳으로 가는 링크로 만든다
+#   bash pack_install.sh /app/shared   큰 디스크에 설치하고 ~/shared 는 그곳으로 가는 링크로 만든다.
+#                                      개인 작업 폴더 /app/workspace 와 링크 ~/workspace 도 없으면 만든다
 set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행한다. 접근 PC에서는 .ps1 을 쓴다."; exit 1; fi
 cd "$(dirname "$0")"
@@ -28,6 +29,9 @@ if [ -n "$REAL" ]; then
     else
         ln -s "$REAL" "$HOME/shared"
     fi
+    # 같은 디스크에 개인 작업 폴더를 두고 홈에는 링크만 둔다(OS를 새로 깔았을 때 다시 만들 필요 없게)
+    W="$(dirname "$REAL")/workspace"
+    if [ ! -e "$HOME/workspace" ] && mkdir -p "$W" 2>/dev/null; then ln -s "$W" "$HOME/workspace"; fi
 fi
 S="$HOME/shared"
 LOG="$S/logs/pack_install_$(date +%Y%m%d_%H%M%S).log"
@@ -54,6 +58,7 @@ info() { sed -n "s/^$1=//p" pack_info.txt; }
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 
 echo "[B200 서버] 공용 휠·기초 프로그램 설치  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))"
+echo "  운영체제: $(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")"
 
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
@@ -64,13 +69,13 @@ echo "  묶음 정보: $(info made) 에 만듦, glibc $(info glibc), $(info torc
 
 echo "  파일 체크섬 확인 중 (1~3분)"
 # 설치 스크립트 자신은 고친 판을 따로 올려 덮어쓸 수 있도록 검사에서 뺀다
-bad_files=$(grep -vE '  (pack_install|move_shared)\.sh$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
+bad_files=$(grep -vE '  (pack_install|move_shared|check_server)\.sh$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | head -20 | sed 's/^/    깨짐: /'
     stop "올리는 중에 파일이 깨졌다($(echo "$bad_files" | wc -l)개)" \
          "접근 PC의 pack\\b200-pack.tar 를 다시 올린다. B200 서버에서는 $HERE 를 비운 뒤 다시 푼다."
 fi
-ok "파일 $(grep -cvE '  (pack_install|move_shared)\.sh$' MANIFEST.sha256)개 체크섬 일치"
+ok "파일 $(grep -cvE '  (pack_install|move_shared|check_server)\.sh$' MANIFEST.sha256)개 체크섬 일치"
 
 glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
 if ver_ge "$glibc" "$(info glibc)"; then
@@ -84,7 +89,7 @@ if command -v nvidia-smi >/dev/null; then
     drv=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
     ngpu=$(nvidia-smi -L | wc -l)
     if ver_ge "$drv" 580; then ok "GPU $ngpu 장, 드라이버 $drv (CUDA $(info cuda) 가능)"
-    else warn "드라이버 $drv 는 CUDA $(info cuda) 휠에 낮다(580 이상 필요). 설치는 되지만 GPU를 못 쓸 수 있다. 관리자에게 드라이버 업데이트를 요청한다."; fi
+    else warn "드라이버 $drv 는 CUDA $(info cuda) 휠에 낮다(580 이상 필요). 설치는 되지만 GPU를 못 쓸 수 있다. 서버 관리 팀에 드라이버 업데이트를 요청한다."; fi
 else
     warn "nvidia-smi 가 없다. 설치는 하지만 GPU 확인은 못 한다."
 fi
@@ -172,6 +177,11 @@ if bad:
     for b in bad: print("    " + b)
     sys.exit(1)
 print(f"  \033[32m[정상]\033[0m 주요 패키지 {len(mods)}개 import")
+try:
+    import open3d
+    print(f"  \033[32m[정상]\033[0m open3d {open3d.__version__} import")
+except Exception as e:
+    print(f"  \033[33m[주의]\033[0m open3d import 실패 ({e}). 서버 관리 팀에 apt 패키지 libgl1 libegl1 libgomp1 설치를 요청한다")
 EOF
 
 "$S/venv/bin/python" - <<'EOF' || FAILS=$((FAILS + 1))
@@ -180,14 +190,28 @@ try:
 except Exception as e:
     print(f"  \033[31m[문제]\033[0m torch 를 못 불러온다 ({e})")
     raise SystemExit(1)
-n = torch.cuda.device_count()
-if not torch.cuda.is_available() or n == 0:
-    print(f"  \033[31m[문제]\033[0m torch {torch.__version__} 가 GPU를 못 본다 (드라이버를 본다)")
+try:
+    torch.cuda.init()
+    n = torch.cuda.device_count()
+except Exception as e:
+    n, err = 0, str(e).splitlines()[0]
+else:
+    err = ""
+if n == 0:
+    print(f"  \033[31m[문제]\033[0m torch {torch.__version__} 가 GPU를 못 본다 {err}")
+    if "802" in err or "not yet initialized" in err:
+        print("    NVLink Fabric 이 초기화되지 않았다. 서버 관리 팀에 nvidia-fabricmanager(와 nvlsm) 설치·실행을 요청한다")
+    else:
+        print("    bash check_server.sh 로 드라이버와 Fabric 상태를 본다")
     raise SystemExit(1)
 for i in range(n):
     x = torch.randn(256, 256, device=f"cuda:{i}")
     (x @ x).sum().item()
 print(f"  \033[32m[정상]\033[0m torch {torch.__version__}, CUDA {torch.version.cuda}, GPU {n}장 계산 확인 ({torch.cuda.get_device_name(0)})")
+if n > 1:
+    peer = sum(torch.cuda.can_device_access_peer(0, j) for j in range(1, n))
+    msg = f"GPU 0 → 다른 GPU 직접 접근(NVLink/P2P) {peer}/{n - 1}"
+    print(f"  \033[32m[정상]\033[0m {msg}" if peer == n - 1 else f"  \033[33m[주의]\033[0m {msg}. 여러 GPU 학습이 느릴 수 있다")
 EOF
 
 echo
