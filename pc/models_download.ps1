@@ -19,14 +19,18 @@ $fetch = Join-Path $here 'hf_fetch.py'
 $T = 4
 
 # lists\models.txt : "그룹  저장소  [gated]  [code=GitHub 주소]" 한 줄에 하나. # 뒤는 무시
-$Models = @(Get-Content (Join-Path $root 'lists\models.txt') | ForEach-Object {
+$listLines = Get-Content (Join-Path $root 'lists\models.txt')
+$AllModels = @($listLines | ForEach-Object {
     $l = ($_ -replace '#.*', '').Trim()
     if ($l) {
         $f = $l -split '\s+'
         $cz = @($f | Where-Object { $_ -like 'code=*' }) -replace '^code=', ''
         [pscustomobject]@{ Group = $f[0]; Repo = $f[1]; Gated = ($f -contains 'gated'); Code = "$cz".TrimEnd('/') }
     }
-} | Where-Object { -not $Only.Count -or $Only -contains $_.Group })
+})
+$Models = @($AllModels | Where-Object { -not $Only.Count -or $Only -contains $_.Group })
+# 앞에 # 을 붙여 둔 선택 모델까지 포함한, 목록에 적힌 모든 저장소 이름
+$Listed = @($listLines | ForEach-Object { if ($_ -match '^\s*#?\s*[a-z]+\s+([\w.-]+/[\w.-]+)') { $Matches[1] } })
 
 New-Item -ItemType Directory -Force $Dest | Out-Null
 $Dest = (Resolve-Path $Dest).Path.TrimEnd('\')
@@ -160,7 +164,19 @@ foreach ($m in @($Models | Where-Object { $_.Code })) {
 
 # ------------------------------------------------------------------ 3. B200 서버에 올릴 목록
 Write-Step 3 $T 'B200 서버에서 확인할 체크섬 목록 만들기'
-$lines = @(Get-ChildItem $Dest -Directory | ForEach-Object {
+# 목록에서 빠진 예전 모델(예: 레드햇 때 받은 Cityscapes 모델)은 지우고,
+# 앞에 # 을 붙여 둔 선택 모델은 남겨 두되 B200 서버에 올릴 목록에서 뺀다
+$active = @($AllModels | ForEach-Object { Split-Path -Leaf (Get-Dir $_.Repo) })
+$known  = @($Listed | ForEach-Object { Split-Path -Leaf (Get-Dir $_) })
+foreach ($d in @(Get-ChildItem $Dest -Directory | Where-Object { $_.Name -like '*__*' })) {
+    if ($known -notcontains $d.Name) {
+        Remove-Item -Recurse -Force $d.FullName
+        Write-Info "목록에서 빠진 예전 모델을 지움: $($d.Name -replace '__', '/')"
+    } elseif ($active -notcontains $d.Name -and (Test-Path (Join-Path $d.FullName 'b200_model.json'))) {
+        Write-Info "선택 모델(# 처리)이라 올리지 않음: $($d.Name -replace '__', '/')"
+    }
+}
+$lines = @(Get-ChildItem $Dest -Directory | Where-Object { $active -contains $_.Name } | ForEach-Object {
     $s = Join-Path $_.FullName '.b200_sha256'
     if ((Test-Path $s) -and (Test-Path (Join-Path $_.FullName 'b200_model.json'))) { (Get-Content $s) }
 } | Where-Object { $_ })

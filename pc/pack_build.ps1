@@ -146,6 +146,23 @@ Write-Ok "휠 $($pins.Count)개로 정함 ($torchPin)"
 Write-Step 5 $T "공용 휠 받기 ($($pins.Count)개, 수 GB)"
 $wdir = Join-Path $out 'wheels'
 New-Item -ItemType Directory -Force $wdir | Out-Null
+# 지난 실행(예: 레드햇용 glibc 2.34 기준)에서 남은, 이번 lock.txt 에 없는 휠은 지운다.
+# 잘못 지운 것이 있어도 바로 아래 pip download 가 다시 받는다
+$keep = @{}
+foreach ($p in $pins) {
+    $nv = ($p -replace ' .*', '') -split '=='
+    $keep["$($nv[0].ToLower() -replace '[-_.]+', '_')-$($nv[1].ToLower())"] = 1
+}
+$old = @(Get-ChildItem $wdir -File | Where-Object {
+    $n = [uri]::UnescapeDataString($_.Name).ToLower()
+    if ($n -like '*.whl') { $f = $n.Split('-'); $k = "$($f[0] -replace '[-_.]+', '_')-$($f[1])" }
+    else {
+        $b = $n -replace '\.(tar\.gz|zip)$', ''; $i = $b.LastIndexOf('-')
+        $k = if ($i -gt 0) { "$($b.Substring(0, $i) -replace '[-_.]+', '_')-$($b.Substring($i + 1))" } else { '' }
+    }
+    $k -and -not $keep.ContainsKey($k)
+})
+if ($old.Count) { $old | Remove-Item -Force; Write-Info "이번 목록에 없는 예전 휠 $($old.Count)개 지움" }
 $ok = $false
 $stall = 0
 while ($stall -lt $MaxTries) {
