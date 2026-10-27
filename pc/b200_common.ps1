@@ -55,14 +55,35 @@ function Find-Exe($name, $root) {
     return $null
 }
 
-# 회사망에서 curl 이 막히는 흔한 경우를 스스로 찾아 우회한다. 모든 curl 호출에 @CurlExtra 를 붙인다.
+# 회사망에서 curl 이 막히는 흔한 경우를 스스로 찾아 우회한다. 모든 curl 호출에 Get-CurlArgs 결과를 붙인다.
 $script:CurlExtra = @()
+$script:HostArgs  = @{}   # 주소(호스트)마다 따로 쓰는 프록시 설정. 브라우저가 주소마다 다른 프록시를 쓸 때
 $script:NoRevoke  = $false
 $env:UV_NATIVE_TLS = '1'   # uv 가 윈도우 인증서 저장소를 쓰게 한다(회사 보안 장비 인증서 포함)
 
+function Get-CurlArgs($url) {
+    $a = @($script:CurlExtra)
+    try { $h = ([uri]$url).Host } catch { $h = '' }
+    if ($h -and $script:HostArgs.ContainsKey($h)) { $a += $script:HostArgs[$h] }
+    return ,$a
+}
+
+# 브라우저가 이 주소에 쓰는 프록시를 윈도우에 묻는다(자동 프록시 설정 PAC 포함). 바로 가면 $null
+function Get-BrowserProxy($url) {
+    try {
+        $wp = [System.Net.WebRequest]::GetSystemWebProxy()
+        $u = [uri]$url
+        if ($wp.IsBypassed($u)) { return $null }
+        $r = $wp.GetProxy($u)
+        if ($r -and $r.AbsoluteUri -ne $u.AbsoluteUri) { return $r.AbsoluteUri.TrimEnd('/') }
+    } catch { }
+    return $null
+}
+
 function Invoke-Probe($url) {
     # HEAD 를 막는 장비가 있어 GET 으로 1바이트만 받는다. 오류 문구는 화면에 보이도록 받아 둔다.
-    $msg = & curl.exe -sS -o NUL -L -r 0-0 --connect-timeout 15 --max-time 40 --stderr - @CurlExtra $url | Out-String
+    $ca = Get-CurlArgs $url
+    $msg = & curl.exe -sS -o NUL -L -r 0-0 --connect-timeout 15 --max-time 40 --stderr - @ca $url | Out-String
     return [pscustomobject]@{ Code = $LASTEXITCODE; Msg = $msg.Trim() }
 }
 
@@ -123,6 +144,34 @@ function Test-Site($name, $url) {
         Remove-Item Env:HTTPS_PROXY, Env:HTTP_PROXY -ErrorAction SilentlyContinue
     }
 
+    # 3) 브라우저는 닿는데 curl 만 막히는 망: 브라우저가 이 주소에 쓰는 프록시(PAC 포함)와
+    #    윈도우 로그인 인증(브라우저가 자동으로 하는 것)을 이 주소에만 똑같이 쓴다
+    $site = ([uri]$url).Host
+    $bp = Get-BrowserProxy $url
+    $px = if ($bp) { $bp } elseif ($env:HTTPS_PROXY) { $env:HTTPS_PROXY } else { Get-WindowsProxy }
+    $cands = @()
+    if ($bp) { $cands += ,@('--proxy', $bp) }
+    if ($px) {
+        $cands += ,@('--proxy', $px, '--proxy-negotiate', '--proxy-user', ':')
+        $cands += ,@('--proxy', $px, '--proxy-ntlm', '--proxy-user', ':')
+    }
+    $saved = $script:CurlExtra
+    foreach ($c in $cands) {
+        foreach ($nr in $false, $true) {
+            $script:CurlExtra = if ($nr) { @('--ssl-no-revoke') } else { $saved }
+            $script:HostArgs[$site] = $c
+            if ((Invoke-Probe $url).Code -eq 0) {
+                if ($nr) { $script:NoRevoke = $true; $env:MAMBA_SSL_NO_REVOKE = 'true' }
+                $how = if ($c.Count -gt 2) { "프록시 $px 에 윈도우 로그인으로 인증" } else { "브라우저 자동 프록시 설정이 고른 프록시 $bp" }
+                Write-Ok "인터넷: $name"
+                Write-Warn "브라우저와 같은 방법($how)으로 $site 에 접속한다."
+                return $true
+            }
+        }
+    }
+    $script:CurlExtra = $saved
+    $script:HostArgs.Remove($site)
+
     Write-Bad "인터넷: $name 에 접속 안 됨 ($url)"
     Write-Info "    curl 오류 $($first.Code): $($first.Msg)"
     $hint = Get-NetHint $first.Code
@@ -137,6 +186,7 @@ function Test-Site($name, $url) {
     Write-Info "    확인: 브라우저에서 https://$site/ 를 열어 본다. 오류 글자(XML)라도 뜨면 브라우저는 닿는 것이고, '연결할 수 없음' 이면 브라우저도 막힌 것이다."
     $pac = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue).AutoConfigURL
     if ($pac) { Write-Info "    이 PC 브라우저는 자동 프록시 설정(PAC)을 쓴다: $pac" }
+    Write-Info "    브라우저가 이 주소에 쓰는 프록시: $(if ($bp) { $bp } else { '없음(바로 접속)' })"
     return $false
 }
 
@@ -181,7 +231,8 @@ function Get-File($url, $file, $md5, $tries) {
     $stall = 0
     while ($stall -lt $tries) {
         $before = Get-Size $file
-        & curl.exe -sS -L -C - --fail --retry 3 --connect-timeout 30 -Y 1024 -y 120 @CurlExtra -o $file $url
+        $ca = Get-CurlArgs $url
+        & curl.exe -sS -L -C - --fail --retry 3 --connect-timeout 30 -Y 1024 -y 120 @ca -o $file $url
         $code = $LASTEXITCODE
         if ($code -eq 0) {
             if (-not $md5 -or (Get-FileHash $file -Algorithm MD5).Hash -eq $md5.ToUpper()) { return $true }

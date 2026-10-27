@@ -5,12 +5,15 @@
 
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1               # WildScenes 빼고
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenes   # WildScenes 포함(접속 정보를 물어본다)
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenesLinks C:\Users\나\Downloads\61541v001.txt
+                                                                     # WildScenes 를 포털의 링크 목록 파일로 받는다(AWS CLI 가 안 될 때)
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only goose,RUGD
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
 #>
 param(
     [string]$Dest = (Join-Path (Split-Path $PSScriptRoot -Parent) 'datasets'),
     [switch]$WildScenes,              # WildScenes 도 받는다. CSIRO 포털의 S3 접속 정보를 물어본다
+    [string]$WildScenesLinks = '',    # WildScenes 를 포털 "Get a list of file download links" 로 받은 목록 파일로 받는다
     [string[]]$Only = @(),            # 이 폴더만 받는다(쉼표로 여러 개)
     [switch]$DriveCheck,              # 받지 않고 Google Drive 파일마다 받을 수 있는지, 안 되면 왜인지 진단만 한다
     [int]$MaxTries = 30               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 2시간)
@@ -51,7 +54,7 @@ $DriveItems = @(
 )
 $DriveItems = @($DriveItems | Where-Object { Want $_.Set })
 $Manual = @($DriveItems | ForEach-Object { $_.Set } | Select-Object -Unique)
-$doWild = $WildScenes -and (Want 'wildscenes')
+$doWild = ($WildScenes -or $WildScenesLinks) -and (Want 'wildscenes')
 $WsPortal = 'https://data.csiro.au/collection/csiro:61541'   # WildScenes 포털 페이지
 
 New-Item -ItemType Directory -Force $Dest | Out-Null
@@ -77,7 +80,8 @@ function Set-Done($okFile, $file) {
 }
 
 function Get-RemoteSize($url) {
-    $h = & curl.exe -sIL --connect-timeout 30 --max-time 60 @CurlExtra $url
+    $ca = Get-CurlArgs $url
+    $h = & curl.exe -sIL --connect-timeout 30 --max-time 60 @ca $url
     $m = $h | Select-String '^content-length:\s*(\d+)'
     if ($m) { return [int64]$m[-1].Matches[0].Groups[1].Value }
     return $null
@@ -93,7 +97,8 @@ function Get-Url($url, $file) {
             if ($remote -and $local -gt $remote) { Remove-Item -Force $file }
             if ($local) { Write-Info "이어받기: $(Format-Size $local) 부터" }
             # -C - : 이어받기, -Y/-y : 2분 동안 1 KB/s 아래면 끊고 다시
-            & curl.exe -L -C - --fail --retry 3 --retry-delay 10 --connect-timeout 30 -Y 1024 -y 120 @CurlExtra -o $file $url
+            $ca = Get-CurlArgs $url
+            & curl.exe -L -C - --fail --retry 3 --retry-delay 10 --connect-timeout 30 -Y 1024 -y 120 @ca -o $file $url
             $code = $LASTEXITCODE
             if ($code -eq 33 -or $code -eq 36) {
                 Write-Warn '다운로드 사이트가 이어받기를 지원하지 않아 처음부터 받는다'
@@ -116,7 +121,26 @@ function Get-Url($url, $file) {
 
 # WildScenes: CSIRO 포털의 S3 저장소에서 AWS CLI 로 받는다(uv 로 실행해 따로 설치하지 않는다)
 function Invoke-Aws {
-    & $uv tool run --from awscli aws @args --endpoint-url $script:WsEndpoint
+    # 이 주소에만 따로 찾은 프록시가 있으면 AWS CLI 에도 쓴다(윈도우 로그인 인증은 AWS CLI 가 못 한다)
+    $pa = $script:HostArgs[([uri]$script:WsEndpoint).Host]
+    $old = $env:HTTPS_PROXY
+    if ($pa) { $env:HTTPS_PROXY = $pa[1] }
+    try { & $uv tool run --from awscli aws @args --endpoint-url $script:WsEndpoint }
+    finally { if ($pa) { $env:HTTPS_PROXY = $old } }
+}
+
+# 포털 "Get a list of file download links" 의 목록 파일에서 WildScenes2d 아래 파일만 고른다.
+# https 로 시작하는 줄이 파일 하나(서명이 붙은 임시 주소), 들여쓴 줄은 aria2 용 옵션이라 건너뛴다
+function Get-WsLinks($file) {
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($l in [IO.File]::ReadAllLines($file)) {
+        if ($l -notmatch '^https://') { continue }
+        $m = [regex]::Match(($l -split '\?')[0], '(?i)/WildScenes2d/(.+)$')
+        if (-not $m.Success) { continue }
+        $rel = [uri]::UnescapeDataString($m.Groups[1].Value) -replace '/', '\'
+        $list.Add([pscustomobject]@{ Url = $l.Trim(); Rel = $rel })
+    }
+    return ,$list
 }
 
 # 원격 폴더 아래에서 WildScenes2d 폴더를 찾는다(3단계 깊이까지)
@@ -170,8 +194,9 @@ function Test-DriveFile($id) {
     Remove-Item -Force -ErrorAction SilentlyContinue $hdr, $body
     $url = "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
     # 앞 64 KB 만 요청하고, 서버가 무시하고 통째로 보내면 1 MB 에서 끊는다(그래도 '받을 수 있음' 이다)
+    $ca = Get-CurlArgs $url
     $out = & curl.exe -sS -L -r 0-65535 --max-filesize 1048576 --connect-timeout 30 --max-time 90 `
-        -b $DriveJar -c $DriveJar @CurlExtra -D $hdr -o $body -w '@@%{http_code}|%{url_effective}|%{content_type}' `
+        -b $DriveJar -c $DriveJar @ca -D $hdr -o $body -w '@@%{http_code}|%{url_effective}|%{content_type}' `
         --stderr - $url | Out-String
     $code = $LASTEXITCODE
     $http = 0; $final = ''; $ctype = ''
@@ -232,8 +257,9 @@ function Get-Drive($id, $target) {
     while ($stall -lt $MaxTries) {
         $local = Get-Size $part
         if ($local) { Write-Info "이어받기: $(Format-Size $local) 부터" }
+        $ca = Get-CurlArgs $url
         & curl.exe -L -C - --fail --retry 3 --retry-delay 10 --connect-timeout 30 -Y 1024 -y 120 `
-            -b $DriveJar -c $DriveJar @CurlExtra -o $part $url
+            -b $DriveJar -c $DriveJar @ca -o $part $url
         $code = $LASTEXITCODE
         if ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $part }
         if ($code -eq 22 -or $code -eq 56) {
@@ -354,7 +380,16 @@ Write-Info '검사용 Python 준비 중(처음 한 번)'
 if ($LASTEXITCODE -ne 0) { Stop-Run 'uv 가 Python 3.12 를 받지 못했다' '인터넷(github.com) 접속을 확인하고 다시 실행한다.' }
 Write-Ok 'Python 3.12 준비됨'
 
-if ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
+if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
+    if (-not (Test-Path $WildScenesLinks)) { Stop-Run "링크 목록 파일이 없다: $WildScenesLinks" '포털에서 받은 .txt 파일의 전체 경로를 적는다.' }
+    $script:WsLinks = Get-WsLinks $WildScenesLinks
+    if (-not $script:WsLinks.Count) {
+        Stop-Run '링크 목록에 WildScenes2d 파일이 없다' "포털($WsPortal)에서 Download → Get a list of file download links 로 받은 .txt 파일인지 확인한다."
+    }
+    Write-Ok "WildScenes 링크 목록: 2D 파일 $($script:WsLinks.Count)개"
+    Test-Site 'CSIRO S3 저장소' "https://$(([uri]$script:WsLinks[0].Url).Host)/" | Out-Null
+    if ($script:Fails) { Stop-Run 'CSIRO S3 저장소에 접속 안 된다' '위 [문제] 줄 아래 설명을 본다. 브라우저로는 열리면 기록 파일을 담당자에게 보내 준다.' }
+} elseif ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
     Write-Host ''
     Write-Host '  WildScenes 접속 정보를 넣는다. 정보는 약 48시간 유효하니 지금 새로 받는다.' -ForegroundColor Cyan
     Write-Host "  포털: $WsPortal"
@@ -373,7 +408,15 @@ if ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
     $script:WsEndpoint = if ($server -match '://') { $server } else { "https://$server" }
 
     Test-Site 'CSIRO S3 저장소' $script:WsEndpoint | Out-Null
-    if ($script:Fails) { Stop-Run 'CSIRO S3 저장소에 접속 안 된다' '위 [문제] 줄 아래 설명을 본다. Server 값을 다시 확인한다.' }
+    if ($script:Fails) {
+        Stop-Run 'CSIRO S3 저장소에 접속 안 된다' ('위 [문제] 줄 아래 설명을 본다. 브라우저로는 열리면(401, AccessDenied 등이 떠도 열리는 것) ' +
+            'docs\2_데이터셋.md 의 "WildScenes 링크 목록으로 받기" 를 따라 -WildScenesLinks 로 실행한다.')
+    }
+    $pa = $script:HostArgs[([uri]$script:WsEndpoint).Host]
+    if ($pa -and $pa.Count -gt 2) {
+        Stop-Run 'CSIRO S3 저장소는 윈도우 로그인 인증 프록시로만 닿는데, AWS CLI 는 그 인증을 못 한다' `
+            'docs\2_데이터셋.md 의 "WildScenes 링크 목록으로 받기" 를 따라 -WildScenesLinks 로 실행한다(curl 로 받아 인증이 된다).'
+    }
 
     Write-Info 'AWS CLI 준비 중(처음 한 번)'
     & $uv tool install awscli | Out-Host
@@ -429,7 +472,43 @@ if ($doWild) {
         Write-Host '  wildscenes 받는 중 (약 47 GB, 파일이 많아 오래 걸린다)' -ForegroundColor Cyan
         $done = $false
         $stall = 0
-        while (-not $done -and $stall -lt $MaxTries) {
+        if ($WildScenesLinks) {
+            # 링크 목록: 파일마다 curl 로 이어받기. 끝난 파일은 목록에 적어 다시 실행하면 건너뛴다
+            $links = $script:WsLinks
+            $doneFile = "$wdir.links_done.txt"
+            $doneSet = New-Object 'System.Collections.Generic.HashSet[string]'
+            if (Test-Path $doneFile) { foreach ($x in [IO.File]::ReadAllLines($doneFile)) { [void]$doneSet.Add($x) } }
+            $utf8 = New-Object Text.UTF8Encoding $false
+            $expired = $false
+            while ($stall -lt $MaxTries) {
+                $todo = @($links | Where-Object { -not $doneSet.Contains($_.Rel) })
+                if (-not $todo.Count) { $done = $true; break }
+                $before = $doneSet.Count
+                $i = 0
+                foreach ($it in $todo) {
+                    $i++
+                    if ($i % 20 -eq 1) { Write-Progress -Activity 'WildScenes 받기' -Status "$($doneSet.Count)/$($links.Count) 끝, 지금: $($it.Rel)" -PercentComplete (100 * $doneSet.Count / $links.Count) }
+                    $out = Join-Path $wdir $it.Rel
+                    New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
+                    $ca = Get-CurlArgs $it.Url
+                    $msg = & curl.exe -sS -L -C - --fail --retry 3 --retry-delay 5 --connect-timeout 30 -Y 1024 -y 120 @ca `
+                        -o $out --stderr - $it.Url | Out-String
+                    $code = $LASTEXITCODE
+                    if ($code -eq 0) { [void]$doneSet.Add($it.Rel); [IO.File]::AppendAllText($doneFile, "$($it.Rel)`n", $utf8) }
+                    elseif ($msg -match 'returned error: 403') { $expired = $true; break }
+                    elseif ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $out }
+                }
+                Write-Progress -Activity 'WildScenes 받기' -Completed
+                if ($expired) {
+                    Write-Bad 'WildScenes 링크가 만료됐다(403)'
+                    Write-Info "    포털($WsPortal)에서 링크 목록을 새로 받아 같은 명령을 다시 실행한다. 받은 파일은 건너뛴다."
+                    break
+                }
+                if ($doneSet.Count -gt $before) { $stall = 0; Write-Warn "남은 $($links.Count - $doneSet.Count)개를 다시 받는다"; Start-Sleep 10 }
+                else { $stall = Step-Retry $stall 0 0 $MaxTries 'WildScenes' }
+            }
+        }
+        while (-not $WildScenesLinks -and -not $done -and $stall -lt $MaxTries) {
             # sync 는 이미 받은 파일을 건너뛰므로 몇 번이고 다시 해도 된다
             $before = Get-Size $wdir
             Invoke-Aws s3 sync "s3://$wsPrefix" $wdir --only-show-errors | Out-Host
@@ -457,7 +536,7 @@ if ($doWild) {
         } else { $result['wildscenes'] = '실패' }
     }
 } elseif (Want 'wildscenes') {
-    $result['wildscenes'] = '건너뜀(받으려면 -WildScenes)'
+    $result['wildscenes'] = '건너뜀(받으려면 -WildScenes 나 -WildScenesLinks)'
 }
 Remove-Item Env:AWS_ACCESS_KEY_ID, Env:AWS_SECRET_ACCESS_KEY -ErrorAction SilentlyContinue
 
