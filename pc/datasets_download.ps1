@@ -133,12 +133,19 @@ function Invoke-Aws {
 # https 로 시작하는 줄이 파일 하나(서명이 붙은 임시 주소), 들여쓴 줄은 aria2 용 옵션이라 건너뛴다
 function Get-WsLinks($file) {
     $list = New-Object System.Collections.Generic.List[object]
+    $script:WsLinkCount = 0
+    $script:WsLinkSample = @()
     foreach ($l in [IO.File]::ReadAllLines($file)) {
-        if ($l -notmatch '^https://') { continue }
-        $m = [regex]::Match(($l -split '\?')[0], '(?i)/WildScenes2d/(.+)$')
+        # 줄 앞 BOM·공백, "url = " 같은 앞말이 붙어 있어도 주소만 꺼낸다
+        $u = [regex]::Match($l, 'https://\S+').Value.Trim('"')
+        if (-not $u -or $l -match '^\s+\S+=') { continue }   # 들여쓴 aria2 옵션 줄은 건너뛴다
+        $script:WsLinkCount++
+        # 경로의 %2F 같은 부호를 먼저 풀어야 폴더 이름이 보인다
+        $path = [uri]::UnescapeDataString(($u -split '\?')[0])
+        if ($script:WsLinkSample.Count -lt 3) { $script:WsLinkSample += $path }
+        $m = [regex]::Match($path, '(?i)/WildScenes_?2d/(.+)$')
         if (-not $m.Success) { continue }
-        $rel = [uri]::UnescapeDataString($m.Groups[1].Value) -replace '/', '\'
-        $list.Add([pscustomobject]@{ Url = $l.Trim(); Rel = $rel })
+        $list.Add([pscustomobject]@{ Url = $u; Rel = ($m.Groups[1].Value -replace '/', '\') })
     }
     return ,$list
 }
@@ -396,6 +403,8 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     if (-not (Test-Path $WildScenesLinks)) { Stop-Run "링크 목록 파일이 없다: $WildScenesLinks" '포털에서 받은 .txt 파일의 전체 경로를 적는다.' }
     $script:WsLinks = Get-WsLinks $WildScenesLinks
     if (-not $script:WsLinks.Count) {
+        Write-Info "    목록 파일의 주소 줄: $script:WsLinkCount 개"
+        $script:WsLinkSample | ForEach-Object { Write-Info "    예: $_" }
         Stop-Run '링크 목록에 WildScenes2d 파일이 없다' "포털($WsPortal)에서 Download → Get a list of file download links 로 받은 .txt 파일인지 확인한다."
     }
     Write-Ok "WildScenes 링크 목록: 2D 파일 $($script:WsLinks.Count)개"
@@ -497,6 +506,7 @@ if ($doWild) {
                 if (-not $todo.Count) { $done = $true; break }
                 $before = $doneSet.Count
                 $i = 0
+                $shown = 0
                 foreach ($it in $todo) {
                     $i++
                     if ($i % 20 -eq 1) { Write-Progress -Activity 'WildScenes 받기' -Status "$($doneSet.Count)/$($links.Count) 끝, 지금: $($it.Rel)" -PercentComplete (100 * $doneSet.Count / $links.Count) }
@@ -507,8 +517,12 @@ if ($doWild) {
                         -o $out --stderr - $it.Url | Out-String
                     $code = $LASTEXITCODE
                     if ($code -eq 0) { [void]$doneSet.Add($it.Rel); [IO.File]::AppendAllText($doneFile, "$($it.Rel)`n", $utf8) }
-                    elseif ($msg -match 'returned error: 403') { $expired = $true; break }
-                    elseif ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $out }
+                    elseif ($msg -match 'returned error: 403') { $expired = $true; Write-Info "    $($it.Rel): $($msg.Trim())"; break }
+                    else {
+                        if ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $out }
+                        # 실패 이유를 처음 몇 개만 보여 준다(전부는 기록 파일이 너무 길어진다)
+                        if ($shown -lt 3) { $shown++; Write-Warn "$($it.Rel) 실패: curl $code $($msg.Trim())" }
+                    }
                 }
                 Write-Progress -Activity 'WildScenes 받기' -Completed
                 if ($expired) {
