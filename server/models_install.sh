@@ -52,11 +52,13 @@ ok "남은 공간 ${free} GB (필요 약 ${need} GB)"
 
 # ------------------------------------------------------------------ 2. 옮기기
 step 2 "옮기기 → $D/<만든 곳>/<모델>"
+PY="$HOME/shared/venv/bin/python"; [ -x "$PY" ] || PY=python3
 mapfile -t dirs < <(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' MANIFEST.sha256 | sort -u)
 for d in "${dirs[@]}"; do
     repo=${d/__//}
     dest="$D/$repo"
-    if [ -f "$dest/b200_model.json" ] && cmp -s "$d/b200_model.json" "$dest/b200_model.json"; then
+    if [ -f "$dest/b200_model.json" ] && cmp -s "$d/b200_model.json" "$dest/b200_model.json" &&
+       { [ ! -f "$d/code.zip" ] || [ -d "$dest/code" ]; }; then
         echo "  $repo : 이미 있음"; continue
     fi
     echo "  $repo 옮기는 중"
@@ -64,12 +66,31 @@ for d in "${dirs[@]}"; do
     # 받기 도구가 남긴 .cache, 상태 파일은 옮기지 않는다
     { cp -a "$d/." "$dest/" && rm -rf "$dest/.cache" "$dest"/.b200_*; } ||
         { bad "$repo 옮기기 실패(공간이나 권한을 본다)"; continue; }
+    # GitHub 코드 묶음은 code/ 폴더로 푼다(맨 위 폴더 한 단계는 뺀다)
+    if [ -f "$dest/code.zip" ]; then
+        rm -rf "$dest/code"
+        "$PY" - "$dest/code.zip" "$dest/code" <<'EOF' && rm -f "$dest/code.zip" && echo "    코드 → $dest/code" || bad "$repo 코드 풀기 실패"
+import os, sys, zipfile
+src, out = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(src) as z:
+    for i in z.infolist():
+        rel = i.filename.split("/", 1)[1] if "/" in i.filename else ""
+        if not rel or ".." in rel.split("/"):
+            continue
+        t = os.path.join(out, rel)
+        if i.is_dir():
+            os.makedirs(t, exist_ok=True)
+            continue
+        os.makedirs(os.path.dirname(t), exist_ok=True)
+        with z.open(i) as a, open(t, "wb") as b:
+            b.write(a.read())
+EOF
+    fi
 done
 ok "옮기기 끝"
 
 # ------------------------------------------------------------------ 3. 검사
 step 3 '검사 (설정 파일과 가중치 파일을 열어 본다)'
-PY="$HOME/shared/venv/bin/python"; [ -x "$PY" ] || PY=python3
 for d in "${dirs[@]}"; do
     repo=${d/__//}
     "$PY" - "$D/$repo" "$repo" <<'EOF' || FAILS=$((FAILS + 1))
@@ -77,7 +98,8 @@ import glob, json, os, struct, sys
 d, repo = sys.argv[1], sys.argv[2]
 meta = json.load(open(os.path.join(d, "b200_model.json"), encoding="utf-8"))
 st = glob.glob(os.path.join(d, "**", "*.safetensors"), recursive=True)
-other = [p for e in ("*.bin", "*.pth", "*.pt", "*.ckpt") for p in glob.glob(os.path.join(d, "**", e), recursive=True)]
+other = [p for e in ("*.bin", "*.pth", "*.pt", "*.ckpt") for p in glob.glob(os.path.join(d, "**", e), recursive=True)
+         if os.sep + "code" + os.sep not in p]
 bad = []
 for p in st:  # safetensors 머리말(JSON)을 읽어 텐서 목록이 있는지 본다
     try:
@@ -98,7 +120,8 @@ if not st and not other:
     sys.exit(0)
 kind = "safetensors" if st else "pytorch"
 cfg = "config 있음" if os.path.exists(os.path.join(d, "config.json")) else "config 없음"
-print(f"  {g}[정상]{z} {repo}: {size / 2**30:.1f} GB, {kind} {len(st) or len(other)}개, {cfg}, 라이선스 {meta.get('license')}")
+code = ", 코드 code/ 있음" if os.path.isdir(os.path.join(d, "code")) else ""
+print(f"  {g}[정상]{z} {repo}: {size / 2**30:.1f} GB, {kind} {len(st) or len(other)}개, {cfg}{code}, 라이선스 {meta.get('license')}")
 EOF
 done
 

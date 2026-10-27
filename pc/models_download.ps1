@@ -18,12 +18,13 @@ $Only  = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $fetch = Join-Path $here 'hf_fetch.py'
 $T = 4
 
-# lists\models.txt : "그룹  저장소  [gated]" 한 줄에 하나. # 뒤는 무시
+# lists\models.txt : "그룹  저장소  [gated]  [code=GitHub 주소]" 한 줄에 하나. # 뒤는 무시
 $Models = @(Get-Content (Join-Path $root 'lists\models.txt') | ForEach-Object {
     $l = ($_ -replace '#.*', '').Trim()
     if ($l) {
         $f = $l -split '\s+'
-        [pscustomobject]@{ Group = $f[0]; Repo = $f[1]; Gated = ($f -contains 'gated') }
+        $cz = @($f | Where-Object { $_ -like 'code=*' }) -replace '^code=', ''
+        [pscustomobject]@{ Group = $f[0]; Repo = $f[1]; Gated = ($f -contains 'gated'); Code = "$cz".TrimEnd('/') }
     }
 } | Where-Object { -not $Only.Count -or $Only -contains $_.Group })
 
@@ -39,6 +40,12 @@ function Invoke-Fetch($cmd, $repo, $dir) {
     & $uv run --no-project --python 3.12 --with huggingface_hub --with hf_xet --with truststore $fetch $cmd $repo $dir
 }
 function Get-Dir($repo) { return Join-Path $Dest ($repo -replace '/', '__') }
+function Test-Zip($p) {
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $z = [IO.Compression.ZipFile]::OpenRead($p); $n = $z.Entries.Count; $z.Dispose(); return $n -gt 0
+    } catch { return $false }
+}
 
 # ------------------------------------------------------------------ 1. 점검
 Write-Step 1 $T '점검'
@@ -51,6 +58,7 @@ Write-Ok "받을 모델 $($Models.Count)개 ($(@($Models | ForEach-Object { $_.G
 
 Test-Site 'Hugging Face' 'https://huggingface.co/' | Out-Null
 Test-Site 'PyPI (받기 도구)' 'https://pypi.org/simple/pip/' | Out-Null
+if (@($Models | Where-Object { $_.Code }).Count) { Test-Site 'GitHub (모델 코드)' 'https://github.com/' | Out-Null }
 if ($script:Fails) {
     Stop-Run '인터넷 접속이 안 되는 곳이 있다' ('위 [문제] 줄 아래의 curl 오류와 설명을 본다. 브라우저로는 열리면 ' +
         '사내 IT에 프록시 주소를 물어 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 넣고 다시 실행한다.')
@@ -69,8 +77,13 @@ if ($LASTEXITCODE -ne 0) { Stop-Run 'uv 가 Python 3.12 를 받지 못했다' '�
 $gated = @($Models | Where-Object { $_.Gated -and -not (Test-Path (Join-Path (Get-Dir $_.Repo) 'b200_model.json')) })
 if ($gated.Count -and -not $env:HF_TOKEN) {
     Write-Host ''
-    Write-Host "  승인이 필요한 모델 $($gated.Count)개: $($gated.Repo -join ', ')" -ForegroundColor Cyan
-    Write-Host '  각 모델 페이지에서 약관에 동의한 계정의 토큰(huggingface.co/settings/tokens, Read 권한)을 붙여 넣는다.'
+    Write-Host "  승인이 필요한 모델 $($gated.Count)개. 모델 페이지에서 로그인한 뒤 약관에 동의한다:" -ForegroundColor Cyan
+    $pages = @($gated | ForEach-Object { "https://huggingface.co/$($_.Repo)" }) + 'https://huggingface.co/settings/tokens'
+    $gated | ForEach-Object { Write-Host "    https://huggingface.co/$($_.Repo)" }
+    Write-Host '  토큰 만들기(Read 권한): https://huggingface.co/settings/tokens'
+    $open = Read-Host '  위 페이지를 브라우저로 열까? [Y/n]'
+    if ($open -notmatch '^[nN]') { $pages | ForEach-Object { Start-Process $_ } }
+    Write-Host '  약관에 동의한 계정의 토큰을 붙여 넣는다.'
     Write-Host '  비워 두고 Enter 를 누르면 이 모델들은 건너뛴다. 토큰은 화면과 기록 파일에 남지 않는다.'
     $s = Read-Host '  HF 토큰' -AsSecureString
     $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)
@@ -123,6 +136,27 @@ foreach ($m in $Models) {
     }
 }
 Remove-Item Env:HF_TOKEN -ErrorAction SilentlyContinue
+
+# 모델 코드가 GitHub에만 있으면(code=) 코드 묶음도 모델 폴더에 code.zip 으로 받는다
+foreach ($m in @($Models | Where-Object { $_.Code })) {
+    $dir = Get-Dir $m.Repo
+    $leaf = Split-Path -Leaf $dir
+    $sums = Join-Path $dir '.b200_sha256'
+    $label = "[$($m.Group)] $($m.Repo)"
+    if (-not (Test-Path (Join-Path $dir 'b200_model.json'))) { continue }
+    if ((Test-Path $sums) -and (Select-String -Quiet -SimpleMatch "  $leaf/code.zip" $sums)) { continue }
+    Write-Host "  $label 코드 받는 중: $($m.Code)" -ForegroundColor Cyan
+    $zip = Join-Path $dir 'code.zip'
+    Remove-Item -Force -ErrorAction SilentlyContinue $zip   # GitHub 가 그때그때 만드는 파일이라 이어받지 않는다
+    if ((Get-File "$($m.Code)/archive/HEAD.zip" $zip $null $MaxTries) -and (Test-Zip $zip)) {
+        $h = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+        [IO.File]::AppendAllText($sums, "$h  $leaf/code.zip`n", (New-Object Text.UTF8Encoding $false))
+        Write-Ok "$label 코드 받음"
+    } else {
+        Write-Bad "$label 코드를 못 받았다. github.com 접속을 확인하고 같은 명령을 다시 실행한다"
+        $result[$label] = '실패(코드)'
+    }
+}
 
 # ------------------------------------------------------------------ 3. B200 서버에 올릴 목록
 Write-Step 3 $T 'B200 서버에서 확인할 체크섬 목록 만들기'

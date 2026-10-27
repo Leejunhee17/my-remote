@@ -1,17 +1,20 @@
 # Hugging Face 사전학습 모델 목록 (야지·오프로드 주행 기준). pc\models_download.ps1 이 읽는다. 설명은 docs/3_모델.md.
-# 형식: 그룹  저장소  [gated]      gated = 모델 페이지에서 약관 동의 + HF 토큰이 필요
+# 형식: 그룹  저장소  [gated]  [code=GitHub 주소]
+#   gated = 모델 페이지에서 약관 동의 + HF 토큰이 필요
+#   code= = 모델 코드가 GitHub에만 있을 때. 코드 묶음도 받아 B200 서버의 <모델>/code 에 푼다
 # 줄 맨 앞에 # 을 붙이면 받지 않는다. 크기는 2026-10-27 기준 대략 값(GB).
 # 고른 기준: 오프로드 장면은 풀·나무·흙·물·바위가 대부분이라, 도시 도로(Cityscapes)보다
 #            자연물 클래스가 많은 ADE20K·Mapillary 로 학습한 모델과 범용 기반 모델을 먼저 받는다.
 
-# ---------------------------------------------------------------- seg: GOOSE·RELLIS·RUGD 미세조정 출발점 (약 3.7 GB)
+# ---------------------------------------------------------------- seg: GOOSE·RELLIS·RUGD 미세조정 출발점 (약 8.1 GB)
+seg       XYZ9843/GOOSE-M2F  code=https://github.com/Aditya-Lingam-9000/GOOSE-M2F  # 3.5  GOOSE 64클래스로 학습한 Mask2Former Swin-L (ICRA 2026 GOOSE 2D 챌린지 3위, .pth + 코드)
+seg       facebook/mask2former-swin-large-cityscapes-semantic         # 0.9  GOOSE-M2F 의 바탕 모델. GOOSE-M2F 코드가 구조를 만들 때 읽는다
 seg       tue-mps/ade20k_semantic_eomt_large_512                      # 1.3  EoMT(DINOv2-L). ADE20K: 풀·나무·흙·바위·물 클래스 있음
 seg       facebook/mask2former-swin-large-ade-semantic                # 0.9  Mask2Former Swin-L. ADE20K
 seg       facebook/mask2former-swin-large-mapillary-vistas-semantic   # 0.9  Mask2Former Swin-L. Mapillary(비포장·지형 클래스, 다양한 날씨)
 seg       smp-hub/segformer-b5-640x640-ade-160k                       # 0.3  SegFormer-B5 ADE20K (smp 용, safetensors). 가볍고 빠름
 seg       nvidia/segformer-b5-finetuned-ade-640-640                   # 0.3  같은 SegFormer-B5 (transformers 용, .bin, 비상업)
 #seg      tue-mps/cityscapes_semantic_eomt_large_1024                 # 1.3  도시 도로(Cityscapes). 포장도로 구간이 섞일 때
-#seg      facebook/mask2former-swin-large-cityscapes-semantic         # 0.9  도시 도로(Cityscapes)
 #seg      shi-labs/oneformer_ade20k_swin_large                        # 0.9  OneFormer ADE20K (.bin)
 #seg      roboticslaburjc-org/cross-dataset-visual-offroad-segmentation  # ?   GOOSE·RELLIS-3D 로 학습한 오프로드 모델 모음. mmsegmentation 체크포인트(.pt), 용량 큼
 
@@ -20,14 +23,15 @@ enc       smp-hub/mit_b5.imagenet                                     # 0.3  smp
 enc       timm/convnext_large.fb_in22k_ft_in1k                        # 0.8  smp encoder_name="tu-convnext_large"
 enc       smp-hub/resnet50.imagenet                                   # 0.1  smp encoder_name="resnet50" (실시간용 비교 기준)
 
-# ---------------------------------------------------------------- backbone: 밀집 특징 기반 모델 (약 6.1 GB)
-# 오프로드 주행성(traversability) 연구 대부분이 DINO 특징 위에 가벼운 헤드를 올린다
+# ---------------------------------------------------------------- backbone: 밀집 특징 기반 모델 (약 9.5 GB)
+# 오프로드 주행성(traversability) 연구 대부분이 DINO 특징 위에 가벼운 헤드를 올린다.
+# GOOSE 2026 챌린지 1위는 DINOv3 ViT-L, 2위는 DINOv3 ViT-H+ 를 백본으로 썼다
 backbone  facebook/dinov3-vitl16-pretrain-lvd1689m      gated         # 1.2  DINOv3 ViT-L (기본 추천)
 backbone  facebook/dinov3-convnext-large-pretrain-lvd1689m  gated     # 0.8  DINOv3 ConvNeXt-L (FPN/U-Net 디코더용)
 backbone  timm/vit_large_patch16_dinov3.lvd1689m                      # 1.2  DINOv3 ViT-L timm 판
 backbone  facebook/dinov2-with-registers-large                        # 1.2  DINOv2-L (Apache-2.0)
+backbone  facebook/dinov3-vith16plus-pretrain-lvd1689m  gated         # 3.4  DINOv3 ViT-H+ (GOOSE 2026 2위 팀 단일 모델 최고)
 backbone  nvidia/C-RADIOv4-H                                          # 1.7  C-RADIOv4 (DINO+SigLIP+SAM 증류, trust_remote_code)
-#backbone facebook/dinov3-vith16plus-pretrain-lvd1689m  gated         # 3.4  DINOv3 ViT-H+
 #backbone facebook/dinov3-vit7b16-pretrain-lvd1689m     gated         # 27   DINOv3 7B (교사 모델용)
 
 # ---------------------------------------------------------------- depth: 깊이·기하 (경사, 단차, 장애물 높이) (약 5.2 GB)
@@ -46,12 +50,15 @@ openvocab IDEA-Research/grounding-dino-base                           # 0.9  Gro
 openvocab google/owlv2-large-patch14-ensemble                         # 1.8  OWLv2
 openvocab google/siglip2-so400m-patch16-512                           # 4.6  SigLIP2 (개방 어휘 인코더)
 openvocab CIDAS/clipseg-rd64-refined                                  # 0.6  CLIPSeg (AnyTraverse 가 쓰는 텍스트 프롬프트 주행 가능 영역 분할)
+#openvocab google/siglip2-giant-opt-patch16-384                       # 7.5  GOOSE 2026 2위 팀 앙상블에 쓰인 인코더
 #openvocab facebook/sam3.1                              gated         # 3.5  SAM 3.1 (transformers 아님, sam3 코드 필요)
 
 # ---------------------------------------------------------------- vlm: 장면 이해·주행 판단 VLM (약 54.3 GB)
-vlm       Qwen/Qwen3-VL-8B-Instruct                                   # 17.5 지원 코드가 가장 많음. Sa2VA·Cosmos-Reason2 의 바탕
+vlm       Qwen/Qwen3-VL-8B-Instruct                                   # 17.5 지원 코드가 가장 많음. Sa2VA 의 바탕
 vlm       nvidia/Cosmos-Reason2-8B                      gated         # 17.5 물리 세계·주행 상황 추론용으로 학습한 VLM (NVIDIA Open Model License)
 vlm       Qwen/Qwen3.5-9B                                             # 19.3
+#vlm      nvidia/Alpamayo-1.5-10B  code=https://github.com/NVlabs/alpamayo     # 20.6 도로 자율주행 VLA(Cosmos-Reason2 바탕, 궤적 출력). 오프로드 미세조정 출발점
+#vlm      Qwen/Qwen-Drive-1.0-4B  code=https://github.com/QwenLM/Qwen-Drive-1.0  # 13.8 도로 주행 VLM(Qwen3.5-4B 바탕, BEV 인식·궤적 헤드 포함)
 #vlm      Qwen/Qwen3.5-4B                                             # 9.3  가벼운 판
 #vlm      OpenGVLab/InternVL3_5-8B-HF                                 # 17.1
 #vlm      Qwen/Qwen3.8-27B                                            # 55.6 30B 급
