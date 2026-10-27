@@ -195,13 +195,22 @@ function Test-DriveFile($id) {
     $url = "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
     # 앞 64 KB 만 요청하고, 서버가 무시하고 통째로 보내면 1 MB 에서 끊는다(그래도 '받을 수 있음' 이다)
     $ca = Get-CurlArgs $url
-    $out = & curl.exe -sS -L -r 0-65535 --max-filesize 1048576 --connect-timeout 30 --max-time 90 `
-        -b $DriveJar -c $DriveJar @ca -D $hdr -o $body -w '@@%{http_code}|%{url_effective}|%{content_type}' `
+    # -v : 응답이 아예 없을 때도 어디서 막혔는지(DNS, 프록시, TLS) 알 수 있게 연결 과정을 남긴다
+    $out = & curl.exe -v -sS -L -r 0-65535 --max-filesize 1048576 --connect-timeout 30 --max-time 90 `
+        -b $DriveJar -c $DriveJar @ca -D $hdr -o $body -w '##%{http_code}|%{url_effective}|%{content_type}' `
         --stderr - $url | Out-String
     $code = $LASTEXITCODE
     $http = 0; $final = ''; $ctype = ''
-    if ($out -match '@@(\d{3})\|([^|]*)\|(.*)') { $http = [int]$Matches[1]; $final = $Matches[2]; $ctype = $Matches[3].Trim() }
-    $err = ($out -replace '@@.*', '').Trim()
+    if ($out -match '##(\d{3})\|([^|]*)\|(.*)') { $http = [int]$Matches[1]; $final = $Matches[2]; $ctype = $Matches[3].Trim() }
+    $err = (@($out -split "`r?`n" | Where-Object { $_ -match '^curl: \(' }) -join ' ').Trim()
+    # 응답이 없어도 진단 기록은 항상 남긴다(쿠키 줄은 뺀다)
+    $trace = @($out -split "`r?`n" | Where-Object { $_ -notmatch '^[<>] (Set-)?Cookie:' }) -join "`r`n"
+    $bp = Get-BrowserProxy $url
+    [IO.File]::WriteAllText((Join-Path $save "$id.report.txt"), (@(
+        "시각: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')", "주소: $url", "curl 종료 코드: $code",
+        "curl 버전: $((& curl.exe -V | Select-Object -First 1))", "추가 인자: $($ca -join ' ')",
+        "HTTPS_PROXY: $env:HTTPS_PROXY", "윈도우 프록시: $(Get-WindowsProxy)", "브라우저가 이 주소에 쓰는 프록시: $bp",
+        '', '---- curl 연결 과정 ----', $trace) -join "`r`n"), (New-Object Text.UTF8Encoding $false))
     $h = if (Test-Path $hdr) { [IO.File]::ReadAllText($hdr) } else { '' }
     $blocks = @($h -split '(?m)^(?=HTTP/)' | Where-Object { $_.Trim() })
     $last = if ($blocks.Count) { $blocks[-1] } else { '' }   # 넘겨주기(redirect) 끝의 마지막 응답
@@ -242,10 +251,13 @@ function Show-DriveDiag($d, $label) {
                     Write-Info '    Google 이 아니라 중간 장비가 준 응답이다. 웹 페이지는 열어 주고 파일 받기만 막는 설정이 흔하다.'
                     Write-Info '    사내 IT에 drive.usercontent.google.com 파일 다운로드 허용을 요청하고, 위 Server 와 페이지 제목을 같이 알려 준다.' }
         'google'  { Write-Bad "$label : Google 이 거절했는데 이유 문구를 찾지 못했다 ($info)" }
-        'net'     { Write-Bad "$label : 연결 오류 ($($d.Err))" }
+        'net'     { Write-Bad "$label : 응답을 받기 전에 연결이 끊겼다 ($($d.Err))"
+                    if ($d.Err -match '\((6|7|28)\)') { Write-Info '    주소를 찾지 못했거나 연결이 막혔다. 브라우저만 프록시를 쓰는 망일 수 있다.' }
+                    elseif ($d.Err -match '\((35|60)\)') { Write-Info '    보안 연결(TLS) 단계에서 실패했다. 회사 보안 장비가 막거나 인증서를 바꾸는 망이다.' }
+                    elseif ($d.Err -match '\(56\)') { Write-Info '    연결 중 끊겼다. 회사 프록시나 방화벽이 막은 경우가 대부분이다.' } }
         default   { Write-Bad "$label : 예상하지 못한 응답 ($info)" }
     }
-    if ($d.Kind -ne 'ok' -and $d.Kind -ne 'confirm') { Write-Info "    응답 내용 저장: $($d.Saved)" }
+    if ($d.Kind -ne 'ok' -and $d.Kind -ne 'confirm') { Write-Info "    진단 기록: $($d.Saved) (파일 ID 마다 .report.txt)" }
 }
 
 # Google Drive 파일을 curl 로 받는다. 끊기면 이어받고, 큰 파일의 "바이러스 검사 안 함" 확인 페이지도 넘긴다
