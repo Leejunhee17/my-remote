@@ -52,6 +52,7 @@ $DriveItems = @(
 $DriveItems = @($DriveItems | Where-Object { Want $_.Set })
 $Manual = @($DriveItems | ForEach-Object { $_.Set } | Select-Object -Unique)
 $doWild = $WildScenes -and (Want 'wildscenes')
+$WsPortal = 'https://data.csiro.au/collection/csiro:61541'   # WildScenes 포털 페이지
 
 New-Item -ItemType Directory -Force $Dest | Out-Null
 $Dest = (Resolve-Path $Dest).Path.TrimEnd('\')
@@ -355,8 +356,12 @@ Write-Ok 'Python 3.12 준비됨'
 
 if ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
     Write-Host ''
-    Write-Host '  WildScenes 접속 정보를 넣는다. CSIRO 포털 "Download files via S3 Client" 의 값을 복사해 붙여 넣는다.' -ForegroundColor Cyan
-    Write-Host '  (docs\2_데이터셋.md 의 "WildScenes 접속 정보 받기". 정보는 약 48시간 유효하다)'
+    Write-Host '  WildScenes 접속 정보를 넣는다. 정보는 약 48시간 유효하니 지금 새로 받는다.' -ForegroundColor Cyan
+    Write-Host "  포털: $WsPortal"
+    Write-Host '  포털에서 Download → Download files via S3 Client 를 고르고, 나온 네 값을 차례로 복사해 붙여 넣는다.'
+    Write-Host '  (자세한 설명: docs\2_데이터셋.md 의 "WildScenes 접속 정보 받기")'
+    $open = Read-Host '  포털 페이지를 브라우저로 열까? [Y/n]'
+    if ($open -notmatch '^[nN]') { Start-Process $WsPortal }
     $server = (Read-Host '  Server (예: s3.data.csiro.au)').Trim()
     $wsDir  = (Read-Host '  Remote Directory (예: dapprd/000012345v001/)').Trim().TrimStart('/')
     $env:AWS_ACCESS_KEY_ID     = (Read-Plain '  Access Key').Trim()
@@ -379,7 +384,7 @@ if ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
     if (-not $wsPrefix) {
         Write-Host '  원격 폴더 내용:'
         Invoke-Aws s3 ls "s3://$wsDir" | Out-Host
-        Stop-Run 'WildScenes2d 폴더를 찾지 못했다' ('접속 정보가 틀렸거나 48시간이 지났을 수 있다. 포털에서 접속 정보를 새로 받아 다시 실행한다. ' +
+        Stop-Run 'WildScenes2d 폴더를 찾지 못했다' ("접속 정보가 틀렸거나 48시간이 지났을 수 있다. 포털($WsPortal)에서 접속 정보를 새로 받아 다시 실행한다. " +
             'SSL/certificate 오류가 보이면 회사 보안 장비 때문이니 담당자에게 기록 파일을 보내 준다.')
     }
     Write-Ok "WildScenes 접속: s3://$wsPrefix"
@@ -439,7 +444,7 @@ if ($doWild) {
                 Invoke-Aws s3 ls "s3://$wsPrefix" | Out-Null
                 if ($LASTEXITCODE -ne 0) {
                     Write-Bad 'WildScenes 접속 정보가 만료됐거나 막혔다'
-                    Write-Info '    포털에서 접속 정보를 새로 받아 같은 명령(-WildScenes)을 다시 실행한다. 받은 파일은 건너뛴다.'
+                    Write-Info "    포털($WsPortal)에서 접속 정보를 새로 받아 같은 명령(-WildScenes)을 다시 실행한다. 받은 파일은 건너뛴다."
                     break
                 }
             }
