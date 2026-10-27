@@ -81,6 +81,7 @@ function Get-NetHint($code) {
         7       { return '연결이 거부됐다. 방화벽이 막거나 프록시를 거쳐야 하는 망이다.' }
         28      { return '시간 초과. 방화벽이 막거나 프록시를 거쳐야 하는 망이다.' }
         35      { return '보안 연결(TLS)에 실패했다. 회사 보안 장비가 막을 수 있다.' }
+        56      { return '연결은 됐지만 중간에 끊겼다. 회사 프록시나 방화벽이 이 주소를 막는 경우가 대부분이다.' }
         60      { return '인증서를 믿지 못했다. 회사 보안 장비가 인증서를 바꾸는 망이다.' }
         default { return '' }
     }
@@ -126,6 +127,14 @@ function Test-Site($name, $url) {
     Write-Info "    curl 오류 $($first.Code): $($first.Msg)"
     $hint = Get-NetHint $first.Code
     if ($hint) { Write-Info "    $hint" }
+    $site = ([uri]$url).Host
+    if ($first.Msg -match 'CONNECT tunnel failed, response (\d+)') {
+        Write-Info "    → 회사 프록시가 $site 연결을 거절했다(프록시 응답 $($Matches[1])). 이 주소만 막힌 것이다."
+        Write-Info "      사내 IT에 $site (포트 443) 접속 허용을 요청한다."
+    } elseif ($first.Msg -match 'reset|abort|closed') {
+        Write-Info "    → 방화벽이나 보안 장비가 $site 연결을 중간에 끊었다. 사내 IT에 $site (포트 443) 접속 허용을 요청한다."
+    }
+    Write-Info "    확인: 브라우저에서 https://$site/ 를 열어 본다. 오류 글자(XML)라도 뜨면 브라우저는 닿는 것이고, '연결할 수 없음' 이면 브라우저도 막힌 것이다."
     $pac = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue).AutoConfigURL
     if ($pac) { Write-Info "    이 PC 브라우저는 자동 프록시 설정(PAC)을 쓴다: $pac" }
     return $false
