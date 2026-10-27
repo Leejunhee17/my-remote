@@ -6,11 +6,13 @@
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1               # WildScenes 빼고
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenes   # WildScenes 포함(접속 정보를 물어본다)
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only goose,RUGD
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
 #>
 param(
     [string]$Dest = (Join-Path (Split-Path $PSScriptRoot -Parent) 'datasets'),
     [switch]$WildScenes,              # WildScenes 도 받는다. CSIRO 포털의 S3 접속 정보를 물어본다
     [string[]]$Only = @(),            # 이 폴더만 받는다(쉼표로 여러 개)
+    [switch]$DriveCheck,              # 받지 않고 Google Drive 파일마다 받을 수 있는지, 안 되면 왜인지 진단만 한다
     [int]$MaxTries = 30               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 2시간)
 )
 $here = $PSScriptRoot
@@ -154,6 +156,72 @@ function Get-DoneDrive($target) {
     return Get-ChildItem $dir -File -Filter "$(Split-Path -Leaf $target).*.ok" | Select-Object -First 1
 }
 
+# 큰 파일 확인 페이지가 주는 쿠키를 다음 요청에 이어 쓴다
+$DriveJar = Join-Path $env:TEMP 'b200_drive_cookies.txt'   # 서버에 올리는 datasets 폴더에 섞이지 않게
+
+# Google Drive 파일 하나를 앞부분만 받아 보고, 안 되면 왜 안 되는지 가린다.
+# 응답 머리글과 본문 앞부분은 datasets\drive_check 에 남긴다(담당자에게 보낼 자료)
+function Test-DriveFile($id) {
+    $save = Join-Path $Dest 'drive_check'
+    New-Item -ItemType Directory -Force $save | Out-Null
+    $hdr  = Join-Path $save "$id.headers.txt"
+    $body = Join-Path $save "$id.body.txt"
+    Remove-Item -Force -ErrorAction SilentlyContinue $hdr, $body
+    $url = "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
+    # 앞 64 KB 만 요청하고, 서버가 무시하고 통째로 보내면 1 MB 에서 끊는다(그래도 '받을 수 있음' 이다)
+    $out = & curl.exe -sS -L -r 0-65535 --max-filesize 1048576 --connect-timeout 30 --max-time 90 `
+        -b $DriveJar -c $DriveJar @CurlExtra -D $hdr -o $body -w '@@%{http_code}|%{url_effective}|%{content_type}' `
+        --stderr - $url | Out-String
+    $code = $LASTEXITCODE
+    $http = 0; $final = ''; $ctype = ''
+    if ($out -match '@@(\d{3})\|([^|]*)\|(.*)') { $http = [int]$Matches[1]; $final = $Matches[2]; $ctype = $Matches[3].Trim() }
+    $err = ($out -replace '@@.*', '').Trim()
+    $h = if (Test-Path $hdr) { [IO.File]::ReadAllText($hdr) } else { '' }
+    $blocks = @($h -split '(?m)^(?=HTTP/)' | Where-Object { $_.Trim() })
+    $last = if ($blocks.Count) { $blocks[-1] } else { '' }   # 넘겨주기(redirect) 끝의 마지막 응답
+    $server = if ($last -match '(?im)^server:\s*(.+)$') { $Matches[1].Trim() } else { '' }
+    $google = $last -match '(?im)^(x-guploader-uploadid|server:\s*(uploadserver|esf|gse|sffe|gws|google))'
+    $text = if (Test-Path $body) { [IO.File]::ReadAllText($body) } else { '' }
+    $title = if ($text -match '(?is)<title>(.*?)</title>') { ($Matches[1] -replace '\s+', ' ').Trim() } else { '' }
+    $html = ($ctype -like 'text/html*') -or $text.TrimStart().StartsWith('<')
+    $kind = 'other'
+    if ($code -eq 56 -and $err -match 'CONNECT tunnel failed, response (\d+)') { $kind = 'proxy'; $http = [int]$Matches[1] }
+    elseif ($code -eq 63) { $kind = 'ok' }
+    elseif ($code -ne 0 -and -not $http) { $kind = 'net' }
+    elseif (($http -eq 200 -or $http -eq 206) -and -not $html) { $kind = 'ok' }
+    elseif ($text -match 'Too many users|Quota exceeded|download quota|할당량') { $kind = 'quota' }
+    elseif ($final -match 'accounts\.google\.com' -or $text -match 'ServiceLogin|You need access|Request access|액세스 권한') { $kind = 'login' }
+    elseif ($text -match 'unusual traffic|automated queries|/sorry/') { $kind = 'bot' }
+    elseif ($http -eq 200 -and $text -match 'name="uuid"') { $kind = 'confirm' }
+    elseif (-not $google) { $kind = 'proxy' }
+    elseif ($http -ge 400) { $kind = 'google' }
+    return [pscustomobject]@{ Kind = $kind; Http = $http; Curl = $code; Err = $err; Server = $server; Title = $title; Saved = $save }
+}
+
+function Show-DriveDiag($d, $label) {
+    $info = "HTTP $($d.Http), curl $($d.Curl)"
+    if ($d.Server) { $info += ", Server: $($d.Server)" }
+    if ($d.Title)  { $info += ", 페이지 제목: $($d.Title)" }
+    switch ($d.Kind) {
+        'ok'      { Write-Ok "$label : 받을 수 있음" }
+        'confirm' { Write-Ok "$label : 받을 수 있음(큰 파일 확인 페이지는 스크립트가 넘긴다)" }
+        'quota'   { Write-Bad "$label : Google 다운로드 한도 초과 ($info)"
+                    Write-Info '    최근 이 파일을 받은 사람이 너무 많아 Google 이 하루쯤 막았다. 내일 다시 실행한다.'
+                    Write-Info '    급하면 브라우저에서 Google 에 로그인해 "내 드라이브에 사본 만들기" 를 한 뒤 그 사본을 받아 datasets\<폴더> 에 넣는다.' }
+        'login'   { Write-Bad "$label : 로그인이나 접근 권한이 필요하다 ($info)"
+                    Write-Info '    공유가 "링크가 있는 모든 사용자" 가 아니게 바뀌었다. 브라우저에서 로그인해 받아 datasets\<폴더> 에 넣는다.' }
+        'bot'     { Write-Bad "$label : Google 이 이 망의 요청을 자동 요청으로 보고 막았다 ($info)"
+                    Write-Info '    회사 전체가 같은 IP 로 나가는 망에서 생긴다. 몇 시간 뒤 다시 하거나 브라우저로 받아 datasets\<폴더> 에 넣는다.' }
+        'proxy'   { Write-Bad "$label : 회사 프록시나 보안 장비가 막았다 ($info)"
+                    Write-Info '    Google 이 아니라 중간 장비가 준 응답이다. 웹 페이지는 열어 주고 파일 받기만 막는 설정이 흔하다.'
+                    Write-Info '    사내 IT에 drive.usercontent.google.com 파일 다운로드 허용을 요청하고, 위 Server 와 페이지 제목을 같이 알려 준다.' }
+        'google'  { Write-Bad "$label : Google 이 거절했는데 이유 문구를 찾지 못했다 ($info)" }
+        'net'     { Write-Bad "$label : 연결 오류 ($($d.Err))" }
+        default   { Write-Bad "$label : 예상하지 못한 응답 ($info)" }
+    }
+    if ($d.Kind -ne 'ok' -and $d.Kind -ne 'confirm') { Write-Info "    응답 내용 저장: $($d.Saved)" }
+}
+
 # Google Drive 파일을 curl 로 받는다. 끊기면 이어받고, 큰 파일의 "바이러스 검사 안 함" 확인 페이지도 넘긴다
 function Get-Drive($id, $target) {
     New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
@@ -163,9 +231,20 @@ function Get-Drive($id, $target) {
     while ($stall -lt $MaxTries) {
         $local = Get-Size $part
         if ($local) { Write-Info "이어받기: $(Format-Size $local) 부터" }
-        & curl.exe -L -C - --fail --retry 3 --retry-delay 10 --connect-timeout 30 -Y 1024 -y 120 @CurlExtra -o $part $url
+        & curl.exe -L -C - --fail --retry 3 --retry-delay 10 --connect-timeout 30 -Y 1024 -y 120 `
+            -b $DriveJar -c $DriveJar @CurlExtra -o $part $url
         $code = $LASTEXITCODE
         if ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $part }
+        if ($code -eq 22 -or $code -eq 56) {
+            # 403 같은 거절: 다시 해도 소용없는 경우면 기다리지 말고 이유를 알려 준다
+            $d = Test-DriveFile $id
+            if ($d.Kind -eq 'ok' -or $d.Kind -eq 'confirm') {
+                if ($local) { Write-Warn '이어받기 요청을 거절했다. 처음부터 다시 받는다'; Remove-Item -Force $part }
+            } elseif ($d.Kind -ne 'net') {
+                Show-DriveDiag $d $id
+                return $null
+            }
+        }
         if ($code -ne 0) {
             $stall = Step-Retry $stall $local (Get-Size $part) $MaxTries "curl $code"
             continue
@@ -186,7 +265,8 @@ function Get-Drive($id, $target) {
                 $stall++
                 continue
             }
-            Write-Bad 'Google Drive 가 파일 대신 웹 페이지를 줬다(공유 권한이나 로그인 필요). 브라우저로 받아 넣는다.'
+            Write-Bad 'Google Drive 가 파일 대신 웹 페이지를 줬다.'
+            Show-DriveDiag (Test-DriveFile $id) $id
             return $null
         }
         $r = Test-Archive $part
@@ -207,6 +287,24 @@ function Read-Plain($prompt) {
     $s = Read-Host $prompt -AsSecureString   # 화면과 기록 파일에 남지 않게
     $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)
     try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }
+}
+
+# -DriveCheck: 받지 않고 Google Drive 파일마다 진단만 하고 끝낸다
+if ($DriveCheck) {
+    Write-Host ''
+    Write-Host '[Google Drive 진단] 파일마다 앞부분만 받아 본다' -ForegroundColor Cyan
+    Write-Host "  curl: $((& curl.exe -V | Select-Object -First 1))"
+    $p = Get-WindowsProxy
+    Write-Host "  윈도우 프록시: $(if ($p) { $p } else { '없음' }), HTTPS_PROXY: $(if ($env:HTTPS_PROXY) { $env:HTTPS_PROXY } else { '없음' })"
+    Test-Site 'Google Drive' 'https://drive.google.com/' | Out-Null
+    Test-Site 'Google Drive 파일 서버' 'https://drive.usercontent.google.com/' | Out-Null
+    foreach ($it in $DriveItems) { Show-DriveDiag (Test-DriveFile $it.Id) "$($it.Set)/$($it.Name)" }
+    Write-Host ''
+    Write-Host ' 해결이 안 되면 아래 두 가지를 담당자에게 보내 준다:' -ForegroundColor Yellow
+    Write-Host "   $(Join-Path $Dest 'drive_check') 폴더, $script:LogPath"
+    Allow-Sleep
+    Stop-Transcript | Out-Null
+    exit 0
 }
 
 # ------------------------------------------------------------------ 1. 점검
@@ -234,13 +332,19 @@ if ($script:Fails) {
 $driveOk = $false
 if ($Manual.Count) {
     $d1 = Invoke-Probe 'https://drive.google.com/'
-    $d2 = Invoke-Probe 'https://drive.usercontent.google.com/'   # 실제 파일을 내려 주는 주소
-    $driveOk = ($d1.Code -eq 0) -and ($d2.Code -eq 0)
-    if ($driveOk) {
-        Write-Ok 'Google Drive 접속됨. RELLIS-3D, TAS500, GO 도 받는다'
+    if ($d1.Code -ne 0) {
+        Write-Warn "Google Drive 접속 안 됨(curl $($d1.Code)). RELLIS-3D, TAS500, GO 는 건너뛰고 나머지를 받는다. 접근이 생기면 다시 실행한다."
     } else {
-        $d = if ($d1.Code -ne 0) { $d1 } else { $d2 }
-        Write-Warn "Google Drive 접속 안 됨(curl $($d.Code)). RELLIS-3D, TAS500, GO 는 건너뛰고 나머지를 받는다. 접근이 생기면 다시 실행한다."
+        # 첫 페이지만 열리고 파일 받기는 막힌 망이 있어, 실제 파일 하나를 앞부분만 받아 본다
+        $d = Test-DriveFile $DriveItems[0].Id
+        $driveOk = $d.Kind -ne 'proxy' -and $d.Kind -ne 'net'
+        if ($d.Kind -eq 'ok' -or $d.Kind -eq 'confirm') {
+            Write-Ok 'Google Drive 파일 받기 확인함. RELLIS-3D, TAS500, GO 도 받는다'
+        } else {
+            Show-DriveDiag $d "Google Drive 시험 파일($($DriveItems[0].Set)/$($DriveItems[0].Name))"
+            if ($driveOk) { Write-Warn 'Google 에는 닿으니 파일마다 시도한다.' }
+            else { Write-Warn 'RELLIS-3D, TAS500, GO 는 건너뛰고 나머지를 받는다. 파일마다 자세히 보려면 -DriveCheck 로 실행한다.' }
+        }
     }
 }
 
