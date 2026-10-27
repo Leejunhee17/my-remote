@@ -1,50 +1,63 @@
-# Hugging Face 사전학습 모델 목록. models_download.ps1 이 읽는다. 설명은 모델_명령어.md.
+# Hugging Face 사전학습 모델 목록 (야지·오프로드 주행 기준). pc\models_download.ps1 이 읽는다. 설명은 docs/3_모델.md.
 # 형식: 그룹  저장소  [gated]      gated = 모델 페이지에서 약관 동의 + HF 토큰이 필요
-# 줄 맨 앞에 # 을 붙이면 받지 않는다. 크기는 2026-10-26 기준 대략 값(GB).
+# 줄 맨 앞에 # 을 붙이면 받지 않는다. 크기는 2026-10-27 기준 대략 값(GB).
+# 고른 기준: 오프로드 장면은 풀·나무·흙·물·바위가 대부분이라, 도시 도로(Cityscapes)보다
+#            자연물 클래스가 많은 ADE20K·Mapillary 로 학습한 모델과 범용 기반 모델을 먼저 받는다.
 
-# ---------------------------------------------------------------- seg: 바로 미세조정할 세그멘테이션 모델 (약 5 GB)
-seg       tue-mps/cityscapes_semantic_eomt_large_1024                 # 1.3  EoMT(DINOv2-L, 디코더 없는 ViT). Cityscapes
-seg       tue-mps/ade20k_semantic_eomt_large_512                      # 1.3  EoMT. ADE20K(클래스가 많음)
-seg       facebook/mask2former-swin-large-cityscapes-semantic         # 0.9  Mask2Former Swin-L. Cityscapes
-seg       facebook/mask2former-swin-large-mapillary-vistas-semantic   # 0.9  Mask2Former Swin-L. Mapillary(다양한 장면)
-seg       nvidia/segformer-b5-finetuned-cityscapes-1024-1024          # 0.3  SegFormer-B5 (transformers 용, .bin)
-seg       smp-hub/segformer-b5-1024x1024-city-160k                    # 0.3  같은 SegFormer-B5 (smp 용, safetensors)
-#seg      shi-labs/oneformer_cityscapes_swin_large                    # 0.9  OneFormer (.bin)
+# ---------------------------------------------------------------- seg: GOOSE·RELLIS·RUGD 미세조정 출발점 (약 3.7 GB)
+seg       tue-mps/ade20k_semantic_eomt_large_512                      # 1.3  EoMT(DINOv2-L). ADE20K: 풀·나무·흙·바위·물 클래스 있음
+seg       facebook/mask2former-swin-large-ade-semantic                # 0.9  Mask2Former Swin-L. ADE20K
+seg       facebook/mask2former-swin-large-mapillary-vistas-semantic   # 0.9  Mask2Former Swin-L. Mapillary(비포장·지형 클래스, 다양한 날씨)
+seg       smp-hub/segformer-b5-640x640-ade-160k                       # 0.3  SegFormer-B5 ADE20K (smp 용, safetensors). 가볍고 빠름
+seg       nvidia/segformer-b5-finetuned-ade-640-640                   # 0.3  같은 SegFormer-B5 (transformers 용, .bin, 비상업)
+#seg      tue-mps/cityscapes_semantic_eomt_large_1024                 # 1.3  도시 도로(Cityscapes). 포장도로 구간이 섞일 때
+#seg      facebook/mask2former-swin-large-cityscapes-semantic         # 0.9  도시 도로(Cityscapes)
+#seg      shi-labs/oneformer_ade20k_swin_large                        # 0.9  OneFormer ADE20K (.bin)
+#seg      roboticslaburjc-org/cross-dataset-visual-offroad-segmentation  # ?   GOOSE·RELLIS-3D 로 학습한 오프로드 모델 모음. mmsegmentation 체크포인트(.pt), 용량 큼
 
-# ---------------------------------------------------------------- enc: smp 인코더 가중치 (약 1.4 GB)
+# ---------------------------------------------------------------- enc: smp 인코더 가중치 (약 1.2 GB)
 enc       smp-hub/mit_b5.imagenet                                     # 0.3  smp encoder_name="mit_b5"
-enc       smp-hub/resnet50.imagenet                                   # 0.1  smp encoder_name="resnet50"
 enc       timm/convnext_large.fb_in22k_ft_in1k                        # 0.8  smp encoder_name="tu-convnext_large"
+enc       smp-hub/resnet50.imagenet                                   # 0.1  smp encoder_name="resnet50" (실시간용 비교 기준)
 
-# ---------------------------------------------------------------- backbone: 밀집 예측용 기반 모델 (약 9.5 GB)
+# ---------------------------------------------------------------- backbone: 밀집 특징 기반 모델 (약 6.1 GB)
+# 오프로드 주행성(traversability) 연구 대부분이 DINO 특징 위에 가벼운 헤드를 올린다
 backbone  facebook/dinov3-vitl16-pretrain-lvd1689m      gated         # 1.2  DINOv3 ViT-L (기본 추천)
-backbone  facebook/dinov3-vith16plus-pretrain-lvd1689m  gated         # 3.4  DINOv3 ViT-H+
 backbone  facebook/dinov3-convnext-large-pretrain-lvd1689m  gated     # 0.8  DINOv3 ConvNeXt-L (FPN/U-Net 디코더용)
 backbone  timm/vit_large_patch16_dinov3.lvd1689m                      # 1.2  DINOv3 ViT-L timm 판
-backbone  facebook/dinov2-with-registers-large                        # 1.2  DINOv2-L (Apache-2.0, 라이선스 걱정 없을 때)
-backbone  nvidia/C-RADIOv4-H                                          # 1.7  C-RADIOv4 (trust_remote_code)
+backbone  facebook/dinov2-with-registers-large                        # 1.2  DINOv2-L (Apache-2.0)
+backbone  nvidia/C-RADIOv4-H                                          # 1.7  C-RADIOv4 (DINO+SigLIP+SAM 증류, trust_remote_code)
+#backbone facebook/dinov3-vith16plus-pretrain-lvd1689m  gated         # 3.4  DINOv3 ViT-H+
 #backbone facebook/dinov3-vit7b16-pretrain-lvd1689m     gated         # 27   DINOv3 7B (교사 모델용)
-#backbone nvidia/C-RADIOv4-SO400M                                     # 2.9
 
-# ---------------------------------------------------------------- openvocab: 프롬프트·개방 어휘 분할, 그라운딩 (약 11.6 GB)
-openvocab facebook/sam3                                 gated         # 3.4  SAM 3 (텍스트 프롬프트 분할, 의사 라벨용)
-openvocab facebook/sam2.1-hiera-large                                 # 0.9  SAM 2.1
+# ---------------------------------------------------------------- depth: 깊이·기하 (경사, 단차, 장애물 높이) (약 5.2 GB)
+depth     depth-anything/DA3METRIC-LARGE                              # 1.3  Depth Anything 3 미터 단위 깊이 + 하늘 마스크 (Apache-2.0, depth_anything_3 코드 필요)
+depth     depth-anything/DA3MONO-LARGE                                # 1.3  Depth Anything 3 상대 깊이 (Apache-2.0, depth_anything_3 코드 필요)
+depth     depth-anything/Depth-Anything-V2-Large-hf                   # 1.3  Depth Anything V2 상대 깊이 (transformers 로 바로, 비상업)
+depth     depth-anything/Depth-Anything-V2-Metric-Outdoor-Large-hf    # 1.3  V2 실외 미터 깊이 (transformers 로 바로, 비상업)
+#depth    Ruicheng/moge-2-vitl-normal                                 # 1.3  MoGe-2 미터 점군 + 법선(경사 계산에 좋음). moge 코드 필요, .pt
+#depth    depth-anything/DA3NESTED-GIANT-LARGE-1.1                    # 5.6  DA3 다중 시점 + 미터 깊이 (비상업)
+
+# ---------------------------------------------------------------- openvocab: 텍스트로 분할·검출, 의사 라벨 (약 12.2 GB)
+# "mud", "puddle", "tall grass", "rock" 같은 단어로 라벨 없는 주행 영상에 의사 라벨을 만든다
+openvocab facebook/sam3                                 gated         # 3.4  SAM 3 (텍스트 프롬프트 분할)
+openvocab facebook/sam2.1-hiera-large                                 # 0.9  SAM 2.1 (영상 추적)
 openvocab IDEA-Research/grounding-dino-base                           # 0.9  Grounding DINO
 openvocab google/owlv2-large-patch14-ensemble                         # 1.8  OWLv2
 openvocab google/siglip2-so400m-patch16-512                           # 4.6  SigLIP2 (개방 어휘 인코더)
-#openvocab google/siglip2-giant-opt-patch16-384                       # 7.5
+openvocab CIDAS/clipseg-rd64-refined                                  # 0.6  CLIPSeg (AnyTraverse 가 쓰는 텍스트 프롬프트 주행 가능 영역 분할)
 #openvocab facebook/sam3.1                              gated         # 3.5  SAM 3.1 (transformers 아님, sam3 코드 필요)
 
-# ---------------------------------------------------------------- vlm: 일반 VLM (약 63 GB)
-vlm       Qwen/Qwen3.5-4B                                             # 9.3
+# ---------------------------------------------------------------- vlm: 장면 이해·주행 판단 VLM (약 54.3 GB)
+vlm       Qwen/Qwen3-VL-8B-Instruct                                   # 17.5 지원 코드가 가장 많음. Sa2VA·Cosmos-Reason2 의 바탕
+vlm       nvidia/Cosmos-Reason2-8B                      gated         # 17.5 물리 세계·주행 상황 추론용으로 학습한 VLM (NVIDIA Open Model License)
 vlm       Qwen/Qwen3.5-9B                                             # 19.3
-vlm       Qwen/Qwen3-VL-8B-Instruct                                   # 17.5 지원 코드가 가장 많음. Sa2VA 의 바탕
-vlm       OpenGVLab/InternVL3_5-8B-HF                                 # 17.1
-#vlm      Qwen/Qwen3.5-2B                                             # 4.6
+#vlm      Qwen/Qwen3.5-4B                                             # 9.3  가벼운 판
+#vlm      OpenGVLab/InternVL3_5-8B-HF                                 # 17.1
 #vlm      Qwen/Qwen3.8-27B                                            # 55.6 30B 급
 #vlm      Qwen/Qwen3.6-35B-A3B                                        # 71.9 MoE
 
-# ---------------------------------------------------------------- vlmseg: 분할까지 하는 VLM (약 41 GB)
+# ---------------------------------------------------------------- vlmseg: 말로 지시하면 분할까지 하는 VLM (약 41 GB)
 vlmseg    ByteDance/Sa2VA-Qwen3-VL-4B-SAM3                            # 21.2 [SEG] 토큰 → SAM3 마스크 (trust_remote_code)
 vlmseg    ByteDance/Sa2VA-Qwen3-VL-4B                                 # 20.2 SAM2 판 (trust_remote_code)
 #vlmseg   ByteDance/Sa2VA-InternVL3-8B                                # 25+
