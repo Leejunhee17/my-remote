@@ -178,7 +178,12 @@ if (-not $ok) { Stop-Run '휠을 다 받지 못했다' '인터넷을 확인하�
 $wcount = @(Get-ChildItem $wdir -File).Count
 if ($wcount -lt $pins.Count) { Stop-Run "휠이 $wcount 개뿐이다($($pins.Count)개 필요)" '다시 실행한다.' }
 $sdist = @(Get-ChildItem $wdir -File | Where-Object { $_.Name -notlike '*.whl' })
-if ($sdist.Count) { Write-Warn "휠이 아닌 소스 파일 $($sdist.Count)개: $($sdist.Name -join ', ') (B200 서버에서 빌드가 필요할 수 있다)" }
+if ($sdist.Count) {
+    # 휠(미리 만든 설치 파일)이 PyPI에 없어 소스 묶음으로 받은 것. 예: antlr4-python3-runtime(hydra-core, omegaconf 가 씀)
+    # 순수 Python 이면 B200 서버가 설치할 때 공용 휠의 setuptools 로 몇 초 만에 휠을 만들어 인터넷 없이 설치된다
+    Write-Info "휠 없이 소스로 받은 것 $($sdist.Count)개: $($sdist.Name -join ', ')"
+    Write-Info '    PyPI에 휠이 없는 패키지다. B200 서버가 설치할 때 직접 만들어 설치하니 그대로 두면 된다.'
+}
 Write-Ok "$wcount 개 받음, 해시 확인함"
 
 # ------------------------------------------------------------------ 6. 묶기 + 검사
