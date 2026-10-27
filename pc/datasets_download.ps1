@@ -7,6 +7,8 @@
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenes   # WildScenes 포함(접속 정보를 물어본다)
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenesLinks C:\Users\나\Downloads\61541v001.txt
                                                                      # WildScenes 를 포털의 링크 목록 파일로 받는다(AWS CLI 가 안 될 때)
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenesZips D:\b200\wildscenes_zip
+                                                                     # 브라우저로 받은 WildScenes zip 들을 검사하고 풀어 정리한다(스크립트 접속이 막힐 때)
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only goose,RUGD
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
 #>
@@ -14,6 +16,7 @@ param(
     [string]$Dest = (Join-Path (Split-Path $PSScriptRoot -Parent) 'datasets'),
     [switch]$WildScenes,              # WildScenes 도 받는다. CSIRO 포털의 S3 접속 정보를 물어본다
     [string]$WildScenesLinks = '',    # WildScenes 를 포털 "Get a list of file download links" 로 받은 목록 파일로 받는다
+    [string]$WildScenesZips = '',     # 브라우저로 받은 WildScenes zip 들이 있는 폴더. 검사하고 풀어 datasets\wildscenes 로 정리한다
     [string[]]$Only = @(),            # 이 폴더만 받는다(쉼표로 여러 개)
     [switch]$DriveCheck,              # 받지 않고 Google Drive 파일마다 받을 수 있는지, 안 되면 왜인지 진단만 한다
     [int]$MaxTries = 30               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 2시간)
@@ -54,7 +57,7 @@ $DriveItems = @(
 )
 $DriveItems = @($DriveItems | Where-Object { Want $_.Set })
 $Manual = @($DriveItems | ForEach-Object { $_.Set } | Select-Object -Unique)
-$doWild = ($WildScenes -or $WildScenesLinks) -and (Want 'wildscenes')
+$doWild = ($WildScenes -or $WildScenesLinks -or $WildScenesZips) -and (Want 'wildscenes')
 $WsPortal = 'https://data.csiro.au/collection/csiro:61541'   # WildScenes 포털 페이지
 
 New-Item -ItemType Directory -Force $Dest | Out-Null
@@ -399,7 +402,12 @@ Write-Info '검사용 Python 준비 중(처음 한 번)'
 if ($LASTEXITCODE -ne 0) { Stop-Run 'uv 가 Python 3.12 를 받지 못했다' '인터넷(github.com) 접속을 확인하고 다시 실행한다.' }
 Write-Ok 'Python 3.12 준비됨'
 
-if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
+if ($doWild -and $WildScenesZips) {
+    if (-not (Test-Path $WildScenesZips)) { Stop-Run "zip 폴더가 없다: $WildScenesZips" '브라우저로 받은 zip 들을 넣은 폴더의 전체 경로를 적는다.' }
+    $script:WsZips = @(Get-ChildItem $WildScenesZips -File -Filter '*.zip' | Sort-Object Name)
+    if (-not $script:WsZips.Count) { Stop-Run "zip 파일이 없다: $WildScenesZips" 'docs\2_데이터셋.md 의 "WildScenes 브라우저로 받기" 대로 받은 zip 을 이 폴더에 넣는다.' }
+    Write-Ok "WildScenes zip $($script:WsZips.Count)개 ($(Format-Size (($script:WsZips | Measure-Object Length -Sum).Sum)))"
+} elseif ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
     if (-not (Test-Path $WildScenesLinks)) { Stop-Run "링크 목록 파일이 없다: $WildScenesLinks" '포털에서 받은 .txt 파일의 전체 경로를 적는다.' }
     $script:WsLinks = Get-WsLinks $WildScenesLinks
     if (-not $script:WsLinks.Count) {
@@ -461,7 +469,8 @@ if ($driveOk) {
     $needGB += ($DriveItems | Where-Object { -not (Get-DoneDrive (Join-Path (Join-Path $Dest $_.Set) $_.Name)) } |
         ForEach-Object { $_.GB } | Measure-Object -Sum).Sum
 }
-if ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) { $needGB += 47 }
+if ($doWild -and -not $WildScenesZips -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) { $needGB += 47 }
+if ($doWild -and $WildScenesZips) { $needGB += [math]::Ceiling((($script:WsZips | Measure-Object Length -Sum).Sum) / 1GB) }
 $free = Get-FreeGB $Dest
 if ($free -lt $needGB + 5) {
     Stop-Run "남은 공간이 $free GB 다(앞으로 약 $needGB GB 필요)" '공간이 넉넉한 드라이브에서 -Dest E:\datasets 처럼 받는 곳을 바꾸거나 -Only 로 나눠 받는다.'
@@ -484,7 +493,45 @@ foreach ($it in $Items) {
     else    { Write-Bad "$label 못 받음"; $result[$label] = '실패' }
 }
 
-if ($doWild) {
+if ($doWild -and $WildScenesZips) {
+    # 브라우저로 받은 zip: 하나씩 검사하고 풀어 WildScenes2d 아래 내용을 datasets\wildscenes 로 모은다.
+    # 끝난 zip 은 옆에 .done 을 남겨 다시 실행하면 건너뛴다. zip 을 더 받아 넣고 다시 실행해도 된다
+    $wdir = Join-Path $Dest 'wildscenes'
+    New-Item -ItemType Directory -Force $wdir | Out-Null
+    $bad = 0
+    foreach ($z in $script:WsZips) {
+        $label = "wildscenes/$($z.Name)"
+        if (Test-Path "$($z.FullName).done") { Write-Host "  $label : 이미 정리함"; continue }
+        Write-Host ''
+        Write-Host "  $label 검사하고 푸는 중 ($(Format-Size $z.Length))" -ForegroundColor Cyan
+        if ((Test-Archive $z.FullName) -eq 1) { Write-Bad "$label 가 깨졌다. 브라우저로 다시 받는다"; $bad++; continue }
+        $tmp = Join-Path $Dest '_wildscenes_unzip'
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp
+        New-Item -ItemType Directory -Force $tmp | Out-Null
+        & tar.exe -xf $z.FullName -C $tmp
+        if ($LASTEXITCODE -ne 0) { Write-Bad "$label 를 풀지 못했다(남은 공간을 본다)"; $bad++; continue }
+        $src = Get-ChildItem $tmp -Recurse -Directory | Where-Object { $_.Name -match '^WildScenes_?2d$' } | Select-Object -First 1
+        if (-not $src) {
+            Write-Bad "$label 안에 WildScenes2d 폴더가 없다. 포털에서 WildScenes2d 아래 폴더를 골라 받았는지 본다"
+            $bad++; Remove-Item -Recurse -Force $tmp; continue
+        }
+        # robocopy /MOVE /E : 같은 이름 폴더(V-01 등)가 이미 있어도 합쳐서 옮긴다
+        & robocopy.exe $src.FullName $wdir /E /MOVE /NFL /NDL /NJH /NJS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) { Write-Bad "$label 옮기기 실패(robocopy $LASTEXITCODE)"; $bad++; continue }
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmp
+        Set-Content -Path "$($z.FullName).done" -Value (Get-Date -Format 'yyyy-MM-dd HH:mm')
+        Write-Ok "$label 정리함"
+    }
+    $m = Get-ChildItem $wdir -Recurse -File | Measure-Object -Property Length -Sum
+    $seqs = @(Get-ChildItem $wdir -Directory | ForEach-Object { $_.Name }) -join ', '
+    if ($bad) { $result['wildscenes'] = '실패' }
+    else {
+        [IO.File]::WriteAllText("$wdir.ok", "files=$($m.Count) bytes=$($m.Sum)`n", (New-Object Text.UTF8Encoding $false))
+        Write-Ok "wildscenes 정리함: 파일 $($m.Count)개, $(Format-Size $m.Sum), 시퀀스 $seqs"
+        Write-Info '    포털의 WildScenes2d 시퀀스가 모두 있는지 위 목록과 비교한다. 빠졌으면 그 zip 을 더 받아 넣고 다시 실행한다.'
+        $result['wildscenes'] = '받음'
+    }
+} elseif ($doWild) {
     $wdir = Join-Path $Dest 'wildscenes'
     if (Test-Path "$wdir.ok") {
         Write-Host '  wildscenes : 이미 받음'; $result['wildscenes'] = '받음'
