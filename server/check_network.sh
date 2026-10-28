@@ -5,6 +5,7 @@
 #   bash check_network.sh listen            서버 사이 속도 재기: 받는 쪽(먼저 실행, 2분 기다림)
 #   bash check_network.sh send <받는 쪽 IP>  서버 사이 속도 재기: 보내는 쪽(10초)
 #   bash check_network.sh disk <폴더>        그 폴더(NAS 나 /app)의 쓰기·읽기 속도(임시 파일 4 GB 를 쓰고 지움)
+#   JOBS=8 bash check_network.sh disk <폴더> 여러 줄기로 동시에(여럿이 함께 쓸 때의 전체 속도)
 # 숫자는 GB/s(초당 기가바이트)와 Gbps(초당 기가비트, 카드 속도 단위)를 같이 보여 준다. 1 GB/s = 8 Gbps.
 set -uo pipefail
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
@@ -27,6 +28,11 @@ nic_line() {
     [ -d "$d/device" ] || kind="$kind(가상)"
     addr=$(ip -4 -br addr show "$n" 2>/dev/null | awk '{print $3}')
     echo "  $(pad "$n" 16)$(pad "$kind" 16)$(pad "$state" 8)$(pad "${speed:+$((speed / 1000)) Gbps}" 11)$(pad "$mtu" 7)${addr:--}"
+    # 묶은 카드(bond): 어떤 카드를 묶었는지와 나눠 보내는 방식. 한 연결(TCP 하나)은 카드 하나 속도를 넘지 못한다
+    if [ -d "$d/bonding" ]; then
+        echo "      = $(cat "$d/bonding/slaves" 2>/dev/null | sed 's/ / + /g'),  모드 $(cut -d' ' -f1 "$d/bonding/mode" 2>/dev/null), 나누는 기준 $(cut -d' ' -f1 "$d/bonding/xmit_hash_policy" 2>/dev/null)"
+        echo "        한 연결(scp 하나 등)은 카드 하나 속도까지만 나와요. 여러 연결을 동시에 해야 합친 속도가 나와요"
+    fi
 }
 # IP 로 가는 카드와 그 카드의 속도
 route_to() {
@@ -46,6 +52,7 @@ cmd_info() {
     command -v ip >/dev/null || warn 'ip 명령(iproute2)이 없어 주소와 경로를 못 봐요'
     echo "  $(pad 이름 16)$(pad 종류 16)$(pad 상태 8)$(pad 속도 11)$(pad MTU 7)IPv4"
     for d in /sys/class/net/*; do
+        [ -d "$d" ] || continue   # bonding_masters 같은 파일은 뺀다
         n=$(basename "$d")
         case "$n" in lo|docker*|veth*|br-*|ifb*|virbr*|cni*|flannel*|tap*|tun*) continue ;; esac   # 컨테이너·가상 카드는 뺀다
         nic_line "$n"
@@ -55,10 +62,14 @@ cmd_info() {
         head_ 'InfiniBand·RoCE (GPU 서버끼리 빠르게 주고받는 카드)'
         for p in /sys/class/infiniband/*/ports/*; do
             [ -e "$p/rate" ] || continue
-            printf '  %-12s 포트 %s  %-8s %s  (%s)\n' "$(basename "$(dirname "$(dirname "$p")")")" "$(basename "$p")" \
-                "$(cut -d: -f2 "$p/state" | tr -d ' ')" "$(cat "$p/rate")" "$(cat "$p/link_layer" 2>/dev/null)"
+            local hca nd ndip
+            hca=$(basename "$(dirname "$(dirname "$p")")")
+            nd=$(ls "/sys/class/infiniband/$hca/device/net" 2>/dev/null | head -1)
+            ndip=$(ip -4 -br addr show "$nd" 2>/dev/null | awk '{print $3}')
+            echo "  $(pad "$hca" 10)포트 $(basename "$p")  $(pad "$(cut -d: -f2 "$p/state" | tr -d ' ')" 8)$(pad "$(cat "$p/rate")" 22)$(pad "${nd:--}" 13)${ndip:-IP 없음}"
         done
-        echo "  ACTIVE 가 있으면 서버끼리 이 카드로 이어져 있을 수 있어요. 어디에 연결됐는지는 서버 관리 팀에 물어보세요."
+        echo "  IP 가 있는 포트는 NAS·IP 통신용, IP 가 없는 포트는 보통 GPU 서버끼리 RDMA(NCCL)로만 쓰는 포트예요."
+        echo "  다른 서버와 같은 InfiniBand 망인지는 root 로 iblinkinfo 나 ibnetdiscover 를 실행하면 보여요(다른 서버 이름이 나오면 같은 망)."
     fi
 
     head_ 'NAS (네트워크 저장소)'
@@ -152,17 +163,23 @@ cmd_disk() {
     [ -d "$dir" ] && [ -w "$dir" ] || { bad "$dir 에 쓸 수 없어요(없거나 권한 없음)"; exit 1; }
     local free; free=$(df -Pk "$dir" | awk 'NR==2 {print int($4/1048576)}')
     [ "$free" -gt $((size_gb * 2)) ] || { bad "남은 공간이 ${free} GB 라 시험 파일(${size_gb} GB)을 쓰기 어려워요"; exit 1; }
+    local jobs=${JOBS:-1} i cnt
     f="$dir/.b200_speedtest.$$"; b=$((size_gb * 1024 * 1024 * 1024))   # f 는 끝날 때 지우려고 전역
-    trap 'rm -f "$f"' EXIT
-    echo "${c_c}[$(hostname)] $dir 속도 ($(df -P "$dir" | awk 'NR==2 {print $1}'), 시험 파일 ${size_gb} GB)${c_0}"
+    cnt=$((size_gb * 64 / jobs)); [ "$cnt" -ge 1 ] || cnt=1; b=$((cnt * jobs * 16 * 1024 * 1024))
+    trap 'rm -f "$f".*' EXIT
+    echo "${c_c}[$(hostname)] $dir 속도 ($(df -P "$dir" | awk 'NR==2 {print $1}'), 시험 파일 합계 $((b >> 30)) GB, ${jobs}줄기)${c_0}"
     t0=$(date +%s.%N)
-    dd if=/dev/zero of="$f" bs=16M count=$((size_gb * 64)) oflag=direct conv=fsync status=none 2>/dev/null ||
-        dd if=/dev/zero of="$f" bs=16M count=$((size_gb * 64)) conv=fsync status=none
+    for i in $(seq 1 "$jobs"); do
+        { dd if=/dev/zero of="$f.$i" bs=16M count="$cnt" oflag=direct conv=fsync status=none 2>/dev/null ||
+          dd if=/dev/zero of="$f.$i" bs=16M count="$cnt" conv=fsync status=none; } &
+    done; wait
     t1=$(date +%s.%N); echo "  쓰기: $(rate "$b" "$(awk -v a="$t1" -v b="$t0" 'BEGIN{print a-b}')")"
     t0=$(date +%s.%N)
-    dd if="$f" of=/dev/null bs=16M iflag=direct status=none 2>/dev/null || dd if="$f" of=/dev/null bs=16M status=none
+    for i in $(seq 1 "$jobs"); do
+        { dd if="$f.$i" of=/dev/null bs=16M iflag=direct status=none 2>/dev/null || dd if="$f.$i" of=/dev/null bs=16M status=none; } &
+    done; wait
     t1=$(date +%s.%N); echo "  읽기: $(rate "$b" "$(awk -v a="$t1" -v b="$t0" 'BEGIN{print a-b}')")"
-    echo "  (한 줄기로 잰 값이에요. 여러 명이 동시에 쓰면 나눠 가져요)"
+    [ "$jobs" = 1 ] && echo "  (한 줄기로 잰 값이에요. 전체 속도는 JOBS=8 을 앞에 붙여 재요)"
 }
 
 case "${1:-}" in

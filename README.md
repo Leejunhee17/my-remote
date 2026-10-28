@@ -71,6 +71,9 @@ cd D:\b200
 해결이 안 되면 `docs/4_문제_해결.md` 를 보세요.
 
 ## 네트워크 점검 결과
+
+분석과 정한 것은 `docs/6_서버_관리.md` 의 "두 서버와 NAS"에 있어요.
+
 ```
 [root@server1:/home/shareduser/inbox][root@server1:/home/shareduser/inbox]bash check_network.sh disk /data/tmp
 [server1] /data/tmp 속도 (NAS망-IP:/nas, 시험 파일 4 GB)
