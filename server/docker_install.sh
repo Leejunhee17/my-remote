@@ -119,11 +119,11 @@ EOF
 fi
 mkdir -p "$DATA" && chown "$ACC:$ACC" "$DATA" && chmod 700 "$DATA"
 mkdir -p "$CONF"
+# 기본 런타임은 runc 그대로 둔다. nvidia 를 기본으로 하면 --gpus 없이 띄운 CUDA 이미지에도 GPU 8장이 모두 보인다
 cat > "$CONF/daemon.json" <<EOF
 {
   "data-root": "$DATA",
   "runtimes": { "nvidia": { "path": "nvidia-container-runtime", "args": [] } },
-  "default-runtime": "nvidia",
   "log-opts": { "max-size": "50m", "max-file": "3" }
 }
 EOF
@@ -157,7 +157,8 @@ EOF
 # 팀원 셸에서 docker 명령이 이 데몬을 쓰게 한다
 cat > /etc/profile.d/b200-docker.sh <<EOF
 # b200 docker_install.sh 가 만든 파일
-case ":\$PATH:" in *":$OPT/current:"*) ;; *) PATH="$OPT/current:\$PATH" ;; esac
+# 뒤에 붙인다. 앞에는 /app/shared/bin/docker(이름표를 붙이고 GPU 겹침을 경고하는 docker)가 온다
+case ":\$PATH:" in *":$OPT/current:"*) ;; *) PATH="\$PATH:$OPT/current" ;; esac
 if [ "\$(id -un)" = "$ACC" ]; then export DOCKER_HOST=unix:///run/user/$UID_A/docker.sock; fi
 EOF
 ok 'b200-docker 서비스와 /etc/profile.d/b200-docker.sh 만듦'
@@ -181,12 +182,12 @@ as_acc docker info --format '{{.SecurityOptions}} {{.DockerRootDir}}' | grep -q 
     ok "rootless 로 동작, 저장 위치 $(as_acc docker info --format '{{.DockerRootDir}}')" ||
     stop 'rootless 로 동작하지 않는다' 'docker info 결과를 본다.'
 as_acc docker info --format '{{json .Runtimes}}' | grep -q nvidia && ok 'GPU 런타임(nvidia) 등록됨' || warn 'GPU 런타임이 보이지 않는다'
-echo "  GPU 컨테이너 실행은 이미지를 처음 들여온 뒤 확인한다: b200 doctor"
+echo "  GPU 컨테이너 실행은 이미지를 처음 들여온 뒤 확인한다: b200 doctor <이미지>"
 
 echo
 echo "${c_g}############################ 완료 ############################${c_0}"
 echo " 공용 계정 $ACC 전용 rootless Docker $(info docker)"
-echo " 팀원은 다시 접속하면 docker 명령을 바로 쓴다(b200 docker 권장)."
+echo " 팀원은 다시 접속하면 docker 명령을 바로 쓴다. GPU는 --gpus 로 정한 것만 보인다."
 echo " 관리: systemctl status|restart b200-docker,  기록: journalctl -u b200-docker"
 echo " 정리: rm -rf $HERE/*"
 echo "${c_g}##############################################################${c_0}"

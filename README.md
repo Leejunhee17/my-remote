@@ -7,13 +7,12 @@
 
 | 대상 | 자료 | 내용 |
 |---|---|---|
-| **팀원(모두)** | `team/서버_사용_규칙.xlsx`, `team/서버_사용_규칙.md` | 규칙 6가지, 자주 쓰는 명령, GPU 배분, 폴더 (한눈에 보는 용도) |
-| | `team/사용_안내.md` | 명령별 사용법, Python 환경, 모델 불러오기, Jupyter, 도커·이미지 반입 |
-| | `team/image_download.ps1` | 각자 접근 PC에서 공개 도커 이미지를 받는 파일(이 파일 하나만 나눠 줘요) |
+| **팀원(모두)** | `team/서버_사용_규칙.xlsx`, `team/서버_사용_규칙.md` | 규칙 5가지, 자주 쓰는 명령, GPU 배분, 폴더 (한눈에 보는 용도) |
+| | `team/사용_안내.md` | 코드·이미지 반입 → `docker load` → 컨테이너 → 안에서 수정까지, 모델 불러오기, Jupyter 대안 |
 | **관리자(나)** | 이 README, `docs/` | 반입·설치·서버 관리 절차 |
 | | `pc/` | 접근 PC에서 실행하는 받기 스크립트 |
 | | `server/` | B200 서버에서 root 나 공용 계정으로 실행하는 설치 스크립트 |
-| | `server/bin/b200` | 팀원이 쓰는 명령. 관리자가 `/app/shared/bin` 에 깔아요 |
+| | `server/bin/` | 팀원이 평소처럼 쓰는 `docker`, `nvidia-smi` 뒤에서 이름표·경고·"누가 쓰나" 표를 붙이는 도우미와 정기 점검(`b200`). 관리자가 `/app/shared/bin` 에 깔아요 |
 | | `lists/` | 받을 목록(기초 프로그램, 공용 휠, 모델) |
 
 받은 결과는 저장소 맨 위의 `pack\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요(git에는 올라가지 않아요).
@@ -26,13 +25,14 @@
 | 인터넷 | 돼요. 여기서 내려받아요 | 안 돼요 |
 | 접속 | | HIWARE 를 거쳐요. 팀원은 모두 공용 계정 `shareduser`, 관리자는 별도 root 계정 |
 | 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD |
-| 주요 위치 | `D:\b200` | 공용 `/app/shared`(root 만 고침), 작업 `/app/workspace/<이름>`, 기록 `/app/state`, 올리는 곳 `/app/inbox`, 도커 `/app/docker` |
+| 주요 위치 | `D:\b200` | 공용 `/app/shared`(root 만 고침), 작업 `/app/workspace/<이름>`, 기록·알림 `/app/state`, 관리자 설치 파일 `/app/inbox`(root 만 올림), 도커 `/app/docker` |
+| 대수 | | 2대(서로 연결 여부·대역폭 확인 전). 모든 단계를 서버마다 해요 |
 
 ## 한눈에 보기 (관리자)
 
 | 단계 | ⓐ 접근 PC (PowerShell, `D:\b200`) | ⓑ 올릴 것 → `/app/inbox` | ⓒ B200 서버 (root) |
 |---|---|---|---|
-| 0. 서버 점검 | 없음 | `server\check_server.sh` | `bash /app/inbox/check_server.sh` |
+| 0. 서버 점검 | 없음 | `server\check_server.sh`, `server\check_network.sh` | `bash /app/inbox/check_server.sh`, `bash /app/inbox/check_network.sh <다른 서버 IP>` |
 | 1. 공용 휠·기초 프로그램 | `.\pc\pack_build.ps1` | `pack\b200-pack.tar` | `cd /app/inbox && tar xf b200-pack.tar && bash pack_install.sh /app/shared` |
 | 2. 관리자 기본 설정 | (1단계 묶음에 들어 있어요) | | `cd /app/inbox && bash admin_setup.sh` |
 | 3. 도커 | `.\pc\docker_pack.ps1` | `pack_docker\b200-docker.tar` | `cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh` |
@@ -40,7 +40,7 @@
 | 5. 사전학습 모델 | `.\pc\models_download.ps1` | `models` 폴더 | `bash /app/inbox/models/models_install.sh` |
 
 - 접근 PC 명령 앞에는 모두 `powershell -ExecutionPolicy Bypass -File` 이 붙어요.
-- 2단계(`admin_setup.sh`) 뒤에는 `/app/shared` 가 잠겨서, 1·4·5단계 설치는 root 로만 돼요.
+- 2단계(`admin_setup.sh`) 뒤에는 `/app/shared` 와 `/app/inbox` 가 잠겨서, 설치 파일은 root 로 올리고 root 로 설치해요.
 - 모든 명령은 여러 번 다시 실행해도 돼요. 끝난 것은 건너뛰고, 받다 만 것은 이어서 받아요.
 - 단계마다 자세한 내용은 `docs/` 를 보세요. 처음 설치 순서는 `docs/5_우분투_재설치.md`, 운영은 `docs/6_서버_관리.md` 예요.
 

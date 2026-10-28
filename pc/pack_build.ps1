@@ -43,7 +43,7 @@ foreach ($e in 'curl.exe', 'tar.exe') {
 if ($script:Fails) {
     Stop-Run '필요한 프로그램이 없다' 'uv, micromamba 를 설치하고 PowerShell 창을 새로 연다. 또는 uv.exe, micromamba.exe 를 이 폴더에 넣는다.'
 }
-$scripts = @('pack_install.sh', 'move_shared.sh', 'check_server.sh', 'admin_setup.sh', 'bin/b200', 'bin/rules.txt')   # 묶음에 같이 넣는 서버 파일
+$scripts = @('pack_install.sh', 'move_shared.sh', 'check_server.sh', 'check_network.sh', 'admin_setup.sh', 'bin/b200', 'bin/docker', 'bin/nvidia-smi')   # 묶음에 같이 넣는 서버 파일
 foreach ($f in @('lists\tools.txt', 'lists\wheels.txt') + @($scripts | ForEach-Object { 'server\' + ($_ -replace '/', '\') })) {
     if (-not (Test-Path (Join-Path $root $f))) { Stop-Run "$f 가 없다" 'git pull 로 저장소를 최신으로 받는다.' }
 }
