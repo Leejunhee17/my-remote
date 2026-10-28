@@ -8,6 +8,10 @@ set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행한다. 접근 PC에서는 .ps1 을 쓴다."; exit 1; fi
 cd "$(dirname "$0")"
 HERE=$PWD
+# root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
+if [ "$(id -u)" = 0 ] && [ -d /app ] && { [ "$(stat -c %U /app)" != root ] || [ -L /app/shared ] || [ -L /app/workspace ]; }; then
+    echo "멈춤: /app 이 아직 잠기지 않았다. 먼저 root 로 bash admin_setup.sh 를 실행한다."; exit 1
+fi
 
 # 공용 폴더를 큰 디스크에 두라고 했으면 ~/shared 를 그곳으로 가는 링크로 만든다.
 # 이후 모든 경로는 ~/shared 로 쓰므로 문서와 다른 스크립트를 그대로 쓸 수 있다.

@@ -33,14 +33,15 @@
 | 단계 | ⓐ 접근 PC (PowerShell, `D:\b200`) | ⓑ 올릴 것 → `/app/inbox` | ⓒ B200 서버 (root) |
 |---|---|---|---|
 | 0. 서버 점검 | 없음 | `server\check_server.sh`, `server\check_network.sh` | `bash /app/inbox/check_server.sh`, 두 서버에서 각각 `bash /app/inbox/check_network.sh all` |
-| 1. 공용 휠·기초 프로그램 | `.\pc\pack_build.ps1` | `pack\b200-pack.tar` | `cd /app/inbox && tar xf b200-pack.tar && bash pack_install.sh /app/shared` |
-| 2. 관리자 기본 설정 | (1단계 묶음에 들어 있어요) | | `cd /app/inbox && bash admin_setup.sh` |
+| 1. 관리자 기본 설정 | `.\pc\pack_build.ps1` | `pack\b200-pack.tar` | `cd /app/inbox && tar xf b200-pack.tar && bash admin_setup.sh` |
+| 2. 공용 휠·기초 프로그램 | (1단계 묶음에 들어 있어요) | | `cd /app/inbox && bash pack_install.sh /app/shared` |
 | 3. 도커 | `.\pc\docker_pack.ps1` | `pack_docker\b200-docker.tar` | `cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh` |
 | 4. 데이터셋 | `.\pc\datasets_download.ps1` | `datasets` 폴더 | `bash /app/inbox/datasets/datasets_install.sh` |
 | 5. 사전학습 모델 | `.\pc\models_download.ps1` | `models` 폴더 | `bash /app/inbox/models/models_install.sh` |
 
 - 접근 PC 명령 앞에는 모두 `powershell -ExecutionPolicy Bypass -File` 이 붙어요.
-- 2단계(`admin_setup.sh`) 뒤에는 `/app/shared` 와 `/app/inbox` 가 잠겨서, 설치 파일은 root 로 올리고 root 로 설치해요.
+- **`admin_setup.sh` 를 맨 먼저 해요.** `/app` 과 `/app/shared`, `/app/inbox` 를 root 만 고칠 수 있게 잠가요. 잠그기 전에 root 로 설치하면 공용 계정이 심어 둔 링크를 따라 시스템 폴더에 쓸 수 있어서, 설치 스크립트들이 먼저 잠겼는지 확인하고 아니면 멈춰요.
+- 잠근 뒤에는 설치 파일을 root 로 올리고 root 로 설치해요.
 - 모든 명령은 여러 번 다시 실행해도 돼요. 끝난 것은 건너뛰고, 받다 만 것은 이어서 받아요.
 - 단계마다 자세한 내용은 `docs/` 를 보세요. 처음 설치 순서는 `docs/5_우분투_재설치.md`, 운영은 `docs/6_서버_관리.md` 예요.
 

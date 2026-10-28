@@ -49,14 +49,25 @@ sudo -l -U "$ACC" 2>/dev/null | grep -q 'may run' && warn "$ACC 가 sudo 를 쓸
 # ------------------------------------------------------------------ 2. 폴더
 step '2. 폴더와 잠금'
 [ -d /app ] || stop '/app 이 없다' '2 TB SSD 를 /app 에 연결한다.'
-mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice} /app/inbox
+[ -L /app ] && stop '/app 이 링크다' 'ls -l /app 으로 확인하고 서버 관리 팀과 실제 디스크로 연결한다.'
+# /app 은 root 만 고칠 수 있게 한다. 공용 계정이 /app 에 쓸 수 있으면 shared·state 같은 이름으로 시스템 폴더 링크를 심어 두고,
+# 아래 chown·chmod(링크를 따라간다)를 시스템 폴더에 하게 만들 수 있다. 잠근 뒤에 링크가 있는지 본다
+chown root:root /app && chmod 755 /app
+for d in "$S" "$W" "$ST" /app/inbox /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen}; do
+    [ -L "$d" ] && stop "$d 가 링크다(누가 만들었는지 모른다)" "ls -l $d 로 확인하고, 이상하면 링크를 지운 뒤 다시 실행한다."
+done
+mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen} /app/inbox
 # 공용: root 만 쓰고 모두 읽는다
 chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S"
 ok "$S : root 만 고친다, 팀원은 읽기만"
 # 작업 공간과 기록: 공용 계정이 쓴다(보고서만 root)
 chown "$ACC:$ACC" "$W" && chmod 755 "$W"
-chown -R "$ACC:$ACC" "$ST" && chown root:root "$ST/reports" "$ST/gpu_log" && chmod 755 "$ST" "$ST/reports" "$ST/gpu_log"
-touch "$ST/images/loaded.tsv" && chown "$ACC:$ACC" "$ST/images/loaded.tsv"   # docker 래퍼(공용 계정)가 이미지를 들여온 사람을 적는다
+# 기록 폴더: 공용 계정이 쓰는 곳(history, images, notice_seen)과 root 만 쓰는 곳(reports, gpu_log, notice)을 나눈다.
+# root 는 공용 계정이 쓸 수 있는 곳에 파일을 만들거나 고치지 않는다(미리 심어 둔 링크로 시스템 파일을 덮거나 주인을 바꿀 수 있다)
+chown root:root "$ST" && chmod 755 "$ST"   # root 소유라야 공용 계정이 아래 root 폴더를 바꿔치기하지 못한다
+for d in history images notice_seen; do chown -R "$ACC:$ACC" "$ST/$d"; done
+for d in reports gpu_log notice; do chown -R root:root "$ST/$d" && chmod 755 "$ST/$d"; done
+runuser -u "$ACC" -- touch "$ST/images/loaded.tsv"   # docker 래퍼(공용 계정)가 이미지를 들여온 사람을 적는다
 # root 가 실행할 설치 파일을 두는 곳. 공용 계정이 고칠 수 있으면 누구든 root 로 원하는 명령을 실행시킬 수 있다
 chown root:root /app/inbox && chmod 755 /app/inbox
 [ -d /app/inbox/images ] && rmdir /app/inbox/images/* /app/inbox/images 2>/dev/null
@@ -88,7 +99,7 @@ n_team=$(grep -cvE '^\s*(#|$)' "$S/team.txt")
 [ "$n_team" -gt 0 ] && ok "팀원 $n_team 명 등록됨 ($S/team.txt)" ||
     warn "팀원 명단이 비어 있다. $S/team.txt 에 '이름 그룹' 을 적는다(비어 있으면 번호 목록 없이 아무 이름이나 받는다)"
 grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
-    [ -d "$W/$name" ] || { mkdir -p "$W/$name/images" && chown -R "$ACC:$ACC" "$W/$name"; echo "    작업 폴더 만듦: $W/$name"; }
+    [ -d "$W/$name" ] || { runuser -u "$ACC" -- mkdir -p "$W/$name/images" && echo "    작업 폴더 만듦: $W/$name"; }
 done
 # 알림 기준 숫자. 바꾸면 규칙 문서(team/)의 숫자도 같이 바꾼다. 예전 설정(자동 종료 등)이 있으면 새로 쓴다
 grep -q '^IDLE_HOURS=' "$S/b200.conf" 2>/dev/null || cat > "$S/b200.conf" <<'EOF'
@@ -108,9 +119,9 @@ for f in b200 docker nvidia-smi; do
 done
 rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"   # 예전 판의 파일
 ok "$S/bin: docker(이름표·GPU 겹침 경고), nvidia-smi(누가 쓰나 표), b200(접속 인사·정기 점검)"
-# docker ps 에 사람(USER)과 GPU 열을 보이게 한다(공용 계정의 docker 설정)
-mkdir -p "$HOME_A/.docker"
-python3 - "$HOME_A/.docker/config.json" <<'PY'
+# docker ps 에 사람(USER)과 GPU 열을 보이게 한다(공용 계정의 docker 설정). 공용 계정 홈이라 공용 계정 권한으로 쓴다
+runuser -u "$ACC" -- mkdir -p "$HOME_A/.docker"
+runuser -u "$ACC" -- python3 - "$HOME_A/.docker/config.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 try: c = json.load(open(p))
@@ -118,7 +129,6 @@ except Exception: c = {}
 c["psFormat"] = 'table {{.Names}}\t{{.Label "b200.USER"}}\t{{.Label "b200.GPUS"}}\t{{.Image}}\t{{.Status}}'
 json.dump(c, open(p, "w"), indent=2)
 PY
-chown -R "$ACC:$ACC" "$HOME_A/.docker"
 ok 'docker ps 에 USER(이름), GPUS 열 추가'
 
 

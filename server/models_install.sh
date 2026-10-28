@@ -7,6 +7,10 @@ set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행한다. 접근 PC에서는 .ps1 을 쓴다."; exit 1; fi
 cd "$(dirname "$0")"
 SRC=$PWD
+# root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
+if [ "$(id -u)" = 0 ] && [ -d /app ] && { [ "$(stat -c %U /app)" != root ] || [ -L /app/shared ] || [ -L /app/workspace ]; }; then
+    echo "멈춤: /app 이 아직 잠기지 않았다. 먼저 root 로 bash admin_setup.sh 를 실행한다."; exit 1
+fi
 # 공용 폴더 실제 위치. 관리자 설정(admin_setup.sh) 뒤에는 /app/shared 이고 root 만 고칠 수 있다
 SH=$(realpath -m "$HOME/shared"); [ -d /app/shared ] && SH=/app/shared
 if [ -d "$SH" ] && [ ! -w "$SH" ]; then

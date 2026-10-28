@@ -168,14 +168,18 @@ cmd_send() {
 }
 
 cmd_disk() {
-    local dir=${1:?폴더를 적으세요: bash check_network.sh disk /mnt/nas/내폴더} size_gb=${SIZE_GB:-4} t0 t1 b
+    local dir=${1:?폴더를 적으세요: bash check_network.sh disk /mnt/nas/내폴더} size_gb=${SIZE_GB:-4} t0 t1 b f
+    [[ "$size_gb" =~ ^[0-9]+$ ]] && [ "$size_gb" -ge 1 ] || size_gb=4
     [ -d "$dir" ] && [ -w "$dir" ] || { bad "$dir 에 쓸 수 없어요(없거나 권한 없음)"; exit 1; }
     local free; free=$(df -Pk "$dir" | awk 'NR==2 {print int($4/1048576)}')
     [ "$free" -gt $((size_gb * 2)) ] || { bad "남은 공간이 ${free} GB 라 시험 파일(${size_gb} GB)을 쓰기 어려워요"; exit 1; }
     local jobs=${JOBS:-1} i cnt
-    f="$dir/.b200_speedtest.$$"; b=$((size_gb * 1024 * 1024 * 1024))   # f 는 끝날 때 지우려고 전역
+    [[ "$jobs" =~ ^[0-9]+$ ]] && [ "$jobs" -ge 1 ] || jobs=1
+    # 시험 파일은 새로 만든 내 폴더 안에만 쓴다(남이 같은 이름의 링크를 심어 두어도 따라가지 않게)
+    TD=$(mktemp -d "$dir/.b200_speedtest.XXXXXX") || { bad "$dir 에 시험 폴더를 만들지 못했어요"; exit 1; }
+    trap 'rm -rf "$TD"' EXIT   # TD 는 끝날 때 지우려고 전역
+    f="$TD/t"
     cnt=$((size_gb * 64 / jobs)); [ "$cnt" -ge 1 ] || cnt=1; b=$((cnt * jobs * 16 * 1024 * 1024))
-    trap 'rm -f "$f".*' EXIT
     echo "${c_c}[$(hostname)] $dir 속도 ($(df -P "$dir" | awk 'NR==2 {print $1}'), 시험 파일 합계 $((b >> 30)) GB, ${jobs}줄기)${c_0}"
     t0=$(date +%s.%N)
     for i in $(seq 1 "$jobs"); do
@@ -220,7 +224,23 @@ active_hcas() {
     done | tr '\n' ' '
 }
 field() { grep -m1 "^$1=" "$2" 2>/dev/null | cut -d= -f2-; }   # 짝 정보 파일은 읽기만 한다(실행하지 않음)
-gbs() { grep -oE '[0-9.]+ GB/s \([0-9.]+ Gbps\)' | tail -1; }
+# 짝 정보는 같은 NAS 를 쓰는 누구나 고칠 수 있는 파일에서 온다. 모양이 맞는 값만 쓴다
+# (예: PORT 에 산술식을 넣으면 $(( )) 안에서 명령이 실행된다)
+peer_ok() {
+    local f=$1 ip='([0-9]{1,3}\.){3}[0-9]{1,3}'
+    [[ "$(field HOST "$f")" =~ ^[A-Za-z0-9._-]{1,64}$ ]] &&
+    [[ "$(field ETH "$f")" =~ ^$ip$ ]] &&
+    [[ "$(field IB "$f")" =~ ^(($ip) ?)*$ ]] &&
+    [[ "$(field HCAS "$f")" =~ ^([A-Za-z0-9_]+ ?)*$ ]] &&
+    [[ "$(field PORT "$f")" =~ ^[0-9]{1,5}$ ]] &&
+    [[ "$(field PERFTEST "$f")" =~ ^1?$ ]]
+}
+# 파일을 바로 쓰지 않고 새 임시 파일을 만든 뒤 이름을 바꾼다(그 자리에 링크가 있어도 링크를 따라가지 않는다)
+put() {   # $1 경로, 내용은 표준 입력
+    local t; t=$(mktemp "$(dirname "$1")/.tmp.XXXXXX") || return 1
+    cat > "$t" && chmod 644 "$t" && mv -f "$t" "$1"   # 다른 서버(다른 계정일 수도)가 읽을 수 있게
+}
+gbs() { local v; v=$(grep -oE '[0-9.]+ GB/s \([0-9.]+ Gbps\)' | tail -1); [ -n "$v" ] && echo "$v"; }
 wait_file() {   # $1 파일이 $2 파일보다 새것으로 생길 때까지 $3 초 기다린다
     local i; for i in $(seq 1 "$3"); do [ -f "$1" ] && [ ! "$1" -ot "$2" ] && return 0; sleep 1; done; return 1
 }
@@ -233,10 +253,8 @@ pair_tcp() {   # $1 이름 $2 내 포트 $3 짝 IP $4 짝 포트
     local sent; sent=$(python3 -c "$PY_SEND" "$3" "$4" "$STREAMS" "$SECS" 60 2>&1)
     wait "$lp"
     local got; got=$(grep -v '기다려요' "$tmp"); rm -f "$tmp"
-    echo "  보내기 → $3: $(echo "$sent" | gbs)"
-    echo "$sent" | grep -q '연결하지 못' && echo "    (연결하지 못했어요)"
-    echo "  받기 ← $3: $(echo "$got" | gbs || true)"
-    echo "$got" | grep -q '오지 않았' && echo "    (짝이 보내지 못했어요)"
+    echo "  보내기 → $3: $(echo "$sent" | gbs || echo '실패(연결하지 못했어요)')"
+    echo "  받기 ← $3: $(echo "$got" | gbs || echo '실패(짝이 보내지 못했어요)')"
     SUM+=("서버 사이 $1: 받기 $(echo "$got" | gbs || echo '실패'), 보내기 $(echo "$sent" | gbs || echo '실패')")
 }
 
@@ -245,11 +263,11 @@ pair_rdma() {   # 같은 이름의 InfiniBand 카드끼리 RDMA 쓰기 속도(pe
     for hca in $hcas; do
         i=$((i + 1))
         if [ "$role" = A ]; then
-            out=$(timeout 60 ib_write_bw -d "$hca" -p $((18514 + i)) -D 5 -F --report_gbits 2>&1)
+            out=$(timeout 45 ib_write_bw -d "$hca" -p $((18514 + i)) -D 5 -F --report_gbits 2>&1)
         else
             # 짝이 아직 안 켜졌으면(연결 거부) 다시 시도. 연결은 됐는데 실패하면 그 카드는 거기서 끝
-            local t; for t in $(seq 1 70); do
-                out=$(timeout 30 ib_write_bw -d "$hca" -p $((18514 + i)) -D 5 -F --report_gbits "$peer_eth" 2>&1) && break
+            local t; for t in $(seq 1 60); do
+                out=$(timeout 25 ib_write_bw -d "$hca" -p $((18514 + i)) -D 5 -F --report_gbits "$peer_eth" 2>&1) && break
                 echo "$out" | grep -qi "couldn't connect" || break
                 sleep 1
             done
@@ -267,30 +285,41 @@ disk_both() {   # 한 줄기와 8줄기
     local name=$1 dir=$2 r1 r8
     r1=$( (JOBS=1 cmd_disk "$dir") 2>&1); echo "$r1"
     r8=$( (JOBS=8 cmd_disk "$dir") 2>&1); echo "$r8"
-    SUM+=("$name 1줄기: 쓰기 $(echo "$r1" | grep 쓰기 | gbs) / 읽기 $(echo "$r1" | grep 읽기 | gbs)")
-    SUM+=("$name 8줄기: 쓰기 $(echo "$r8" | grep 쓰기 | gbs) / 읽기 $(echo "$r8" | grep 읽기 | gbs)")
+    SUM+=("$name 1줄기: 쓰기 $(echo "$r1" | grep 쓰기 | gbs || echo 실패) / 읽기 $(echo "$r1" | grep 읽기 | gbs || echo 실패)")
+    SUM+=("$name 8줄기: 쓰기 $(echo "$r8" | grep 쓰기 | gbs || echo 실패) / 읽기 $(echo "$r8" | grep 읽기 | gbs || echo 실패)")
 }
 
 all_body() {
-    local nas R peer= pf role mine local_dir
+    local nas R peer= pf role mine local_dir PINFO=
     nas=$(nas_dir "${1:-}")
     echo "${c_c}[턴키 점검] $ME  $(date '+%F %T')  ($(id -un))${c_0}"
     [ "$(id -u)" = 0 ] || warn 'root 가 아니라 InfiniBand 망 조회(ibhosts)는 건너뛰어요'
     cmd_info
 
     # 짝 찾기
+    R="$nas/.b200_net"
+    if [ -n "$nas" ] && { [ -L "$R" ] || [ -L "$nas" ]; }; then
+        warn "$R 이 링크라 쓰지 않아요(누가 만들었는지 확인하세요). 짝 없이 이 서버만 재요"; nas=
+    fi
     if [ -n "$nas" ]; then
-        R="$nas/.b200_net"; mkdir -p "$R" 2>/dev/null
+        mkdir -p "$R" 2>/dev/null; [ -L "$R" ] && { warn "$R 이 링크예요. 멈춰요"; return 1; }
         rm -f "$R/$ME".*
         mine="$R/$ME.info"
+        # 끝나거나 중간에 멈추면 내 정보를 지운다(남아 있으면 다음에 한쪽만 실행해도 짝이 있는 줄 안다)
+        trap 'rm -f "$mine" "$PINFO"' EXIT; trap 'rm -f "$mine" "$PINFO"; exit 130' INT TERM
         { echo "HOST=$ME"; echo "ETH=${B200_ETH:-$(eth_ip)}"; echo "IB=$(ib_ips)"; echo "HCAS=$(active_hcas)"
-          echo "PORT=$PORT"; echo "PERFTEST=$(command -v ib_write_bw >/dev/null && echo 1)"; } > "$mine.tmp" && mv "$mine.tmp" "$mine"
+          echo "PORT=$PORT"; echo "PERFTEST=$(command -v ib_write_bw >/dev/null && echo 1)"; } | put "$mine"
         head_ "짝 찾기 (NAS: $R)"
         echo "  다른 서버에서도 bash check_network.sh all 을 실행하세요. 최대 $((WAIT_PEER / 60))분 기다려요."
-        local i
+        local i rejected=' '
         for i in $(seq 1 "$WAIT_PEER"); do
             for pf in "$R"/*.info; do
-                [ -f "$pf" ] && [ "$pf" != "$mine" ] && [ -n "$(find "$pf" -mmin -30 2>/dev/null)" ] && { peer=$(field HOST "$pf"); break 2; }
+                [ -f "$pf" ] && [ ! -L "$pf" ] && [ "$pf" != "$mine" ] && [ -n "$(find "$pf" -mmin -30 2>/dev/null)" ] || continue
+                case "$rejected" in *" $pf "*) continue ;; esac
+                # 짝 정보는 지금 한 번 복사해 두고 그것만 쓴다(시각도 함께: 짝의 완료 표시가 이번 실행 것인지 가릴 때 쓴다)
+                PINFO=$(mktemp); cp -p "$pf" "$PINFO"
+                if peer_ok "$PINFO"; then peer=$(field HOST "$PINFO"); pf=$PINFO; break 2; fi
+                warn "$pf 의 내용이 이상해서 짝으로 쓰지 않아요"; rm -f "$PINFO"; rejected+=" $pf "
             done
             [ $((i % 60)) = 0 ] && echo "  ...기다리는 중 ($((i / 60))분)"
             sleep 1
@@ -302,7 +331,8 @@ all_body() {
     fi
 
     if [ -n "$peer" ]; then
-        role=B; [[ "$ME" < "$peer" ]] && role=A
+        # 이름이 앞서는 쪽이 A(RDMA 받는 쪽, NAS 먼저). 언어 설정과 상관없이 같은 결과가 나오게 C 순서로 비교한다
+        role=B; [ "$(printf '%s\n%s\n' "$ME" "$peer" | LC_ALL=C sort | head -1)" = "$ME" ] && role=A
         local peth pib pport myib
         peth=$(field ETH "$pf"); pib=$(field IB "$pf" | awk '{print $1}'); pport=$(field PORT "$pf")
         head_ "서버 사이: 이더넷 ($ME ↔ $peer, 양쪽 동시에 ${SECS}초)"
@@ -322,7 +352,7 @@ all_body() {
             warn '양쪽에 perftest(ib_write_bw)가 있어야 재요. 서버 관리 팀에 perftest 설치를 요청하세요'
             SUM+=("RDMA: perftest 없어 못 잼")
         fi
-        touch "$R/$ME.netdone"; wait_file "$R/$peer.netdone" "$pf" 180 || true
+        : | put "$R/$ME.netdone"; wait_file "$R/$peer.netdone" "$pf" 180 || true
     fi
 
     # 디스크: NAS 는 두 서버가 차례로(동시에 재면 나눠 가져서 값이 반이 된다)
@@ -331,10 +361,10 @@ all_body() {
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
         echo "  NAS 는 $peer 가 다 잴 때까지 기다려요..."; wait_file "$R/$peer.nasdone" "$pf" 900 || warn '기다리다 넘어가요'
         head_ "NAS ($nas)"; disk_both NAS "$nas"
-        touch "$R/$ME.nasdone"
+        : | put "$R/$ME.nasdone"
     else
         if [ -n "$nas" ]; then head_ "NAS ($nas)"; disk_both NAS "$nas"; fi
-        [ -n "$R" ] && touch "$R/$ME.nasdone"
+        [ -n "$nas" ] && { : | put "$R/$ME.nasdone"; }
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
         [ -n "$peer" ] && { wait_file "$R/$peer.nasdone" "$pf" 900 || true; }
     fi
@@ -354,8 +384,9 @@ all_body() {
     printf '  %s\n' "${SUM[@]}"
 }
 cmd_all() {
-    local out=network_report_${ME}_$(date +%Y%m%d-%H%M).txt
-    [ -w . ] || out=/tmp/$out
+    # 보고서는 내 폴더에만 쓴다(남이 쓸 수 있는 폴더면 같은 이름의 링크를 심어 root 가 다른 파일을 덮게 만들 수 있다)
+    local dir=.; [ -O . ] && [ -w . ] || dir=$HOME
+    local out; out=$(mktemp "$dir/network_report_${ME}_$(date +%Y%m%d-%H%M)_XXXX.txt") || out=$(mktemp)
     all_body "$@" 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' > "$out")
     sleep 1
     echo; echo "보고서: $(readlink -f "$out")  ← 이 파일 내용을 README 에 붙여 주세요"

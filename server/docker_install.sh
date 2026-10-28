@@ -117,6 +117,7 @@ EOF
     apparmor_parser -r /etc/apparmor.d/b200-rootlesskit && ok 'AppArmor: rootlesskit 허용' ||
         stop 'AppArmor 프로필 적용 실패' '위 오류를 본다.'
 fi
+[ "$(stat -c %U /app)" = root ] && [ ! -L "$DATA" ] || stop '/app 이 잠기지 않았거나 /app/docker 가 링크다' '먼저 bash admin_setup.sh 를 실행한다.'
 mkdir -p "$DATA" && chown "$ACC:$ACC" "$DATA" && chmod 700 "$DATA"
 mkdir -p "$CONF"
 # 기본 런타임은 runc 그대로 둔다. nvidia 를 기본으로 하면 --gpus 없이 띄운 CUDA 이미지에도 GPU 8장이 모두 보인다

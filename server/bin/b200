@@ -15,7 +15,9 @@ ST=$APP/state
 ACC=${B200_ACCOUNT:-shareduser}
 TEAM=$S/team.txt
 ALLOC=$S/gpu_alloc.txt
-NOTE=$ST/notice
+NOTE=$ST/notice          # 알림: root(정기 점검)만 쓰는 곳
+SEEN=$ST/notice_seen
+USED=$ST/gpu_log/images_used.tsv   # 이미지를 마지막으로 쓴 날: root 만 쓰는 곳(공용 계정 폴더에 root 가 쓰면 링크로 시스템 파일을 덮을 수 있다)     # 팀원이 어디까지 봤는지: 공용 계정이 쓰는 곳. root 는 여기를 읽거나 쓰지 않는다
 ME=${B200_USER:-}
 # 관리자가 정하는 숫자(/app/shared/b200.conf 가 있으면 그 값). 모두 알림 기준이다
 MAX_GPUS=4; IDLE_HOURS=12; DISK_ALERT=85; IMAGE_NOTICE_DAYS=30
@@ -176,6 +178,11 @@ cmd__gpu_warn() {
 # 같은 알림(키)은 한 번만 보낸다. 사람별 파일에 남기고(접속할 때 보여 줌), 열려 있는 그 사람 창에도 한 줄 띄운다
 notify() {
     local who=$1 key=$2 msg=$3 f
+    # 이름은 프로세스 환경·컨테이너 이름표에서 오므로 누구나 정할 수 있다. 명단에 있는 이름에만 보낸다(파일 경로로 쓰이므로)
+    if [ "$who" != 관리자 ]; then
+        case "$who" in ''|*/*|.*) return 0 ;; esac
+        is_member "$who" || return 0
+    fi
     mkdir -p "$NOTE"; f="$NOTE/$who.txt"
     [ -f "$f" ] && grep -qF "	$key	" "$f" && return 0
     printf '%s\t%s\t%s\n' "$(date '+%F %H:%M')" "$key" "$msg" >> "$f"
@@ -197,13 +204,16 @@ push_tty() {
 cmd__notices() {
     local who=${1:-$ME} f seen total since
     [ -n "$who" ] || return 0
+    case "$who" in */*|.*) return 0 ;; esac
     f="$NOTE/$who.txt"; [ -f "$f" ] || return 0
-    seen=$(cat "$NOTE/.$who.seen" 2>/dev/null || echo 0); total=$(wc -l < "$f")
+    local sf="$SEEN/$who"; is_root && sf="$ST/reports/.notice_seen"   # 관리자 것은 root 만 쓰는 곳에
+    seen=$(cat "$sf" 2>/dev/null); [[ "$seen" =~ ^[0-9]+$ ]] || seen=0   # 숫자만 믿는다
+    total=$(wc -l < "$f")
     [ "$total" -gt "$seen" ] || return 0
     since=$(date -d '14 days ago' +%F)
     echo "${c_y}알림${c_0}"
     tail -n +"$((seen + 1))" "$f" | awk -F'\t' -v s="$since" '$1>=s {print "  [" substr($1,6) "] " $3}' | tail -5
-    echo "$total" > "$NOTE/.$who.seen" 2>/dev/null
+    { echo "$total" > "$sf"; } 2>/dev/null
 }
 
 # ------------------------------------------------------------------ 접속 인사
@@ -220,7 +230,7 @@ cmd__names() {   # 고르기 쉽게 번호를 붙인다
 cmd__check() {
     local now day week f use
     now=$(date '+%F %T'); day=$(date +%F); week=$(date +%G-W%V)
-    mkdir -p "$ST/gpu_log" "$ST/images" "$NOTE"
+    mkdir -p "$ST/gpu_log" "$NOTE"
     f="$ST/gpu_log/$(date +%Y-%m).tsv"
     load_usage
     # 1. 기록: 시각 GPU 사람 어디 사용률 메모리
@@ -266,8 +276,8 @@ cmd__check() {
     # 6. 이미지: 쓰는 날 기록, 오래 안 쓴 이미지는 들여온 사람에게 주 한 번
     if [ -n "$HAVE_DOCKER" ]; then
         echo "$CONTAINERS" | cut -f5 | grep . | sort -u | while read -r ref; do printf '%s\t%s\n' "$ref" "$day"; done |
-            cat - "$ST/images/used.tsv" 2>/dev/null | sort -t$'\t' -k1,1 -k2,2r | sort -t$'\t' -u -k1,1 > "$ST/images/used.tsv.new" &&
-            mv "$ST/images/used.tsv.new" "$ST/images/used.tsv"
+            cat - "$USED" 2>/dev/null | sort -t$'\t' -k1,1 -k2,2r | sort -t$'\t' -u -k1,1 > "$USED.new" &&
+            mv "$USED.new" "$USED"
         local old; old=$(date -d "$IMAGE_NOTICE_DAYS days ago" +%F)
         image_table | while IFS=$'\t' read -r ref who last _; do
             [ "$last" != - ] && [[ "$last" < "$old" ]] || continue
@@ -288,12 +298,12 @@ cmd__check() {
 image_table() {
     [ -n "$HAVE_DOCKER" ] || return 0
     local led=() f
-    for f in "$ST/images/loaded.tsv" "$ST/images/used.tsv"; do [ -f "$f" ] && led+=("$f"); done   # loaded.tsv 는 docker 래퍼(공용 계정)가 쓴다. root 가 만들지 않는다
+    for f in "$ST/images/loaded.tsv" "$USED"; do [ -f "$f" ] && led+=("$f"); done   # loaded.tsv 는 docker 래퍼(공용 계정)가 쓴다. root 가 만들지 않는다
     "${DOCKER[@]}" images --format '{{.Repository}}:{{.Tag}}{{"\t"}}{{.CreatedAt}}{{"\t"}}{{.Size}}' 2>/dev/null | grep -v '^<none>' |
     while IFS=$'\t' read -r ref created size; do
         awk -F'\t' -v r="$ref" -v c="${created:0:10}" -v sz="$size" '
             FILENAME ~ /loaded/ && $3==r {who=$2; d=substr($1,1,10); if (d>last) last=d}
-            FILENAME ~ /used/   && $1==r {if ($2>last) last=$2}
+            FILENAME ~ /used/ && $1==r {if ($2>last) last=$2}
             END {if (!last) last=c; printf "%s\t%s\t%s\t%s\n", r, (who?who:"모름"), (last?last:"-"), sz}' \
             "${led[@]}" /dev/null
     done
