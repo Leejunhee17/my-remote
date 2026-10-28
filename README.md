@@ -32,7 +32,7 @@
 
 | 단계 | ⓐ 접근 PC (PowerShell, `D:\b200`) | ⓑ 올릴 것 → `/app/inbox` | ⓒ B200 서버 (root) |
 |---|---|---|---|
-| 0. 서버 점검 | 없음 | `server\check_server.sh`, `server\check_network.sh` | `bash /app/inbox/check_server.sh`, `bash /app/inbox/check_network.sh <다른 서버 IP>` |
+| 0. 서버 점검 | 없음 | `server\check_server.sh`, `server\check_network.sh` | `bash /app/inbox/check_server.sh`, 두 서버에서 각각 `bash /app/inbox/check_network.sh all` |
 | 1. 공용 휠·기초 프로그램 | `.\pc\pack_build.ps1` | `pack\b200-pack.tar` | `cd /app/inbox && tar xf b200-pack.tar && bash pack_install.sh /app/shared` |
 | 2. 관리자 기본 설정 | (1단계 묶음에 들어 있어요) | | `cd /app/inbox && bash admin_setup.sh` |
 | 3. 도커 | `.\pc\docker_pack.ps1` | `pack_docker\b200-docker.tar` | `cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh` |
