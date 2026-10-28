@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# [B200 서버] 네트워크와 NAS 를 점검한다. root 없이 되고, 설정은 아무것도 바꾸지 않는다.
+# [B200 서버] 네트워크와 NAS 를 점검한다. 설정은 아무것도 바꾸지 않는다.
+#   bash check_network.sh all               ★ 한 번에: 두 서버에서 각각 실행하면 NAS 로 서로를 찾아
+#                                           서버 사이(이더넷·InfiniBand·RDMA), 로컬 SSD, NAS 속도를 모두 재고 보고서를 남긴다(root 권장)
 #   bash check_network.sh                   이 서버의 네트워크 카드·속도, NAS 연결 보기
 #   bash check_network.sh <다른 서버 IP>     + 다른 서버와 연결되는지, 어느 카드로 가는지
 #   bash check_network.sh listen            서버 사이 속도 재기: 받는 쪽(먼저 실행, 2분 기다림)
@@ -133,8 +135,14 @@ print(f"  {a[0]} 에서 {len(th)}줄기로 {total[0]/1e9:.1f} GB 를 {dt:.1f}초
 PY_SEND='
 import socket, sys, time, multiprocessing as mp
 host, port, streams, secs = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), float(sys.argv[4])
+wait = float(sys.argv[5]) if len(sys.argv) > 5 else 0   # 받는 쪽이 아직 안 켜졌으면 이만큼 다시 시도
 def send(q):
-    c = socket.create_connection((host, port), timeout=10)
+    deadline = time.time() + wait
+    while True:
+        try: c = socket.create_connection((host, port), timeout=10); break
+        except OSError:
+            if time.time() > deadline: q.put(0); return
+            time.sleep(1)
     buf = memoryview(bytes(4 << 20)); n = 0; end = time.time() + secs
     while time.time() < end:
         c.sendall(buf); n += len(buf)
@@ -144,6 +152,7 @@ for i in range(streams):
     p = mp.Process(target=send, args=(q,)); p.start(); ps.append(p); time.sleep(0.05)
 for p in ps: p.join()
 tot = sum(q.get() for _ in ps)
+if tot == 0: print(f"  {host}:{port} 에 연결하지 못했어요."); sys.exit(1)
 print(f"  {streams}줄기로 {tot/1e9:.1f} GB 를 {secs:.0f}초 동안 보냄: 약 {tot/secs/1e9:.2f} GB/s ({tot/secs*8/1e9:.1f} Gbps). 정확한 값은 받는 쪽 숫자를 보세요.")
 '
 cmd_listen() {
@@ -179,13 +188,184 @@ cmd_disk() {
         { dd if="$f.$i" of=/dev/null bs=16M iflag=direct status=none 2>/dev/null || dd if="$f.$i" of=/dev/null bs=16M status=none; } &
     done; wait
     t1=$(date +%s.%N); echo "  읽기: $(rate "$b" "$(awk -v a="$t1" -v b="$t0" 'BEGIN{print a-b}')")"
-    [ "$jobs" = 1 ] && echo "  (한 줄기로 잰 값이에요. 전체 속도는 JOBS=8 을 앞에 붙여 재요)"
+    [ "$jobs" = 1 ] && [ -z "${ALL_MODE:-}" ] && echo "  (한 줄기로 잰 값이에요. 전체 속도는 JOBS=8 을 앞에 붙여 재요)"
+}
+
+# ------------------------------------------------------------------ 한 번에(턴키)
+# 두 서버에서 각각 "bash check_network.sh all" 을 실행한다. 같은 NAS 의 .b200_net 폴더에 서로의 주소를 적어 두고,
+# 짝이 보이면 서버 사이 속도를 양쪽에서 동시에 잰다(이더넷은 전이중이라 서로 방해하지 않는다). 짝이 없으면 혼자 잰다.
+WAIT_PEER=${WAIT_PEER:-600}
+ME=${B200_HOST:-$(hostname -s)}
+SUM=()
+nas_dir() {   # 쓸 수 있는 NAS 폴더: 적어 준 폴더 → NAS/tmp → NAS
+    local d c
+    [ -n "${1:-}" ] && { echo "$1"; return; }
+    while read -r d; do
+        for c in "$d/tmp" "$d"; do [ -d "$c" ] && [ -w "$c" ] && { echo "$c"; return; }; done
+    done < <(findmnt -rn -t nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs -o TARGET 2>/dev/null)
+}
+eth_ip() {   # 기본 경로 카드의 IP
+    local dev; dev=$(ip route show default 2>/dev/null | grep -oP 'dev \K\S+' | head -1)
+    { ip -4 -br addr show "$dev" 2>/dev/null | awk '{print $3}' | cut -d/ -f1; hostname -I 2>/dev/null | awk '{print $1}'; } | grep . | head -1
+}
+ib_ips() {   # InfiniBand 카드의 IP 들
+    local d; for d in /sys/class/net/*; do
+        [ "$(cat "$d/type" 2>/dev/null)" = 32 ] || continue
+        ip -4 -br addr show "$(basename "$d")" 2>/dev/null | awk '{print $3}' | cut -d/ -f1
+    done | grep . | tr '\n' ' '
+}
+active_hcas() {
+    local p; for p in /sys/class/infiniband/*/ports/1; do
+        grep -q ACTIVE "$p/state" 2>/dev/null && basename "$(dirname "$(dirname "$p")")"
+    done | tr '\n' ' '
+}
+field() { grep -m1 "^$1=" "$2" 2>/dev/null | cut -d= -f2-; }   # 짝 정보 파일은 읽기만 한다(실행하지 않음)
+gbs() { grep -oE '[0-9.]+ GB/s \([0-9.]+ Gbps\)' | tail -1; }
+wait_file() {   # $1 파일이 $2 파일보다 새것으로 생길 때까지 $3 초 기다린다
+    local i; for i in $(seq 1 "$3"); do [ -f "$1" ] && [ ! "$1" -ot "$2" ] && return 0; sleep 1; done; return 1
+}
+
+pair_tcp() {   # $1 이름 $2 내 포트 $3 짝 IP $4 짝 포트
+    local tmp; tmp=$(mktemp)
+    python3 -c "$PY_LISTEN" "$2" "$STREAMS" 90 > "$tmp" 2>&1 &
+    local lp=$!
+    sleep 2
+    local sent; sent=$(python3 -c "$PY_SEND" "$3" "$4" "$STREAMS" "$SECS" 60 2>&1)
+    wait "$lp"
+    local got; got=$(grep -v '기다려요' "$tmp"); rm -f "$tmp"
+    echo "  보내기 → $3: $(echo "$sent" | gbs)"
+    echo "$sent" | grep -q '연결하지 못' && echo "    (연결하지 못했어요)"
+    echo "  받기 ← $3: $(echo "$got" | gbs || true)"
+    echo "$got" | grep -q '오지 않았' && echo "    (짝이 보내지 못했어요)"
+    SUM+=("서버 사이 $1: 받기 $(echo "$got" | gbs || echo '실패'), 보내기 $(echo "$sent" | gbs || echo '실패')")
+}
+
+pair_rdma() {   # 같은 이름의 InfiniBand 카드끼리 RDMA 쓰기 속도(perftest). 연결 준비는 이더넷 IP 로 한다
+    local role=$1 peer_eth=$2 hcas=$3 i=0 hca out bw
+    for hca in $hcas; do
+        i=$((i + 1))
+        if [ "$role" = A ]; then
+            out=$(timeout 60 ib_write_bw -d "$hca" -p $((18514 + i)) -D 5 -F --report_gbits 2>&1)
+        else
+            # 짝이 아직 안 켜졌으면(연결 거부) 다시 시도. 연결은 됐는데 실패하면 그 카드는 거기서 끝
+            local t; for t in $(seq 1 70); do
+                out=$(timeout 30 ib_write_bw -d "$hca" -p $((18514 + i)) -D 5 -F --report_gbits "$peer_eth" 2>&1) && break
+                echo "$out" | grep -qi "couldn't connect" || break
+                sleep 1
+            done
+        fi
+        bw=$(echo "$out" | awk '/^ *[0-9]+ +[0-9]+ +[0-9.]+ +[0-9.]+/ {v=$4} END {if (v) print v}')
+        if [ -n "$bw" ]; then
+            echo "  $(pad "$hca" 10) $bw Gb/s"; SUM+=("RDMA $hca: $bw Gb/s")
+        else
+            echo "  $(pad "$hca" 10) 연결 안 됨 (같은 InfiniBand 망이 아니거나 막혀 있어요)"; SUM+=("RDMA $hca: 연결 안 됨")
+        fi
+    done
+}
+
+disk_both() {   # 한 줄기와 8줄기
+    local name=$1 dir=$2 r1 r8
+    r1=$( (JOBS=1 cmd_disk "$dir") 2>&1); echo "$r1"
+    r8=$( (JOBS=8 cmd_disk "$dir") 2>&1); echo "$r8"
+    SUM+=("$name 1줄기: 쓰기 $(echo "$r1" | grep 쓰기 | gbs) / 읽기 $(echo "$r1" | grep 읽기 | gbs)")
+    SUM+=("$name 8줄기: 쓰기 $(echo "$r8" | grep 쓰기 | gbs) / 읽기 $(echo "$r8" | grep 읽기 | gbs)")
+}
+
+all_body() {
+    local nas R peer= pf role mine local_dir
+    nas=$(nas_dir "${1:-}")
+    echo "${c_c}[턴키 점검] $ME  $(date '+%F %T')  ($(id -un))${c_0}"
+    [ "$(id -u)" = 0 ] || warn 'root 가 아니라 InfiniBand 망 조회(ibhosts)는 건너뛰어요'
+    cmd_info
+
+    # 짝 찾기
+    if [ -n "$nas" ]; then
+        R="$nas/.b200_net"; mkdir -p "$R" 2>/dev/null
+        rm -f "$R/$ME".*
+        mine="$R/$ME.info"
+        { echo "HOST=$ME"; echo "ETH=${B200_ETH:-$(eth_ip)}"; echo "IB=$(ib_ips)"; echo "HCAS=$(active_hcas)"
+          echo "PORT=$PORT"; echo "PERFTEST=$(command -v ib_write_bw >/dev/null && echo 1)"; } > "$mine.tmp" && mv "$mine.tmp" "$mine"
+        head_ "짝 찾기 (NAS: $R)"
+        echo "  다른 서버에서도 bash check_network.sh all 을 실행하세요. 최대 $((WAIT_PEER / 60))분 기다려요."
+        local i
+        for i in $(seq 1 "$WAIT_PEER"); do
+            for pf in "$R"/*.info; do
+                [ -f "$pf" ] && [ "$pf" != "$mine" ] && [ -n "$(find "$pf" -mmin -30 2>/dev/null)" ] && { peer=$(field HOST "$pf"); break 2; }
+            done
+            [ $((i % 60)) = 0 ] && echo "  ...기다리는 중 ($((i / 60))분)"
+            sleep 1
+        done
+        if [ -n "$peer" ]; then local pibs; pibs=$(field IB "$pf"); ok "짝: $peer (이더넷 $(field ETH "$pf"), InfiniBand ${pibs:-없음})"
+        else warn '짝을 찾지 못해 이 서버만 재요'; fi
+    else
+        warn 'NAS 를 찾지 못해 짝 없이 이 서버만 재요(NAS 폴더를 직접 적으려면: bash check_network.sh all <NAS 폴더>)'
+    fi
+
+    if [ -n "$peer" ]; then
+        role=B; [[ "$ME" < "$peer" ]] && role=A
+        local peth pib pport myib
+        peth=$(field ETH "$pf"); pib=$(field IB "$pf" | awk '{print $1}'); pport=$(field PORT "$pf")
+        head_ "서버 사이: 이더넷 ($ME ↔ $peer, 양쪽 동시에 ${SECS}초)"
+        pair_tcp 이더넷 "$PORT" "$peth" "$pport"
+        myib=$(ib_ips)
+        if [ -n "$pib" ] && [ -n "$myib" ]; then
+            head_ "서버 사이: InfiniBand 위 IP 통신 (IPoIB, $pib)"
+            echo "  가는 카드: $(route_to "$pib")"
+            pair_tcp IPoIB $((PORT + 1)) "$pib" $((pport + 1))
+            echo "  (python 측정이라 수십 Gbps 에서 막혀요. 실제 InfiniBand 속도는 아래 RDMA 값을 보세요)"
+        fi
+        head_ '서버 사이: RDMA (GPU 서버끼리 학습할 때 NCCL 이 쓰는 길)'
+        if command -v ib_write_bw >/dev/null && [ "$(field PERFTEST "$pf")" = 1 ]; then
+            local common; common=$(comm -12 <(active_hcas | tr ' ' '\n' | grep . | sort) <(field HCAS "$pf" | tr ' ' '\n' | grep . | sort) | tr '\n' ' ')
+            pair_rdma "$role" "$peth" "$common"
+        else
+            warn '양쪽에 perftest(ib_write_bw)가 있어야 재요. 서버 관리 팀에 perftest 설치를 요청하세요'
+            SUM+=("RDMA: perftest 없어 못 잼")
+        fi
+        touch "$R/$ME.netdone"; wait_file "$R/$peer.netdone" "$pf" 180 || true
+    fi
+
+    # 디스크: NAS 는 두 서버가 차례로(동시에 재면 나눠 가져서 값이 반이 된다)
+    local_dir=; for d in /app/workspace /app; do [ -d "$d" ] && [ -w "$d" ] && { local_dir=$d; break; }; done
+    if [ -n "$peer" ] && [ "$role" = B ]; then
+        [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
+        echo "  NAS 는 $peer 가 다 잴 때까지 기다려요..."; wait_file "$R/$peer.nasdone" "$pf" 900 || warn '기다리다 넘어가요'
+        head_ "NAS ($nas)"; disk_both NAS "$nas"
+        touch "$R/$ME.nasdone"
+    else
+        if [ -n "$nas" ]; then head_ "NAS ($nas)"; disk_both NAS "$nas"; fi
+        [ -n "$R" ] && touch "$R/$ME.nasdone"
+        [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
+        [ -n "$peer" ] && { wait_file "$R/$peer.nasdone" "$pf" 900 || true; }
+    fi
+
+    # InfiniBand 망: 카드마다 어떤 서버·장비가 보이나(같은 망인지)
+    if [ "$(id -u)" = 0 ] && command -v ibhosts >/dev/null; then
+        head_ 'InfiniBand 망에 보이는 장비 (카드별)'
+        for hca in $(active_hcas); do
+            echo "  $(pad "$hca" 10) $(ibhosts -C "$hca" -P 1 2>/dev/null | grep -oP '"\K[^"]+' | awk '{print $1}' | sort -u | tr '\n' ' ')"
+        done
+        [ -n "$peer" ] && echo "  위에 $peer 가 보이는 카드는 두 서버가 같은 망이에요."
+    elif [ "$(id -u)" = 0 ]; then
+        warn 'ibhosts(infiniband-diags)가 없어 InfiniBand 망은 못 봐요'
+    fi
+
+    head_ '요약'
+    printf '  %s\n' "${SUM[@]}"
+}
+cmd_all() {
+    local out=network_report_${ME}_$(date +%Y%m%d-%H%M).txt
+    [ -w . ] || out=/tmp/$out
+    all_body "$@" 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' > "$out")
+    sleep 1
+    echo; echo "보고서: $(readlink -f "$out")  ← 이 파일 내용을 README 에 붙여 주세요"
 }
 
 case "${1:-}" in
+    all)    shift; ALL_MODE=1; cmd_all "$@" ;;
     listen) cmd_listen ;;
     send)   shift; cmd_send "$@" ;;
     disk)   shift; cmd_disk "$@" ;;
-    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//' ;;
+    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' ;;
     *)      cmd_info "$@" ;;
 esac
