@@ -89,7 +89,19 @@ n_team=$(grep -cvE '^\s*(#|$)' "$S/team.txt")
     warn "팀원 명단이 비어 있다. $S/team.txt 에 '이름 그룹' 을 적는다(비어 있으면 아무 이름이나 받는다)"
 grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
     [ -d "$W/$name" ] || { mkdir -p "$W/$name" && chown "$ACC:$ACC" "$W/$name"; echo "    작업 폴더 만듦: $W/$name"; }
+    [ -d "/app/inbox/images/$name" ] || { mkdir -p "/app/inbox/images/$name" && chown "$ACC:$ACC" "/app/inbox/images/$name"; }
 done
+# b200 이 쓰는 숫자. 바꾸면 규칙 문서(team/)의 숫자도 같이 바꾼다
+[ -f "$S/b200.conf" ] || cat > "$S/b200.conf" <<'EOF'
+# b200 설정. 관리자만 고친다. 바꾸면 팀원 규칙 문서의 숫자도 같이 바꾼다.
+MAX_GPUS=4               # 한 사람이 동시에 쓸 수 있는 GPU 수
+BORROW_MINUTES=30        # 반납 요청(b200 claim) 뒤 빌린 작업을 자동으로 멈추기까지
+UNKNOWN_KILL_MINUTES=60  # 누군지 모르는 GPU 작업을 자동으로 멈추기까지
+IMAGE_NOTICE_DAYS=30     # 마지막 사용 뒤 알림까지
+IMAGE_DELETE_DAYS=45     # 마지막 사용 뒤 관리자가 지우기까지
+PORT_BASE=8000           # b200 port 가 나눠 주는 포트 시작 번호
+EOF
+chmod 644 "$S/b200.conf"
 
 # ------------------------------------------------------------------ 3. b200 명령
 step '3. b200 명령 설치'
@@ -109,8 +121,10 @@ case ":\$PATH:" in *":$S/bin:"*) ;; *) PATH="$S/bin:\$PATH:$S/tools/bin"; export
 B200_PROFILE_DONE=1
 # 한글이 깨지지 않게 UTF-8 로 맞춘다(HIWARE 접속은 언어 설정이 비어 올 수 있다)
 case "\$(locale charmap 2>/dev/null)" in UTF-8) ;; *) unset LC_ALL; export LANG=C.UTF-8 ;; esac
-# 이름: tmux 안이면 세션 이름 앞부분(이름-작업), 아니면 접속할 때 묻는다
-if [ -n "\${TMUX:-}" ]; then
+# 서버에는 인터넷이 없으니 Hugging Face 가 접속을 시도하지 않게 한다
+export HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+# b200 작업(tmux) 안이면 이름·GPU 가 이미 있다
+if [ -n "\${TMUX:-}" ] && [ -z "\${B200_USER:-}" ]; then
     _b200_s=\$(tmux display-message -p '#S' 2>/dev/null)
     case "\$_b200_s" in *-*) B200_USER=\${_b200_s%%-*} ;; esac
 fi
@@ -123,18 +137,23 @@ if [ -z "\${B200_USER:-}" ]; then
         echo "  등록된 이름이 아니에요. 등록된 이름: \$($S/bin/b200 _names)"
         B200_USER=
     done
+    # 이름 없이는 쓰지 않는다(누가 쓰는지 알 수 없으면 GPU 를 나눌 수 없다)
+    [ -n "\$B200_USER" ] || { echo "  이름을 확인하지 못해 접속을 끊어요. 명단에 없으면 관리자에게 등록을 요청하세요."; sleep 2; exit 1; }
 fi
-export B200_USER
-# 서버에는 인터넷이 없으니 Hugging Face 가 접속을 시도하지 않게 한다
-export HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1
-if [ -n "\$B200_USER" ]; then
-    export HISTFILE=$ST/history/\$B200_USER.bash_history HISTTIMEFORMAT='%F %T '
-    export GIT_AUTHOR_NAME=\$B200_USER GIT_COMMITTER_NAME=\$B200_USER
-    _b200_ps1() { case "\$PS1" in "[\$B200_USER] "*) ;; *) PS1="[\$B200_USER] \$PS1" ;; esac; }
-    PROMPT_COMMAND="_b200_ps1\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"
-    [ "\$PWD" = "\$HOME" ] && [ -d $W/\$B200_USER ] && cd $W/\$B200_USER
-else
-    echo "  [주의] 이름 없이 접속했어요. GPU를 쓰면 '누군지 모름'으로 표시돼요. 이름을 정하려면 다시 접속하세요."
+export B200_USER B200_WS=$W/\$B200_USER
+# GPU 는 b200 run·shell·docker 로 배정받는다. 그냥 실행하면 GPU 가 보이지 않는다
+export CUDA_VISIBLE_DEVICES=\${B200_GPUS:-}
+# 홈(10 GB)은 모두가 같이 쓰므로 캐시는 내 작업 폴더에, pip 설치는 내 Python 환경에서만
+export XDG_CACHE_HOME=\$B200_WS/.cache TRITON_CACHE_DIR=\$B200_WS/.cache/triton PIP_REQUIRE_VIRTUALENV=1
+export HISTFILE=$ST/history/\$B200_USER.bash_history HISTTIMEFORMAT='%F %T '
+export GIT_AUTHOR_NAME=\$B200_USER GIT_COMMITTER_NAME=\$B200_USER
+# 계정이 같아 tmux 도 하나면 남의 세션·이름이 섞이므로 사람마다 따로 쓴다
+tmux() { LC_ALL=C.UTF-8 command tmux -L "u-\$B200_USER" "\$@"; }
+_b200_ps1() { case "\$PS1" in "[\$B200_USER] "*) ;; *) PS1="[\$B200_USER] \$PS1" ;; esac; }
+PROMPT_COMMAND="_b200_ps1\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"
+if [ -z "\${TMUX:-}" ]; then
+    [ "\$PWD" = "\$HOME" ] && [ -d "\$B200_WS" ] && cd "\$B200_WS"
+    echo "  GPU 받기: b200 shell auto (실험)  /  b200 run auto <명령> (학습).  그냥 실행하면 GPU가 안 보여요."
 fi
 EOF
 chmod 644 /etc/profile.d/b200.sh
@@ -175,7 +194,7 @@ echo
 echo "${c_g}############################ 완료 ############################${c_0}"
 echo " 남은 일"
 echo "  1) $S/team.txt 에 팀원 '이름 그룹' 을 적고 이 스크립트를 한 번 더 실행(작업 폴더 생성)"
-echo "  2) GPU 배분이 바뀌면 $S/gpu_alloc.txt 를 고친다(엑셀과 같게)"
+echo "  2) GPU 배분이 바뀌면 $S/gpu_alloc.txt, 숫자 규칙은 $S/b200.conf 를 고친다(엑셀·규칙 문서와 같게)"
 echo "  3) 공용 휠·데이터셋·모델 설치는 이제 root 로: bash pack_install.sh /app/shared 등"
 echo "  4) 도커: bash docker_install.sh (b200-docker.tar)"
 echo " 확인: 공용 계정으로 다시 접속하면 이름을 묻고 b200 현황이 나온다."
