@@ -69,3 +69,83 @@ cd D:\b200
 | `멈춤` 빨간 상자 | 더 진행할 수 없어요 | 상자 안의 **할 일** 을 한 뒤 **같은 명령을 다시 실행** 하세요 |
 
 해결이 안 되면 `docs/4_문제_해결.md` 를 보세요.
+
+## 네트워크 점검 결과
+```
+[root@server1:/home/shareduser/inbox][root@server1:/home/shareduser/inbox]bash check_network.sh disk /data/tmp
+[server1] /data/tmp 속도 (NAS망-IP:/nas, 시험 파일 4 GB)
+  쓰기: 1.82 GB/s (14.6 Gbps)
+  읽기: 4.29 GB/s (34.3 Gbps)
+  (한 줄기로 잰 값이에요. 여러 명이 동시에 쓰면 나눠 가져요)
+[root@server1:/home/shareduser/inbox]bash check_network.sh 서버2-IP
+[B200 서버] 네트워크 점검  (2026-10-28 17:05, server1, root)
+
+== 네트워크 카드 ==
+  이름            종류            상태    속도       MTU    IPv4
+  bond0           이더넷(가상)    up      20 Gbps    1500   서버1-IP/24
+  bonding_masters 종류(가상)                                -
+  eth     이더넷          up      10 Gbps    1500   -
+  eth     이더넷          down               1500   -
+  eth     이더넷          up      10 Gbps    1500   -
+  eth     이더넷          down               1500   -
+  ib        InfiniBand      up      400 Gbps   2044   -
+  ib      InfiniBand      up      400 Gbps   2044   -
+  ib      InfiniBand      up      400 Gbps   2044   NAS망-IP/24
+  ib       InfiniBand      up      400 Gbps   2044   -
+  ib        InfiniBand      up      400 Gbps   2044   -
+  ib         InfiniBand      up      400 Gbps   2044   NAS망-IP/24
+20send%20서버2-IP~^C4%9C%EB%B2%84%EC%97%90%EC%84%9C%20bash%20check_network.sh%
+[root@server1:/home/shareduser/inbox]bash check_network.sh 서버2-IP
+[B200 서버] 네트워크 점검  (2026-10-28 17:06, server1, root)
+
+== 네트워크 카드 ==
+  이름            종류            상태    속도       MTU    IPv4
+  bond0           이더넷(가상)    up      20 Gbps    1500   서버1-IP/24
+  bonding_masters 종류(가상)                                -
+  eth     이더넷          up      10 Gbps    1500   -
+  eth     이더넷          down               1500   -
+  eth     이더넷          up      10 Gbps    1500   -
+  eth     이더넷          down               1500   -
+  ib        InfiniBand      up      400 Gbps   2044   -
+  ib      InfiniBand      up      400 Gbps   2044   -
+  ib      InfiniBand      up      400 Gbps   2044   NAS망-IP/24
+  ib       InfiniBand      up      400 Gbps   2044   -
+  ib        InfiniBand      up      400 Gbps   2044   -
+  ib         InfiniBand      up      400 Gbps   2044   NAS망-IP/24
+  기본 경로: default via 내부-IP dev bond0 proto static metric 300
+
+== InfiniBand·RoCE (GPU 서버끼리 빠르게 주고받는 카드) ==
+  mlx5_0       포트 1  ACTIVE   400 Gb/sec (4X NDR)  (InfiniBand)
+  mlx5_1       포트 1  ACTIVE   400 Gb/sec (4X NDR)  (InfiniBand)
+  mlx5_2       포트 1  ACTIVE   400 Gb/sec (4X NDR)  (InfiniBand)
+  mlx5_3       포트 1  ACTIVE   400 Gb/sec (4X NDR)  (InfiniBand)
+  mlx5_4       포트 1  ACTIVE   400 Gb/sec (4X NDR)  (InfiniBand)
+  mlx5_5       포트 1  ACTIVE   400 Gb/sec (4X NDR)  (InfiniBand)
+  ACTIVE 가 있으면 서버끼리 이 카드로 이어져 있을 수 있어요. 어디에 연결됐는지는 서버 관리 팀에 물어보세요.
+
+== NAS (네트워크 저장소) ==
+  /data  ←  NAS망-IP:/nas  (nfs)
+      가는 카드: ib (400 Gbps)
+      옵션: vers=3 rsize=1048576 wsize=1048576 hard proto=rdma nconnect=24
+  [정상] RDMA 로 연결(빠른 방식)
+  속도 재기: bash check_network.sh disk <위 폴더 안의 내가 쓸 수 있는 폴더>
+
+== 다른 서버 서버2-IP ==
+  가는 카드: bond0 (20 Gbps)
+  [정상] 응답함, 왕복 0.057 ms
+  [정상] SSH(22) 포트가 열려 있어요
+  속도 재기: 그 서버에서 bash check_network.sh listen  →  이 서버에서 bash check_network.sh send 서버2-IP
+[root@server1:/home/shareduser/inbox]bash check_network.sh disk /data/tmp
+[server1] /data/tmp 속도 (NAS망-IP:/nas, 시험 파일 4 GB)
+  쓰기: 1.82 GB/s (14.6 Gbps)
+  읽기: 4.34 GB/s (34.8 Gbps)
+  (한 줄기로 잰 값이에요. 여러 명이 동시에 쓰면 나눠 가져요)
+[root@server1:/home/shareduser/inbox]bash check_network.sh send 서버2-IP
+  가는 카드: bond0 (20 Gbps),  8줄기, 10초
+  8줄기로 23.7 GB 를 10초 동안 보냄: 약 2.37 GB/s (18.9 Gbps). 정확한 값은 받는 쪽 숫자를 보세요.
+  (python 으로 잰 값이라 100 Gbps 이상 카드에서는 실제보다 낮게 나올 수 있어요)
+[shareduser@server2:/app/inbox]bash check_network.sh listen
+  5201 번 포트에서 기다려요(최대 120초). 다른 서버에서 send 를 실행하세요.
+  서버1-IP 에서 8줄기로 23.7 GB 를 10.4초에 받음: 2.28 GB/s (18.3 Gbps)
+```
+
