@@ -7,9 +7,14 @@ set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행한다. 접근 PC에서는 .ps1 을 쓴다."; exit 1; fi
 cd "$(dirname "$0")"
 SRC=$PWD
-D="$HOME/shared/datasets"
-LOG="$HOME/shared/logs/datasets_install_$(date +%Y%m%d_%H%M%S).log"
-mkdir -p "$D" "$HOME/shared/logs"
+# 공용 폴더 실제 위치. 관리자 설정(admin_setup.sh) 뒤에는 /app/shared 이고 root 만 고칠 수 있다
+SH=$(realpath -m "$HOME/shared"); [ -d /app/shared ] && SH=/app/shared
+if [ -d "$SH" ] && [ ! -w "$SH" ]; then
+    echo "멈춤: 공용 폴더($SH)는 관리자(root)만 고칠 수 있다. 관리자 계정으로 같은 명령을 실행한다."; exit 1
+fi
+D="$SH/datasets"
+LOG="$SH/logs/datasets_install_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p "$D" "$SH/logs"
 exec > >(tee -a "$LOG") 2>&1
 T=3
 FAILS=0
@@ -36,9 +41,9 @@ echo "푸는 곳: $D"
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
 [ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 이 없다" "접근 PC의 datasets 폴더를 통째로 /app/inbox/datasets 에 올렸는지 본다."
-command -v unzip >/dev/null || [ -x "$HOME/shared/tools/bin/unzip" ] ||
-    stop "unzip 이 없다" "공용 기초 프로그램(pack_install.sh)을 먼저 설치하거나 source ~/.bashrc 를 한다."
-export PATH="$PATH:$HOME/shared/tools/bin"
+command -v unzip >/dev/null || [ -x "$SH/tools/bin/unzip" ] ||
+    stop "unzip 이 없다" "공용 기초 프로그램(pack_install.sh)을 먼저 설치한다."
+export PATH="$PATH:$SH/tools/bin"
 
 n=$(grep -c . MANIFEST.sha256 || true)
 echo "  압축 ${n}개 체크섬 확인 중 (100 GB면 10분 안팎)"

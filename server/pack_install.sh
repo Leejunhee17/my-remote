@@ -33,7 +33,11 @@ if [ -n "$REAL" ]; then
     W="$(dirname "$REAL")/workspace"
     if [ ! -e "$HOME/workspace" ] && mkdir -p "$W" 2>/dev/null; then ln -s "$W" "$HOME/workspace"; fi
 fi
-S="$HOME/shared"
+# 실제 경로로 적어야 venv·기초 프로그램에 박히는 경로가 누구에게나 맞다(예: /app/shared)
+S=$(realpath -m "$HOME/shared")
+if [ -d "$S" ] && [ ! -w "$S" ]; then
+    echo "멈춤: 공용 폴더($S)는 관리자(root)만 고칠 수 있다. 관리자 계정으로 bash pack_install.sh /app/shared 를 실행한다."; exit 1
+fi
 LOG="$S/logs/pack_install_$(date +%Y%m%d_%H%M%S).log"
 mkdir -p "$S/logs"
 exec > >(tee -a "$LOG") 2>&1
@@ -69,13 +73,13 @@ echo "  묶음 정보: $(info made) 에 만듦, glibc $(info glibc), $(info torc
 
 echo "  파일 체크섬 확인 중 (1~3분)"
 # 설치 스크립트 자신은 고친 판을 따로 올려 덮어쓸 수 있도록 검사에서 뺀다
-bad_files=$(grep -vE '  (pack_install|move_shared|check_server)\.sh$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
+bad_files=$(grep -vE '  ((pack_install|move_shared|check_server|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | head -20 | sed 's/^/    깨짐: /'
     stop "올리는 중에 파일이 깨졌다($(echo "$bad_files" | wc -l)개)" \
          "접근 PC의 pack\\b200-pack.tar 를 다시 올린다. B200 서버에서는 $HERE 를 비운 뒤 다시 푼다."
 fi
-ok "파일 $(grep -cvE '  (pack_install|move_shared|check_server)\.sh$' MANIFEST.sha256)개 체크섬 일치"
+ok "파일 $(grep -cvE '  ((pack_install|move_shared|check_server|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256)개 체크섬 일치"
 
 glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
 if ver_ge "$glibc" "$(info glibc)"; then
@@ -128,7 +132,9 @@ else
     cp explicit.txt "$S/tools/.b200_ok"
     ok "설치함"
 fi
-if ! grep -q 'shared/tools/bin' ~/.bashrc; then
+if [ -f /etc/profile.d/b200.sh ] || [ "$(id -u)" = 0 ]; then
+    ok "PATH 는 관리자 설정(/etc/profile.d/b200.sh)이 맡는다"
+elif ! grep -q 'shared/tools/bin' ~/.bashrc; then
     # 서버에 원래 있는 명령이 먼저 잡히도록 뒤에 붙인다
     echo 'export PATH=$PATH:$HOME/shared/tools/bin' >> ~/.bashrc
     ok "~/.bashrc 에 PATH 추가"

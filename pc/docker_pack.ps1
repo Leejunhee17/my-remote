@@ -1,0 +1,210 @@
+﻿<#
+[접근 PC · 관리자 전용] B200 서버에 깔 rootless Docker 묶음(pack_docker\b200-docker.tar)을 만든다.
+점검 → 받기 → 검사 → 묶기까지 한 번에 한다. 끊기면 다시 실행하면 이어서 한다.
+Ubuntu 버전이 정해지지 않아도 된다(22.04, 24.04 용 패키지를 모두 넣는다).
+
+  powershell -ExecutionPolicy Bypass -File .\pc\docker_pack.ps1
+#>
+param(
+    [int]$MaxTries = 20
+)
+$here = $PSScriptRoot
+$root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $here 'b200_common.ps1')
+$out = Join-Path $root 'pack_docker'
+$T = 5
+New-Item -ItemType Directory -Force $out | Out-Null
+Start-Log (Join-Path $out 'build.log')
+Stop-Sleep
+Write-Host "[접근 PC] rootless Docker 묶음 만들기  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))"
+
+$DockerBase = 'https://download.docker.com/linux/static/stable/x86_64'
+$NvBase     = 'https://nvidia.github.io/libnvidia-container/stable/deb/amd64'
+$UbuBase    = 'http://archive.ubuntu.com/ubuntu'
+# rootless Docker 에 필요한 Ubuntu 패키지(서버에 없을 때만 설치한다). glib 같은 기본 패키지는 빼고 적는다
+$UbuPkgs = @{
+    jammy = @('uidmap', 'slirp4netns', 'libslirp0')
+    noble = @('uidmap', 'libsubid4', 'slirp4netns', 'libslirp0', 'passt')
+}
+$NvPkgs = @('nvidia-container-toolkit', 'nvidia-container-toolkit-base', 'libnvidia-container-tools', 'libnvidia-container1')
+
+function Write-Lf($path, $lines) {
+    [IO.File]::WriteAllText($path, (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+}
+
+# 웹 페이지나 목록 파일을 문자열로 받는다(작은 파일 전용)
+function Get-Text($url) {
+    $tmp = [IO.Path]::GetTempFileName()
+    try {
+        if (-not (Get-File $url $tmp $null $MaxTries)) { return $null }
+        return [IO.File]::ReadAllText($tmp)
+    } finally { Remove-Item -Force -ErrorAction SilentlyContinue $tmp }
+}
+
+# apt 저장소의 Packages(.gz) 목록을 읽어 패키지마다 {Version, Filename, SHA256} 을 돌려준다
+function Get-AptIndex($url) {
+    $tmp = [IO.Path]::GetTempFileName()
+    try {
+        if (-not (Get-File $url $tmp $null $MaxTries)) { return $null }
+        if ($url -like '*.gz') {
+            $fs = [IO.File]::OpenRead($tmp)
+            try {
+                $gz = New-Object IO.Compression.GZipStream($fs, [IO.Compression.CompressionMode]::Decompress)
+                $text = (New-Object IO.StreamReader($gz)).ReadToEnd()
+            } finally { $fs.Close() }
+        } else { $text = [IO.File]::ReadAllText($tmp) }
+    } finally { Remove-Item -Force -ErrorAction SilentlyContinue $tmp }
+    $idx = @{}
+    foreach ($block in ($text -replace "`r", '') -split "`n`n") {
+        $f = @{}
+        foreach ($line in $block -split "`n") { if ($line -match '^([A-Za-z0-9-]+): (.*)$') { $f[$Matches[1]] = $Matches[2] } }
+        if ($f.Package) {
+            if (-not $idx.ContainsKey($f.Package)) { $idx[$f.Package] = @() }
+            $idx[$f.Package] += [pscustomobject]@{ Version = $f.Version; Filename = $f.Filename; SHA256 = $f.SHA256 }
+        }
+    }
+    return $idx
+}
+
+# 1.17.8-1 같은 판 번호에서 숫자 부분만 비교용으로 꺼낸다(1:4.13+dfsg1-4ubuntu3 도 대충 맞게)
+function Get-VerKey($v) {
+    $nums = [regex]::Matches(($v -replace '^\d+:', ''), '\d+') | Select-Object -First 6 | ForEach-Object { '{0:D8}' -f [int64]$_.Value }
+    return ($nums -join '.')
+}
+
+# ------------------------------------------------------------------ 1. 점검
+Write-Step 1 $T '점검'
+foreach ($e in 'curl.exe', 'tar.exe') {
+    if (Get-Command $e -ErrorAction SilentlyContinue) { Write-Ok $e } else { Write-Bad "$e 가 없다(윈도우 10 1803 이후에 기본으로 있다)" }
+}
+foreach ($f in 'server\docker_install.sh') {
+    if (-not (Test-Path (Join-Path $root $f))) { Write-Bad "$f 가 없다(git pull 로 받는다)" }
+}
+$sites = [ordered]@{
+    'Docker 배포 서버'          = "$DockerBase/"
+    'NVIDIA 패키지 저장소'      = "$NvBase/Packages"
+    'Ubuntu 패키지 저장소'      = "$UbuBase/dists/noble/Release"
+    'GitHub (buildx, compose)'  = 'https://github.com/'
+}
+foreach ($k in $sites.Keys) { Test-Site $k $sites[$k] | Out-Null }
+if ($script:Fails) { Stop-Run '필요한 것이 없거나 접속 안 되는 곳이 있다' '위 [문제] 줄과 그 아래 설명을 본다.' }
+$free = Get-FreeGB $out
+if ($free -lt 3) { Stop-Run "남은 공간이 $free GB 다(3 GB 이상 필요)" '공간을 비운다.' }
+Write-Ok "남은 공간 $free GB"
+
+# ------------------------------------------------------------------ 2. 판 정하기
+Write-Step 2 $T '받을 판 정하기'
+$listing = Get-Text "$DockerBase/"
+if (-not $listing) { Stop-Run 'Docker 배포 목록을 받지 못했다' '인터넷을 확인하고 다시 실행한다.' }
+$vers = @([regex]::Matches($listing, 'docker-rootless-extras-(\d+\.\d+\.\d+)\.tgz') | ForEach-Object { $_.Groups[1].Value } |
+    Where-Object { $listing -match "docker-$([regex]::Escape($_))\.tgz" } | Sort-Object { [version]$_ } -Unique)
+if (-not $vers.Count) { Stop-Run 'Docker 판을 찾지 못했다' 'build.log 를 담당자에게 보낸다.' }
+$dv = $vers[-1]
+Write-Ok "Docker $dv (정적 바이너리 + rootless extras)"
+
+$nvIdx = Get-AptIndex "$NvBase/Packages"
+if (-not $nvIdx) { Stop-Run 'NVIDIA 패키지 목록을 받지 못했다' '인터넷을 확인하고 다시 실행한다.' }
+$plan = @()
+# 네 패키지를 같은 판으로 맞춘다(서로 같은 판을 요구한다)
+$nvVers = @($nvIdx['nvidia-container-toolkit'] | Where-Object { $_.Version -match '^\d+(\.\d+)+-\d+$' } |
+    Sort-Object { Get-VerKey $_.Version } | ForEach-Object { $_.Version })
+if (-not $nvVers.Count) { Stop-Run 'NVIDIA Container Toolkit 판을 찾지 못했다' 'build.log 를 담당자에게 보낸다.' }
+$nv = $nvVers[-1]
+foreach ($p in $NvPkgs) {
+    $e = $nvIdx[$p] | Where-Object { $_.Version -eq $nv } | Select-Object -First 1
+    if (-not $e) { Stop-Run "$p $nv 를 목록에서 찾지 못했다" 'build.log 를 담당자에게 보낸다.' }
+    $plan += [pscustomobject]@{ Dir = 'debs/nvidia'; Url = "$NvBase/$($e.Filename -replace '^\./', '')"; Sha = $e.SHA256 }
+}
+Write-Ok "NVIDIA Container Toolkit $nv"
+
+foreach ($code in 'jammy', 'noble') {
+    # 보안 업데이트(-updates)에 더 새 판이 있으면 그것을 쓴다
+    $cands = @{}
+    foreach ($pocket in $code, "$code-updates") {
+        foreach ($comp in 'main', 'universe') {
+            $i = Get-AptIndex "$UbuBase/dists/$pocket/$comp/binary-amd64/Packages.gz"
+            if (-not $i) { Stop-Run "Ubuntu $pocket/$comp 목록을 받지 못했다" '인터넷을 확인하고 다시 실행한다.' }
+            foreach ($p in $UbuPkgs[$code]) { if ($i[$p]) { $cands[$p] = @($cands[$p]) + $i[$p] | Where-Object { $_ } } }
+        }
+    }
+    foreach ($p in $UbuPkgs[$code]) {
+        $e = $cands[$p] | Sort-Object { Get-VerKey $_.Version } | Select-Object -Last 1
+        if (-not $e) { Stop-Run "Ubuntu $code 에서 $p 를 찾지 못했다" 'build.log 를 담당자에게 보낸다.' }
+        $plan += [pscustomobject]@{ Dir = "debs/$code"; Url = "$UbuBase/$($e.Filename)"; Sha = $e.SHA256 }
+    }
+    Write-Ok "Ubuntu $code 용 패키지 $($UbuPkgs[$code].Count)개 ($($UbuPkgs[$code] -join ', '))"
+}
+
+# docker buildx(빌드), compose 는 GitHub 최신 판. 받을 수 없으면 빼고 진행한다(없어도 docker 는 된다)
+foreach ($plug in @(
+        @{ Repo = 'docker/buildx';  Name = 'docker-buildx';  File = { param($t) "buildx-$t.linux-amd64" } },
+        @{ Repo = 'docker/compose'; Name = 'docker-compose'; File = { param($t) 'docker-compose-linux-x86_64' } })) {
+    $ca = Get-CurlArgs 'https://github.com/'
+    $loc = & curl.exe -sS -o NUL -w '%{redirect_url}' @ca "https://github.com/$($plug.Repo)/releases/latest"
+    if ($loc -match '/tag/(v[\d.]+)$') {
+        $t = $Matches[1]
+        $plan += [pscustomobject]@{ Dir = 'plugins'; Url = "https://github.com/$($plug.Repo)/releases/download/$t/$(& $plug.File $t)"; Sha = $null; Name = $plug.Name }
+        Write-Ok "$($plug.Name) $t"
+    } else { Write-Warn "$($plug.Name) 최신 판을 찾지 못해 뺀다" }
+}
+$plan += [pscustomobject]@{ Dir = '.'; Url = "$DockerBase/docker-$dv.tgz"; Sha = $null }
+$plan += [pscustomobject]@{ Dir = '.'; Url = "$DockerBase/docker-rootless-extras-$dv.tgz"; Sha = $null }
+
+# ------------------------------------------------------------------ 3. 받기
+Write-Step 3 $T "받기 ($($plan.Count)개)"
+$files = @()
+$n = 0
+foreach ($it in $plan) {
+    $n++
+    $name = if ($it.Name) { $it.Name } else { [uri]::UnescapeDataString((Split-Path -Leaf ([uri]$it.Url).AbsolutePath)) }
+    $dir = Join-Path $out $it.Dir
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $dest = Join-Path $dir $name
+    Write-Host "  ($n/$($plan.Count)) $($it.Dir)/$name"
+    if (-not (Get-File $it.Url $dest $null $MaxTries $it.Sha)) { Stop-Run "받지 못했다: $name" '인터넷을 확인하고 다시 실행한다. 받은 것은 건너뛴다.' }
+    $files += (($it.Dir -replace '^\.$', '') + '/' + $name).TrimStart('/')
+}
+# 지난번에 받았지만 이번 목록에 없는 예전 판은 지운다
+Get-ChildItem $out -Recurse -File | Where-Object {
+    $rel = $_.FullName.Substring($out.Length + 1) -replace '\\', '/'
+    ($rel -like '*.deb' -or $rel -like '*.tgz' -or $rel -like 'plugins/*') -and $files -notcontains $rel
+} | Remove-Item -Force
+Write-Ok "$($files.Count)개 받음, 체크섬 확인함"
+
+# ------------------------------------------------------------------ 4. 검사
+Write-Step 4 $T '검사'
+foreach ($t in @("docker-$dv.tgz", "docker-rootless-extras-$dv.tgz")) {
+    $list = & tar.exe -tzf (Join-Path $out $t) 2>&1
+    if ($LASTEXITCODE -ne 0) { Remove-Item -Force (Join-Path $out $t); Stop-Run "$t 가 깨졌다" '다시 실행하면 새로 받는다.' }
+    Write-Ok "$t 정상 (파일 $(@($list).Count)개)"
+}
+
+# ------------------------------------------------------------------ 5. 묶기
+Write-Step 5 $T '묶기'
+$sh = [IO.File]::ReadAllText((Join-Path $root 'server\docker_install.sh')) -replace "`r", ''
+[IO.File]::WriteAllText((Join-Path $out 'docker_install.sh'), $sh, (New-Object Text.UTF8Encoding $false))
+Write-Lf (Join-Path $out 'docker_info.txt') @("made=$(Get-Date -Format 'yyyy-MM-dd HH:mm')", "docker=$dv", "nvidia_toolkit=$nv")
+$all = @($files) + 'docker_info.txt'
+Write-Lf (Join-Path $out 'MANIFEST.sha256') ($all | ForEach-Object {
+    "$((Get-FileHash (Join-Path $out $_) -Algorithm SHA256).Hash.ToLower())  $_" })
+$tar = Join-Path $out 'b200-docker.tar'
+Remove-Item -Force -ErrorAction SilentlyContinue $tar
+Push-Location $out
+& tar.exe -cf b200-docker.tar MANIFEST.sha256 docker_install.sh docker_info.txt @files
+$code = $LASTEXITCODE
+Pop-Location
+if ($code -ne 0) { Stop-Run 'tar 로 묶지 못했다' '남은 공간을 확인하고 다시 실행한다.' }
+Write-Ok "묶음 $(Format-Size (Get-Item $tar).Length)"
+
+Allow-Sleep
+Write-Host ''
+Write-Host '############################ 완료 ############################' -ForegroundColor Green
+Write-Host " Docker $dv, NVIDIA Container Toolkit $nv"
+Write-Host ''
+Write-Host ' B200 서버에 올릴 것 (이 파일 하나):' -ForegroundColor Green
+Write-Host "   $tar"
+Write-Host ''
+Write-Host ' /app/inbox 에 올린 뒤, B200 서버에서 root 로:' -ForegroundColor Green
+Write-Host '   cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh'
+Write-Host '##############################################################' -ForegroundColor Green
+Stop-Transcript | Out-Null

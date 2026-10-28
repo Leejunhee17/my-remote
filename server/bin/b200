@@ -1,0 +1,412 @@
+#!/usr/bin/env bash
+# B200 서버 팀원 명령. 관리자가 /app/shared/bin/b200 에 깐다(admin_setup.sh).
+# 공용 계정 하나로 여럿이 쓰므로, 접속할 때 입력한 이름(B200_USER)으로 사람을 구분한다.
+set -uo pipefail
+APP=${B200_APP:-/app}   # 시험할 때만 바꾼다
+S=$APP/shared
+W=$APP/workspace
+ST=$APP/state
+ACC=${B200_ACCOUNT:-shareduser}
+TEAM=$S/team.txt
+ALLOC=$S/gpu_alloc.txt
+ME=${B200_USER:-}
+c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_b=$'\e[1m'; c_0=$'\e[0m'
+ok()   { echo "${c_g}[정상]${c_0} $*"; }
+# 안내는 표준 오류로 낸다($( ) 로 값을 받을 때 섞이지 않고 화면에 보이게)
+warn() { echo "${c_y}[주의]${c_0} $*" >&2; }
+die()  { echo "${c_r}[안 됨]${c_0} $1" >&2; [ -n "${2:-}" ] && echo "  → $2" >&2; exit 1; }
+
+# ------------------------------------------------------------------ 명단·배분
+members()   { [ -f "$TEAM" ] && grep -vE '^\s*(#|$)' "$TEAM" | awk '{print $1}'; }
+group_of()  { [ -f "$TEAM" ] && awk -v n="$1" '!/^\s*#/ && $1==n {print $2; exit}' "$TEAM"; }
+alloc_of()  { [ -f "$ALLOC" ] && awk -v g="$1" '!/^\s*#/ && $1==g {print $2; exit}' "$ALLOC"; }
+is_member() {
+    [ -n "$1" ] || return 1
+    case "$1" in *-*|*/*|*' '*) return 1 ;; esac
+    [ -n "$(members)" ] || return 0          # 명단이 비어 있으면 아무 이름이나 받는다
+    members | grep -qxF "$1"
+}
+need_me() {
+    if [ "$(id -u)" = 0 ]; then ME=${ME:-관리자}; return 0; fi   # 관리자는 규칙 집행(남의 작업 멈추기 등)을 위해 통과
+    [ -n "$ME" ] || die '이름이 정해지지 않았어요.' '다시 접속해 이름을 입력하거나, export B200_USER=내이름 을 입력하세요.'
+    is_member "$ME" || die "등록된 이름이 아니에요: $ME" "등록된 이름: $(members | tr '\n' ' ')"
+}
+
+# ------------------------------------------------------------------ 도커
+# root(정기 점검)는 공용 계정의 도커에 공용 계정으로 붙는다
+if [ "$(id -u)" = 0 ] && id "$ACC" >/dev/null 2>&1; then
+    DOCKER=(runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$(id -u "$ACC")/docker.sock" PATH="/opt/b200/docker/current:/usr/bin:/bin" docker)
+else
+    DOCKER=(docker)
+fi
+docker_cmd() { "${DOCKER[@]}" "$@"; }
+# b200 작업은 전용 tmux(-L b200)에서 돈다. 언어 설정이 UTF-8 이 아니면 tmux 가 한글 세션 이름을 _ 로 바꾸므로 고정한다
+TMUXB=(env LC_ALL=C.UTF-8 tmux -L b200)
+# root 는 공용 계정의 tmux 에 공용 계정으로 붙는다(규칙 집행용)
+[ "$(id -u)" = 0 ] && id "$ACC" >/dev/null 2>&1 && TMUXB=(runuser -u "$ACC" -- env LC_ALL=C.UTF-8 tmux -L b200)
+have_docker() { command -v docker >/dev/null 2>&1 || [ -x /opt/b200/docker/current/docker ]; }
+
+# ------------------------------------------------------------------ GPU 프로세스 → 사람
+# 사람은 ① 프로세스 환경의 B200_USER(접속할 때 입력한 이름이 따라간다) ② 작업 폴더 이름 순서로 찾는다
+owner_of_pid() {
+    local pid=$1 u cwd
+    u=$( { tr '\0' '\n' < "/proc/$pid/environ"; } 2>/dev/null | sed -n 's/^B200_USER=//p' | head -1)
+    if [ -z "$u" ]; then
+        cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+        case "$cwd" in "$W"/*) u=${cwd#"$W"/}; u=${u%%/*} ;; esac
+    fi
+    echo "${u:-?}"
+}
+# 한 줄에 "gpu pid 메모리MiB 사람" 을 낸다
+gpu_procs() {
+    local map
+    map=$(nvidia-smi --query-gpu=index,uuid --format=csv,noheader 2>/dev/null)
+    nvidia-smi --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader,nounits 2>/dev/null |
+        while IFS=', ' read -r uuid pid mem; do
+            [ -n "$pid" ] || continue
+            idx=$(echo "$map" | awk -F', ' -v u="$uuid" '$2==u {print $1}')
+            echo "$idx $pid $mem $(owner_of_pid "$pid")"
+        done
+}
+busy_by_other() {   # $1 GPU 번호 → 다른 사람이 쓰고 있으면 그 이름들
+    gpu_procs | awk -v g="$1" -v me="$ME" '$1==g && $4!=me {print $4}' | sort -u | tr '\n' ' '
+}
+
+# ------------------------------------------------------------------ 현황
+cmd_status() {
+    local mygrp; mygrp=$(group_of "$ME")
+    echo "${c_b}B200 현황${c_0}  $(date '+%m-%d %H:%M')    나: ${ME:-이름 없음}${mygrp:+ ($mygrp)}"
+    if ! command -v nvidia-smi >/dev/null || ! nvidia-smi -L >/dev/null 2>&1; then
+        warn 'GPU 정보를 읽지 못했어요(nvidia-smi). 관리자에게 알려 주세요.'
+    else
+        local procs; procs=$(gpu_procs)
+        printf '%-4s %-12s %-14s %-12s %-6s %s\n' GPU 배분 '쓰는 사람' '메모리(GB)' 사용률 '실행 시간 / 명령'
+        nvidia-smi --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits |
+        while IFS=', ' read -r i mu mt ut; do
+            grp=$(alloc_of "$i"); grp=${grp:--}
+            who=$(echo "$procs" | awk -v g="$i" '$1==g {print $4}' | sort -u | tr '\n' ',' | sed 's/,$//')
+            pid=$(echo "$procs" | awk -v g="$i" '$1==g {print $2; exit}')
+            detail=''
+            [ -n "$pid" ] && detail="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ') $(ps -o args= -p "$pid" 2>/dev/null | cut -c1-40)"
+            mark=''
+            if [ -n "$who" ]; then
+                case ",$who," in *',?,'*) mark="${c_r}" ;; esac
+                if [ "$grp" != 공용 ] && [ "$grp" != - ]; then
+                    for w in ${who//,/ }; do [ "$w" != '?' ] && [ "$(group_of "$w")" != "$grp" ] && mark="${c_y}"; done
+                fi
+            fi
+            printf '%-4s %-12s %s%-14s%s %-12s %-6s %s\n' "$i" "$grp" "$mark" "${who:-비어 있음}" "$c_0" \
+                "$((mu / 1024))/$((mt / 1024))" "$ut%" "$detail"
+        done
+        echo "  ${c_y}노랑${c_0}=다른 그룹 GPU를 빌려 씀(주인이 요청하면 30분 안에 비우기)  ${c_r}빨강${c_0}=누군지 모름(이름 없이 실행)"
+    fi
+    local du; du=$(df -P "$APP" 2>/dev/null | awk 'NR==2 {printf "%d/%d GB (%s)", $3/1048576, $2/1048576, $5}')
+    echo "디스크 /app: $du$( [ -n "$ME" ] && [ -d "$W/$ME" ] && echo "   내 작업 폴더: $(du -sh "$W/$ME" 2>/dev/null | cut -f1)")"
+    local rep; rep=$(ls -1 "$ST/reports"/*.txt 2>/dev/null | tail -1)
+    if [ -n "$rep" ] && grep -q '^\[알림\]' "$rep"; then
+        echo "${c_y}관리자 알림${c_0} ($(basename "$rep" .txt))"; grep '^\[알림\]' "$rep" | sed 's/^\[알림\] /  - /' | head -5
+    fi
+    echo "명령: b200 help   규칙: b200 rules"
+}
+
+# ------------------------------------------------------------------ GPU 고르기 검사
+# 빈 GPU 를 내 그룹 → 공용 → 다른 그룹 순서로 $1 장 고른다
+pick_gpus() {
+    local want=$1 mygrp procs picked=() i grp
+    mygrp=$(group_of "$ME"); procs=$(gpu_procs)
+    for pass in mine shared other; do
+        for i in $(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null); do
+            [ ${#picked[@]} -lt "$want" ] || break
+            [ -z "$(echo "$procs" | awk -v g="$i" '$1==g')" ] || continue
+            case " ${picked[*]} " in *" $i "*) continue ;; esac
+            grp=$(alloc_of "$i")
+            case $pass in
+                mine)   [ -n "$mygrp" ] && [ "$grp" = "$mygrp" ] || continue ;;
+                shared) [ "$grp" = 공용 ] || [ -z "$grp" ] || continue ;;
+            esac
+            picked+=("$i")
+        done
+    done
+    [ ${#picked[@]} -eq "$want" ] || die "빈 GPU가 $want 장이 안 돼요(지금 ${#picked[@]}장)." 'b200 으로 현황을 보고 기다리거나 장수를 줄이세요.'
+    local IFS=,; echo "${picked[*]}"
+}
+
+check_gpus() {   # $1 "1,2" 나 "auto", "auto:2" → 통과하면 정리된 목록, 안 되면 멈춤
+    local list=$1 g others mygrp grp n
+    if [[ "$list" =~ ^auto(:([1-8]))?$ ]]; then
+        list=$(pick_gpus "${BASH_REMATCH[2]:-1}") || exit 1
+        echo "${c_c}[선택]${c_0} 빈 GPU $list" >&2
+    fi
+    [[ "$list" =~ ^[0-7](,[0-7])*$ ]] || die "GPU 번호가 이상해요: $list" '예: 1,  1,2,  auto(빈 GPU 1장),  auto:2(빈 GPU 2장)'
+    n=$(nvidia-smi -L 2>/dev/null | wc -l)
+    mygrp=$(group_of "$ME")
+    for g in ${list//,/ }; do
+        [ "$g" -lt "$n" ] || die "GPU $g 는 없어요(0~$((n - 1)))."
+        others=$(busy_by_other "$g")
+        [ -z "$others" ] || die "GPU $g 는 지금 ${others% } 가 쓰고 있어요." 'b200 으로 빈 GPU를 확인하세요.'
+        grp=$(alloc_of "$g")
+        if [ -n "$grp" ] && [ "$grp" != 공용 ] && [ -n "$mygrp" ] && [ "$grp" != "$mygrp" ]; then
+            warn "GPU $g 는 '$grp' 그룹 GPU예요. 지금은 비어 있어 빌려 쓰지만, 그 그룹이 요청하면 30분 안에 비워 주세요."
+        fi
+    done
+    echo "$list"
+}
+
+new_session_name() { echo "$ME-$(date +%m%d-%H%M%S)"; }
+
+# ------------------------------------------------------------------ 실행
+no_root() { [ "$(id -u)" != 0 ] || die '관리자(root)로는 작업을 실행하지 않아요.' "공용 계정($ACC)으로 접속해 실행하세요."; }
+
+cmd_run() {
+    no_root; need_me
+    [ $# -ge 2 ] || die '쓰는 법: b200 run <GPU> <명령>' '예: b200 run 1,2 python train.py'
+    local gpus; gpus=$(check_gpus "$1") || exit 1; shift
+    local sess log dir
+    sess=$(new_session_name)
+    dir=$PWD
+    case "$dir" in "$W/$ME"|"$W/$ME"/*) ;; *) warn "지금 폴더($dir)가 내 작업 폴더($W/$ME) 밖이에요. 결과 파일 위치를 확인하세요." ;; esac
+    mkdir -p "$W/$ME/logs"
+    log="$W/$ME/logs/$sess.log"
+    printf -v cmdq '%q ' "$@"
+    inner="export B200_USER=$(printf %q "$ME") CUDA_VISIBLE_DEVICES=$gpus
+echo \"[b200] \$(date '+%F %T') 시작: GPU $gpus\" | tee -a $(printf %q "$log")
+$cmdq 2>&1 | tee -a $(printf %q "$log")
+echo \"[b200] \$(date '+%F %T') 끝 (종료 코드 \${PIPESTATUS[0]})\" | tee -a $(printf %q "$log")
+exec bash"
+    "${TMUXB[@]}" new-session -d -s "$sess" -c "$dir" "bash -c $(printf %q "$inner")" ||
+        die 'tmux 세션을 만들지 못했어요.'
+    "${TMUXB[@]}" set-environment -t "$sess" B200_USER "$ME"   # 이 세션에서 새로 여는 창도 내 이름
+    ok "GPU $gpus 에서 시작했어요. 접속이 끊겨도 계속 돌아요."
+    echo "  보기: b200 attach $sess    (나오기: Ctrl+b 누른 뒤 d)"
+    echo "  기록: $log"
+    echo "  멈추기: b200 stop $sess"
+}
+
+cmd_docker() {
+    no_root; need_me
+    have_docker || die '이 서버에는 아직 도커가 설치되지 않았어요.' '관리자에게 문의하세요.'
+    [ $# -ge 2 ] || die '쓰는 법: b200 docker <GPU> <이미지> [명령]' '예: b200 docker 1 nvcr.io/nvidia/pytorch:25.10-py3 python train.py'
+    local gpus img sess log
+    gpus=$(check_gpus "$1") || exit 1; img=$2; shift 2
+    docker_cmd image inspect "$img" >/dev/null 2>&1 || die "이미지가 없어요: $img" 'b200 images 로 목록을 보거나 b200 image-load 로 들여오세요.'
+    sess=$(new_session_name)
+    mkdir -p "$W/$ME/logs"
+    # 내 작업 폴더는 /workspace(쓰기), 공용 폴더는 /app/shared(읽기 전용)로 연결한다
+    local args=(run --rm --name "$sess" --gpus "\"device=$gpus\"" --label "b200.user=$ME"
+        -e "B200_USER=$ME" --shm-size 32g --ulimit memlock=-1 --ulimit stack=67108864
+        -v "$W/$ME:/workspace" -v "$S:$S:ro" -w /workspace)
+    printf '%s\t%s\t%s\n' "$(date '+%F %T')" "$ME" "$img" >> "$ST/images/used.tsv"
+    if [ $# -eq 0 ]; then
+        echo "  컨테이너 셸을 열어요. 내 작업 폴더는 /workspace 예요. 나오기: exit"
+        exec "${DOCKER[@]}" "${args[@]}" -it "$img" bash
+    fi
+    log="$W/$ME/logs/$sess.log"
+    printf -v cmdq '%q ' "${DOCKER[@]}" "${args[@]}" -t "$img" "$@"
+    inner="export B200_USER=$(printf %q "$ME")
+$cmdq 2>&1 | tee -a $(printf %q "$log")
+echo \"[b200] \$(date '+%F %T') 끝 (종료 코드 \${PIPESTATUS[0]})\" | tee -a $(printf %q "$log")
+exec bash"
+    "${TMUXB[@]}" new-session -d -s "$sess" -c "$W/$ME" "bash -c $(printf %q "$inner")" ||
+        die 'tmux 세션을 만들지 못했어요.'
+    "${TMUXB[@]}" set-environment -t "$sess" B200_USER "$ME"
+    ok "컨테이너를 GPU $gpus 에서 시작했어요. 접속이 끊겨도 계속 돌아요."
+    echo "  보기: b200 attach $sess    기록: $log    멈추기: b200 stop $sess"
+}
+
+my_sessions() { "${TMUXB[@]}" ls -F '#S' 2>/dev/null | grep "^${1:-$ME}-"; }
+
+cmd_stop() {
+    need_me
+    [ $# -eq 1 ] || die '쓰는 법: b200 stop <세션 이름>' "내 작업: $(my_sessions | tr '\n' ' ')"
+    if [ "$(id -u)" != 0 ]; then
+        case "$1" in "$ME"-*) ;; *) die "내 작업이 아니에요: $1" '다른 사람 작업은 그 사람에게 요청하세요.' ;; esac
+    fi
+    have_docker && docker_cmd stop "$1" >/dev/null 2>&1
+    "${TMUXB[@]}" kill-session -t "=$1" 2>/dev/null && ok "$1 멈춤" || die "작업이 없어요: $1"
+}
+
+cmd_attach() {
+    need_me
+    local sess=${1:-$(my_sessions | tail -1)}
+    [ -n "$sess" ] || die '돌고 있는 내 작업이 없어요.' 'b200 run 으로 시작하세요.'
+    echo "  나오기(작업은 계속): Ctrl+b 누른 뒤 d"
+    exec "${TMUXB[@]}" attach -t "=$sess"
+}
+
+cmd_ps() {
+    local who=${1:-$ME}
+    echo "${who:-모두}의 작업 (보기: b200 attach <세션>)"
+    "${TMUXB[@]}" ls -F '#S  (시작 #{t:session_created})' 2>/dev/null | { if [ -n "$who" ]; then grep "^$who-"; else cat; fi; } | sed 's/^/  /'
+}
+
+# ------------------------------------------------------------------ 이미지
+cmd_image_load() {
+    need_me
+    have_docker || die '이 서버에는 아직 도커가 설치되지 않았어요.'
+    [ $# -ge 1 ] || die '쓰는 법: b200 image-load <파일 또는 폴더>' '예: b200 image-load /app/inbox/images/홍길동'
+    local files=() f
+    for a in "$@"; do
+        if [ -d "$a" ]; then while IFS= read -r f; do files+=("$f"); done < <(find "$a" -maxdepth 1 -type f \( -name '*.tar' -o -name '*.tar.gz' -o -name '*.tgz' -o -name '*.tar.zst' \) | sort)
+        else files+=("$a"); fi
+    done
+    [ ${#files[@]} -gt 0 ] || die '들여올 파일(.tar, .tar.gz, .tar.zst)이 없어요.'
+    local need free
+    need=$(du -cm "${files[@]}" | tail -1 | cut -f1)
+    free=$(df -Pm "$APP" | awk 'NR==2 {print $4}')
+    [ "$free" -gt $((need * 3)) ] || die "남은 공간이 부족해요(남은 $((free / 1024)) GB, 필요 약 $((need * 3 / 1024)) GB)." 'b200 images 로 안 쓰는 이미지를 지우세요.'
+    for f in "${files[@]}"; do
+        echo "== $(basename "$f") ($(du -h "$f" | cut -f1))"
+        if [ -f "$f.sha256" ]; then
+            (cd "$(dirname "$f")" && sha256sum -c --quiet "$(basename "$f").sha256") || { warn "체크섬이 달라요. 다시 올려 주세요: $f"; continue; }
+            ok '체크섬 일치'
+        fi
+        out=$(docker_cmd load -i "$f" 2>&1) || { warn "들여오지 못했어요: $(echo "$out" | tail -2)"; continue; }
+        echo "$out" | sed -n 's/^Loaded image\( ID\)\?: /  들여옴: /p'
+        echo "$out" | sed -n 's/^Loaded image\( ID\)\?: //p' | while read -r ref; do
+            printf '%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$ME" "$ref" "$(basename "$f")" >> "$ST/images/loaded.tsv"
+            check_image "$ref"
+        done
+    done
+    echo "다 들여왔으면 올린 파일은 지워도 돼요: rm $(printf '%q ' "${files[@]}")"
+}
+
+# 이미지 안 PyTorch 가 B200 에서 실제로 계산되는지 본다(PyTorch 가 없으면 건너뛴다)
+check_image() {
+    local ref=$1 out g
+    g=$(ME=${ME:-_check} pick_gpus 1 2>/dev/null) || g=0
+    out=$(timeout 300 "${DOCKER[@]}" run --rm --gpus "\"device=$g\"" --entrypoint '' "$ref" sh -c \
+        'command -v python >/dev/null || command -v python3 >/dev/null || exit 3
+         P=$(command -v python || command -v python3)
+         $P -c "import torch" 2>/dev/null || exit 4
+         $P -c "import torch; x=torch.randn(64,64,device=\"cuda\"); print(torch.__version__, torch.version.cuda, float((x@x).sum()))"' 2>&1)
+    case $? in
+        0) ok "B200 호환 검사 통과: PyTorch $(echo "$out" | tail -1 | awk '{print $1", CUDA "$2}')" ;;
+        3|4) echo "  (PyTorch 가 없는 이미지라 GPU 검사는 건너뜀)" ;;
+        *) if echo "$out" | grep -q 'no kernel image'; then
+               warn 'B200 에서 계산이 안 돼요(no kernel image). CUDA 12.8 이상으로 빌드한 PyTorch 2.7 이상 이미지가 필요해요.'
+           elif echo "$out" | grep -q 'executable file not found'; then
+               echo "  (셸이 없는 이미지라 GPU 검사는 건너뜀)"
+           else warn "GPU 검사 실패: $(echo "$out" | grep -m1 -iE 'error|failed' || echo "$out" | tail -1)"; fi ;;
+    esac
+}
+
+cmd_images() {
+    have_docker || die '이 서버에는 아직 도커가 설치되지 않았어요.'
+    printf '%-50s %-8s %-10s %-11s %s\n' 이미지 크기 '들여온 사람' '들여온 날' '마지막 사용'
+    docker_cmd images --format '{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}' | while IFS=$'\t' read -r ref id size; do
+        who=$(awk -F'\t' -v r="$ref" '$3==r {w=$2; d=substr($1,1,10)} END {print w" "d}' "$ST/images/loaded.tsv" 2>/dev/null)
+        last=$(awk -F'\t' -v r="$ref" '$3==r {d=substr($1,1,10)} END {print d}' "$ST/images/used.tsv" 2>/dev/null)
+        printf '%-50s %-8s %-10s %-11s %s\n' "${ref:0:50}" "$size" "${who% *}" "${who#* }" "${last:--}"
+    done
+    echo "지우기: b200 rmi <이미지>   (30일 넘게 안 쓴 이미지는 들여온 사람이 지워 주세요)"
+}
+
+cmd_rmi() {
+    need_me
+    [ $# -eq 1 ] || die '쓰는 법: b200 rmi <이미지>'
+    local who; who=$(awk -F'\t' -v r="$1" '$3==r {w=$2} END {print w}' "$ST/images/loaded.tsv" 2>/dev/null)
+    if [ -n "$who" ] && [ "$who" != "$ME" ] && [ "$(id -u)" != 0 ]; then
+        read -r -p "  $who 가 들여온 이미지예요. 그래도 지울까요? [y/N] " a; [ "$a" = y ] || exit 0
+    fi
+    docker_cmd rmi "$1" && ok "지웠어요: $1"
+}
+
+cmd_du() {
+    echo "작업 폴더 사용량 (/app/workspace)"
+    du -sh "$W"/*/ 2>/dev/null | sort -rh | sed "s#$W/##; s#/\$##" | head -20 | sed 's/^/  /'
+    if have_docker; then echo "도커 이미지 전체: $(docker_cmd system df --format '{{.Type}} {{.Size}}' 2>/dev/null | awk '$1=="Images" {print $2}')"; fi
+    df -h "$APP" | awk 'NR==2 {print "디스크 /app: "$3" 사용 / "$2" ("$5")"}'
+}
+
+cmd_doctor() {
+    echo "== GPU"; nvidia-smi -L 2>&1 | head -8
+    echo "== 공용 Python 환경"
+    "$S/venv/bin/python" -c 'import torch; n=torch.cuda.device_count(); [ (torch.randn(64,64,device=f"cuda:{i}")@torch.randn(64,64,device=f"cuda:{i}")).sum().item() for i in range(n)]; print("PyTorch", torch.__version__, "GPU", n, "장 계산 확인")' 2>&1 | tail -1
+    if have_docker; then
+        echo "== 도커"; docker_cmd info --format 'Docker {{.ServerVersion}}, {{.DockerRootDir}}' 2>&1 | tail -1
+        [ $# -ge 1 ] && check_image "$1"
+    fi
+}
+
+cmd_rules() { cat "$S/bin/rules.txt" 2>/dev/null || echo '규칙 파일이 없어요. 관리자에게 알려 주세요.'; }
+
+cmd_help() {
+    cat <<EOF
+${c_b}b200${c_0}                         현황: GPU별 쓰는 사람, 디스크, 관리자 알림
+${c_b}b200 run${c_0} <GPU> <명령>        GPU를 골라 실행(끊겨도 계속 돎)   예) b200 run 1,2 python train.py
+                             GPU 자리에 auto(빈 GPU 1장), auto:2(2장)를 쓰면 알아서 골라요
+${c_b}b200 docker${c_0} <GPU> <이미지> [명령]  컨테이너로 실행. 명령 없으면 컨테이너 셸
+${c_b}b200 ps${c_0}                      내 작업 목록
+${c_b}b200 attach${c_0} [세션]           내 작업 화면 보기(나오기: Ctrl+b 누른 뒤 d)
+${c_b}b200 stop${c_0} <세션>             내 작업 멈추기
+${c_b}b200 image-load${c_0} <파일|폴더>  도커 이미지 들여오기(.tar, .tar.gz, .tar.zst)
+${c_b}b200 images${c_0} / ${c_b}rmi${c_0} <이미지>    이미지 목록 / 지우기
+${c_b}b200 du${c_0}                      사람별 사용량
+${c_b}b200 doctor${c_0} [이미지]         GPU·환경 점검
+${c_b}b200 rules${c_0}                   사용 규칙
+EOF
+}
+
+# ------------------------------------------------------------------ 내부(접속 설정·정기 점검이 부른다)
+cmd__hello() {
+    echo
+    echo "${c_b}B200 서버${c_0}  공용 계정이라 이름으로 사람을 구분해요. 규칙: b200 rules"
+    if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
+        local procs; procs=$(gpu_procs)
+        free=$(nvidia-smi --query-gpu=index --format=csv,noheader | while read -r i; do [ -z "$(echo "$procs" | awk -v g="$i" '$1==g')" ] && echo "$i"; done | tr '\n' ' ')
+        echo "  지금 빈 GPU: ${free:-없음}"
+    fi
+}
+
+cmd__log_gpu() {   # root cron, 5분마다
+    local f; f="$ST/gpu_log/$(date +%Y-%m).tsv"
+    gpu_procs | while read -r g pid mem who; do
+        grp=$(alloc_of "$g"); own=$(group_of "$who")
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$g" "$who" "${own:--}" "${grp:--}" "$mem" "$(ps -o args= -p "$pid" | cut -c1-60)"
+    done >> "$f"
+}
+
+cmd__report() {    # root cron, 매일
+    echo "B200 점검 보고서 $(date '+%F %T')"
+    use=$(df -P "$APP" 2>/dev/null | awk 'NR==2 {gsub("%","",$5); print $5}')
+    [ "${use:-0}" -ge 80 ] && echo "[알림] 디스크 /app 이 ${use}% 찼어요. b200 du 로 큰 폴더를 확인해 정리해 주세요."
+    echo "== 사람별 작업 폴더"; du -sh "$W"/*/ 2>/dev/null | sort -rh | sed "s#$W/##" | head -20
+    unknown=$(gpu_procs | awk '$4=="?" {print "GPU "$1" pid "$2}' | tr '\n' ' ')
+    [ -n "$unknown" ] && echo "[알림] 누군지 모르는 GPU 사용: $unknown(이름 없이 실행한 것. 주인은 관리자에게 알려 주세요)"
+    if have_docker; then
+        cut=$(date -d '30 days ago' +%F)
+        docker_cmd images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | while read -r ref; do
+            last=$(awk -F'\t' -v r="$ref" '$3==r {d=substr($1,1,10)} END {print d}' "$ST/images/used.tsv" "$ST/images/loaded.tsv" 2>/dev/null)
+            [ -n "$last" ] && [[ "$last" < "$cut" ]] && echo "[알림] 30일 넘게 안 쓴 이미지: $ref (마지막 $last)"
+        done
+    fi
+    echo "== 지난 하루 사람별 GPU 사용(5분 기록 수 ÷ 12 = 시간)"
+    awk -F'\t' -v since="$(date -d '1 day ago' '+%F %T')" '$1>=since {n[$3]++} END {for (u in n) printf "  %s %.1f GPU시간\n", u, n[u]/12}' \
+        "$ST/gpu_log/$(date +%Y-%m).tsv" 2>/dev/null
+    echo "== GPU 오류"
+    nvidia-smi -q -d ECC 2>/dev/null | grep -iE 'uncorr.*: [1-9]' | head -5 | sed 's/^/[알림] ECC 오류: /'
+    journalctl -k --since '1 day ago' 2>/dev/null | grep -i 'NVRM: Xid' | tail -5 | sed 's/^/[알림] /'
+    true
+}
+
+case "${1:-}" in
+    ''|status)   cmd_status ;;
+    run)         shift; cmd_run "$@" ;;
+    docker)      shift; cmd_docker "$@" ;;
+    stop)        shift; cmd_stop "$@" ;;
+    attach)      shift; cmd_attach "$@" ;;
+    ps)          shift; cmd_ps "$@" ;;
+    image-load)  shift; cmd_image_load "$@" ;;
+    images)      cmd_images ;;
+    rmi)         shift; cmd_rmi "$@" ;;
+    du)          cmd_du ;;
+    doctor)      shift; cmd_doctor "$@" ;;
+    rules)       cmd_rules ;;
+    help|-h|--help) cmd_help ;;
+    _hello)      cmd__hello ;;
+    _is-member)  is_member "${2:-}" ;;
+    _names)      members | tr '\n' ' ' ;;
+    _log-gpu)    cmd__log_gpu ;;
+    _report)     cmd__report ;;
+    *)           echo "모르는 명령: $1"; cmd_help; exit 1 ;;
+esac

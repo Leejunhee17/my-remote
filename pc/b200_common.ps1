@@ -224,10 +224,17 @@ function Step-Retry($stall, $before, $after, $max, $what) {
     return $stall
 }
 
-# 이어받기 + 다시 시도. md5 를 주면 받은 뒤 맞는지 본다. 성공하면 $true.
+# 받은 파일이 알려 준 체크섬과 맞는지 본다. 체크섬을 안 주면 맞는 것으로 친다
+function Test-Sum($file, $md5, $sha256) {
+    if ($sha256) { return (Get-FileHash $file -Algorithm SHA256).Hash -eq $sha256.ToUpper() }
+    if ($md5)    { return (Get-FileHash $file -Algorithm MD5).Hash -eq $md5.ToUpper() }
+    return $true
+}
+
+# 이어받기 + 다시 시도. md5 나 sha256 을 주면 받은 뒤 맞는지 본다. 성공하면 $true.
 # 받은 양이 늘고 있는 동안은 몇 번 끊겨도 계속하고, 진전 없이 $tries 번 끊기면 포기한다.
-function Get-File($url, $file, $md5, $tries) {
-    if ((Test-Path $file) -and $md5 -and ((Get-FileHash $file -Algorithm MD5).Hash -eq $md5.ToUpper())) { return $true }
+function Get-File($url, $file, $md5, $tries, $sha256) {
+    if ((Test-Path $file) -and ($md5 -or $sha256) -and (Test-Sum $file $md5 $sha256)) { return $true }
     $stall = 0
     while ($stall -lt $tries) {
         $before = Get-Size $file
@@ -235,7 +242,7 @@ function Get-File($url, $file, $md5, $tries) {
         & curl.exe -sS -L -C - --fail --retry 3 --connect-timeout 30 -Y 1024 -y 120 @ca -o $file $url
         $code = $LASTEXITCODE
         if ($code -eq 0) {
-            if (-not $md5 -or (Get-FileHash $file -Algorithm MD5).Hash -eq $md5.ToUpper()) { return $true }
+            if (Test-Sum $file $md5 $sha256) { return $true }
             Write-Warn "깨진 파일이라 다시 받는다: $(Split-Path -Leaf $file)"
             Remove-Item -Force $file
             $stall++

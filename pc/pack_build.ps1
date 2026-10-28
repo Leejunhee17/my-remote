@@ -43,7 +43,8 @@ foreach ($e in 'curl.exe', 'tar.exe') {
 if ($script:Fails) {
     Stop-Run '필요한 프로그램이 없다' 'uv, micromamba 를 설치하고 PowerShell 창을 새로 연다. 또는 uv.exe, micromamba.exe 를 이 폴더에 넣는다.'
 }
-foreach ($f in 'lists\tools.txt', 'lists\wheels.txt', 'server\pack_install.sh', 'server\move_shared.sh', 'server\check_server.sh') {
+$scripts = @('pack_install.sh', 'move_shared.sh', 'check_server.sh', 'admin_setup.sh', 'bin/b200', 'bin/rules.txt')   # 묶음에 같이 넣는 서버 파일
+foreach ($f in @('lists\tools.txt', 'lists\wheels.txt') + @($scripts | ForEach-Object { 'server\' + ($_ -replace '/', '\') })) {
     if (-not (Test-Path (Join-Path $root $f))) { Stop-Run "$f 가 없다" 'git pull 로 저장소를 최신으로 받는다.' }
 }
 Write-Ok '목록 파일(tools.txt, wheels.txt) 있음'
@@ -188,7 +189,8 @@ Write-Ok "$wcount 개 받음, 해시 확인함"
 
 # ------------------------------------------------------------------ 6. 묶기 + 검사
 Write-Step 6 $T '묶기와 검사'
-foreach ($f in 'pack_install.sh', 'move_shared.sh', 'check_server.sh') {
+New-Item -ItemType Directory -Force (Join-Path $out 'bin') | Out-Null
+foreach ($f in $scripts) {
     $sh = [IO.File]::ReadAllText((Join-Path $root "server\$f")) -replace "`r", ''
     [IO.File]::WriteAllText((Join-Path $out $f), $sh, (New-Object Text.UTF8Encoding $false))
 }
@@ -197,7 +199,7 @@ Write-Lf (Join-Path $out 'pack_info.txt') @(
     "tools=$($pkgs.Count)", "wheels=$($pins.Count)", "torch=$torchPin")
 
 Write-Info '체크섬 목록 만드는 중'
-$files = @('micromamba', 'explicit.txt', 'lock.txt', 'pack_install.sh', 'move_shared.sh', 'check_server.sh', 'pack_info.txt') +
+$files = @('micromamba', 'explicit.txt', 'lock.txt', 'pack_info.txt') + $scripts +
     @(Get-ChildItem $pdir -File | ForEach-Object { "pkgs/$($_.Name)" }) +
     @(Get-ChildItem $wdir -File | ForEach-Object { "wheels/$($_.Name)" })
 Write-Lf (Join-Path $out 'MANIFEST.sha256') ($files | ForEach-Object {
@@ -207,7 +209,7 @@ Write-Info 'tar 로 묶는 중'
 $tar = Join-Path $out 'b200-pack.tar'
 Remove-Item -Force -ErrorAction SilentlyContinue $tar
 Push-Location $out
-& tar.exe -cf b200-pack.tar MANIFEST.sha256 micromamba explicit.txt lock.txt pack_install.sh move_shared.sh check_server.sh pack_info.txt pkgs wheels
+& tar.exe -cf b200-pack.tar MANIFEST.sha256 micromamba explicit.txt lock.txt pack_info.txt @scripts pkgs wheels
 $code = $LASTEXITCODE
 $listed = @(& tar.exe -tf b200-pack.tar | Where-Object { $_ -notmatch '/$' }).Count
 Pop-Location

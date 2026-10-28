@@ -7,9 +7,14 @@ set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행한다. 접근 PC에서는 .ps1 을 쓴다."; exit 1; fi
 cd "$(dirname "$0")"
 SRC=$PWD
-D="$HOME/shared/models"
-LOG="$HOME/shared/logs/models_install_$(date +%Y%m%d_%H%M%S).log"
-mkdir -p "$D" "$HOME/shared/logs"
+# 공용 폴더 실제 위치. 관리자 설정(admin_setup.sh) 뒤에는 /app/shared 이고 root 만 고칠 수 있다
+SH=$(realpath -m "$HOME/shared"); [ -d /app/shared ] && SH=/app/shared
+if [ -d "$SH" ] && [ ! -w "$SH" ]; then
+    echo "멈춤: 공용 폴더($SH)는 관리자(root)만 고칠 수 있다. 관리자 계정으로 같은 명령을 실행한다."; exit 1
+fi
+D="$SH/models"
+LOG="$SH/logs/models_install_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p "$D" "$SH/logs"
 exec > >(tee -a "$LOG") 2>&1
 T=3
 FAILS=0
@@ -52,7 +57,7 @@ ok "남은 공간 ${free} GB (필요 약 ${need} GB)"
 
 # ------------------------------------------------------------------ 2. 옮기기
 step 2 "옮기기 → $D/<만든 곳>/<모델>"
-PY="$HOME/shared/venv/bin/python"; [ -x "$PY" ] || PY=python3
+PY="$SH/venv/bin/python"; [ -x "$PY" ] || PY=python3
 mapfile -t dirs < <(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' MANIFEST.sha256 | sort -u)
 for d in "${dirs[@]}"; do
     repo=${d/__//}
