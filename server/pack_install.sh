@@ -82,13 +82,13 @@ echo "  묶음 정보: $(info made)에 만든 묶음, glibc $(info glibc) 기준
 
 echo "  파일 체크섬을 확인하고 있어요(1~3분)"
 # 설치 스크립트 자신은 고친 판을 따로 올려 덮어쓸 수 있도록 검사에서 뺀다
-bad_files=$(grep -vE '  ((pack_install|move_shared|check_server|check_network|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
+bad_files=$(grep -vE '  ((pack_install|move_shared|check_server|check_network|check_nas|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | head -20 | sed 's/^/    깨진 파일: /'
     stop "올리는 중에 파일이 깨졌어요($(echo "$bad_files" | wc -l)개)" \
          "접근 PC의 pack\\b200-pack.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요."
 fi
-ok "파일 $(grep -cvE '  ((pack_install|move_shared|check_server|check_network|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256)개 체크섬이 맞아요"
+ok "파일 $(grep -cvE '  ((pack_install|move_shared|check_server|check_network|check_nas|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256)개 체크섬이 맞아요"
 
 glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
 if ver_ge "$glibc" "$(info glibc)"; then

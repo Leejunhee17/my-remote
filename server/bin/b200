@@ -362,6 +362,17 @@ cmd__report() {
         echo "== 도커 이미지 (이미지, 들여온 사람, 마지막 사용, 크기)"
         image_table | sort -t$'\t' -k3,3 | awk -F'\t' '{printf "  %-50s %-10s %s  %s\n", $1, $2, $3, $4}'
     fi
+    # NAS 우리 팀 폴더(b200.conf 의 NAS_DIR). root squash 에서도 읽히고 링크를 심어도 root 가 따라가지 않게 공용 계정으로 본다
+    if [ -n "${NAS_DIR:-}" ] && [ -d "$NAS_DIR" ] && [ ! -L "$NAS_DIR" ]; then
+        local as=(); is_root && as=(runuser -u "$ACC" --)
+        echo
+        echo "== NAS ($NAS_DIR)"
+        "${as[@]}" df -hP "$NAS_DIR" 2>/dev/null | awk 'NR==2 {print "  전체 "$2", 쓴 것 "$3", 남은 것 "$4" ("$5")  (할당량이 있으면 할당량 기준)"}'
+        "${as[@]}" timeout 1800 du -sh "$NAS_DIR"/archive "$NAS_DIR"/images/* "$NAS_DIR"/backup/* "$NAS_DIR"/transfer 2>/dev/null |
+            sed "s#$NAS_DIR/##; s/\t/  /; s/[[:cntrl:]]//g; s/^/  /"
+        local old; old=$("${as[@]}" find "$NAS_DIR/transfer" -mindepth 1 -maxdepth 1 -mtime +14 -printf '  %TY-%Tm-%Td  %f\n' 2>/dev/null | sed 's/[[:cntrl:]]//g' | sort | head -20)
+        [ -z "$old" ] || { echo "  transfer/ 에서 14일 넘은 것(옮겼으면 지워 주세요):"; echo "$old"; }
+    fi
     echo
     echo "== 지난 7일 알림"
     for f in "$NOTE"/*.txt; do

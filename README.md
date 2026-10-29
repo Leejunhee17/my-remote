@@ -17,7 +17,7 @@
 | 운영체제 | 윈도우 | Ubuntu 22.04 이상(버전 확정 전) |
 | 인터넷 | 돼요. 여기서 내려받아요 | 안 돼요 |
 | 접속 | | HIWARE 를 거쳐요. 팀원은 모두 공용 계정 `shareduser`(PuTTY, FileZilla). 관리자는 root(PuTTY만 돼요). 파일은 공용 계정 FileZilla로 올려요 |
-| 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD, NAS `/data` |
+| 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD, NAS `/data`(다른 팀과 같이 써요. 계획: `docs/9_NAS.md`) |
 | 주요 위치 | `D:\b200` | 공용 `/app/shared`(root 만 고침), 작업 `/app/workspace/<이름>`, 기록·알림 `/app/state`, 설치 파일 올리는 곳 `/app/upload`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
 
 ## 문서 지도
@@ -28,6 +28,7 @@
 | 팀원 추가, GPU 배분, 알림 기준, 도커·드라이버 관리 | `docs/2_서버_운영.md` |
 | 잠금·알림·사람 구분이 왜 이렇게 생겼는지 알고 싶어요 | `docs/3_구조와_보안.md` |
 | 두 서버와 NAS 사이 속도, 큰 파일 옮기는 방법 | `docs/4_네트워크.md` |
+| NAS에 무엇을 어디에 두고, 누가 쓰고, 얼마나 필요한지 | `docs/9_NAS.md` |
 | 서버의 기초 프로그램(tmux, nvtop 등) 목록을 보거나 바꿔요 | `docs/5_기초프로그램.md` |
 | 데이터셋을 받거나 폴더 구조를 확인해요 | `docs/6_데이터셋.md` |
 | 사전학습 모델을 받거나 목록을 바꿔요 | `docs/7_모델.md` |
@@ -41,7 +42,7 @@
 
 | 단계 | 접근 PC | B200 서버 (root) |
 |---|---|---|
-| 0. 서버 점검 | | `check_server.sh`, `check_network.sh all` |
+| 0. 서버 점검 | | `check_server.sh`, `check_network.sh all`, `check_nas.sh` |
 | 1. 관리자 기본 설정 | `pc\pack_build.ps1` | `admin_setup.sh` (**맨 먼저**: `/app` 잠금) |
 | 2. 기초 프로그램 | (1단계 묶음) | `pack_install.sh /app/shared` |
 | 3. 도커 | `pc\docker_pack.ps1` | `docker_install.sh` |

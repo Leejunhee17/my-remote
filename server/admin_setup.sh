@@ -140,6 +140,7 @@ MAX_GPUS=4            # docker run 때 내 GPU가 이보다 많아지면 경고
 IDLE_HOURS=12         # GPU를 잡고 이 시간 내내 사용률 0%면 그 사람에게 알림(하루 한 번)
 DISK_ALERT=85         # /app 이 이 % 를 넘으면 많이 쓰는 3명과 관리자에게 알림(주 한 번)
 IMAGE_NOTICE_DAYS=30  # 이 일수 동안 안 쓴 도커 이미지는 들여온 사람에게 알림(주 한 번)
+NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/shareduser). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)
 EOF
 chmod 644 "$S/b200.conf"
 
