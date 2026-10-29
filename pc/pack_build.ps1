@@ -29,21 +29,21 @@ function Write-Lf($path, $lines) {
 # ------------------------------------------------------------------ 1. 점검
 Write-Step 1 $T '점검'
 $mm = Find-Exe 'micromamba' $root
-if ($mm) { Write-Ok "micromamba : $mm" } else { Write-Bad 'micromamba 가 없다' }
+if ($mm) { Write-Ok "micromamba : $mm" } else { Write-Bad 'micromamba가 없어요' }
 foreach ($e in 'curl.exe', 'tar.exe') {
-    if (Get-Command $e -ErrorAction SilentlyContinue) { Write-Ok $e } else { Write-Bad "$e 가 없다(윈도우 10 1803 이후에 기본으로 있다)" }
+    if (Get-Command $e -ErrorAction SilentlyContinue) { Write-Ok $e } else { Write-Bad "없는 프로그램: $e (윈도우 10 1803 이후에는 기본으로 들어 있어요)" }
 }
 if ($script:Fails) {
-    Stop-Run '필요한 프로그램이 없다' 'micromamba 를 설치하고 PowerShell 창을 새로 연다. 또는 micromamba.exe 를 이 폴더에 넣는다.'
+    Stop-Run '필요한 프로그램이 없어요' "micromamba를 설치하고 PowerShell 창을 새로 여세요. 또는 micromamba.exe를 $root 폴더에 넣으세요."
 }
 $scripts = @('pack_install.sh', 'move_shared.sh', 'check_server.sh', 'check_network.sh', 'admin_setup.sh', 'bin/b200', 'bin/docker', 'bin/nvidia-smi')   # 묶음에 같이 넣는 서버 파일
 foreach ($f in @('lists\tools.txt') + @($scripts | ForEach-Object { 'server\' + ($_ -replace '/', '\') })) {
-    if (-not (Test-Path (Join-Path $root $f))) { Stop-Run "$f 가 없다" 'git pull 로 저장소를 최신으로 받는다.' }
+    if (-not (Test-Path (Join-Path $root $f))) { Stop-Run "없는 파일: $f" 'git pull로 저장소를 최신으로 받으세요.' }
 }
-Write-Ok '목록 파일(tools.txt) 있음'
+Write-Ok '목록 파일(lists\tools.txt)과 서버 스크립트가 있어요'
 
 $free = Get-FreeGB $out
-if ($free -lt 10) { Stop-Run "남은 공간이 $free GB 다(10 GB 이상 필요)" '공간이 넉넉한 드라이브로 저장소를 옮겨 다시 실행한다.' }
+if ($free -lt 10) { Stop-Run "남은 공간이 $free GB예요(10 GB 이상 필요해요)" '공간을 비우거나, 공간이 넉넉한 드라이브로 저장소를 옮겨 다시 실행하세요.' }
 Write-Ok "남은 공간 $free GB"
 
 $sites = [ordered]@{
@@ -54,9 +54,9 @@ foreach ($k in $sites.Keys) {
     Test-Site $k $sites[$k] | Out-Null
 }
 if ($script:Fails) {
-    Stop-Run '인터넷 접속이 안 되는 곳이 있다' ('위 [문제] 줄 아래의 curl 오류와 설명을 본다. 브라우저로는 열리면 ' +
-        '사내 IT에 프록시 주소를 물어 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 넣고 다시 실행한다. ' +
-        '그래도 안 되면 담당자에게 build.log 를 보내 준다.')
+    Stop-Run '접속되지 않는 사이트가 있어요' ('위 [문제] 줄 아래의 curl 오류와 설명을 보세요. 브라우저에서는 열린다면 ' +
+        '사내 IT에 프록시 주소를 물어 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 입력하고 다시 실행하세요. ' +
+        '그래도 안 되면 아래 기록 파일을 담당자에게 보내 주세요.')
 }
 
 # ------------------------------------------------------------------ 2. 기초 프로그램 목록
@@ -64,7 +64,7 @@ Write-Step 2 $T '기초 프로그램 버전 정하기 (B200 서버 linux-64 기�
 $env:CONDA_OVERRIDE_GLIBC = $Glibc
 $env:CONDA_OVERRIDE_CUDA  = $Cuda
 $tools = (Get-Content (Join-Path $root 'lists\tools.txt')) -split '\s+' | Where-Object { $_ }
-Write-Info "목록 $($tools.Count)개를 conda-forge 에서 푸는 중 (1~3분)"
+Write-Info "conda-forge에서 목록 $($tools.Count)개와 함께 필요한 패키지의 버전을 정하는 중이에요(1~3분)"
 # 지난 실행에서 망 문제로 잘못 받은 목록 캐시를 쓰지 않도록 매번 지운다
 $mmroot = Join-Path $out 'mmroot'
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $mmroot
@@ -76,24 +76,24 @@ $json = & $mm create --no-rc -n plan -r $mmroot --platform linux-64 -c $cf `
 if ($LASTEXITCODE -ne 0) {
     Write-Host $json
     if ($json -match 'does not exist') {
-        Write-Bad 'conda-forge 의 linux-64 목록을 받지 못해 모든 패키지가 "없다" 로 나왔다'
+        Write-Bad 'conda-forge의 linux-64 목록을 받지 못해서 모든 패키지가 "없음"으로 나왔어요'
         $r = Invoke-Probe "$cf/linux-64/repodata.json"
-        if ($r.Code -eq 0) { Write-Info '    curl 로는 목록 주소에 접속된다. micromamba 만 막힌 경우다(프록시나 인증서).' }
-        else { Write-Info "    curl 로도 목록 주소에 접속 안 된다: 오류 $($r.Code) $($r.Msg)" }
+        if ($r.Code -eq 0) { Write-Info '    curl로는 목록 주소에 접속돼요. micromamba만 막힌 경우예요(프록시나 인증서 문제).' }
+        else { Write-Info "    curl로도 목록 주소에 접속되지 않아요: 오류 $($r.Code) $($r.Msg)" }
         Write-Info "    micromamba 버전: $(& $mm --version)"
-        Stop-Run 'micromamba 가 conda-forge 목록을 받지 못했다' ('위 [문제] 아래 줄과, 이 창의 빨간/노란 경고(Could not, SSL, proxy 등)를 ' +
-            '담당자에게 보내 준다. 회사 프록시 망이면 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 넣고 다시 실행한다.')
+        Stop-Run 'micromamba가 conda-forge 목록을 받지 못했어요' ('위 [문제] 아래 줄과 이 창의 빨간·노란 경고(Could not, SSL, proxy 등)를 ' +
+            '담당자에게 보내 주세요. 회사 프록시 망이면 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 입력하고 다시 실행하세요.')
     }
-    Stop-Run 'micromamba 가 목록을 풀지 못했다' '위 메시지에 나온 패키지 이름이 conda-forge 에 있는지 본다. 인터넷이 끊겼으면 다시 실행한다.'
+    Stop-Run 'micromamba가 패키지 버전을 정하지 못했어요' '위 메시지에 나온 패키지 이름이 conda-forge에 있는지 확인하세요(lists\tools.txt). 인터넷이 끊겼다면 다시 실행하세요.'
 }
-try { $plan = $json | ConvertFrom-Json } catch { Write-Host $json; Stop-Run 'micromamba 결과를 읽지 못했다' 'build.log 를 담당자에게 보내 준다.' }
+try { $plan = $json | ConvertFrom-Json } catch { Write-Host $json; Stop-Run 'micromamba 결과를 읽지 못했어요' '아래 기록 파일을 담당자에게 보내 주세요.' }
 $pkgs = @($plan.actions.LINK | Where-Object { $_.url })
 if (-not $pkgs.Count) { $pkgs = @($plan.actions.FETCH | Where-Object { $_.url }) }
-if (-not $pkgs.Count) { Write-Host $json; Stop-Run 'micromamba 결과에 받을 패키지가 없다' 'build.log 를 담당자에게 보내 준다.' }
+if (-not $pkgs.Count) { Write-Host $json; Stop-Run 'micromamba 결과에 받을 패키지가 없어요' '아래 기록 파일을 담당자에게 보내 주세요.' }
 Write-Lf (Join-Path $out 'explicit.txt') (@('@EXPLICIT') + ($pkgs | ForEach-Object {
     if ($_.md5) { "$($_.url)#$($_.md5)" } else { $_.url } }))
 $py = $pkgs | Where-Object { $_.name -eq 'python' } | Select-Object -First 1
-Write-Ok "패키지 $($pkgs.Count)개로 정함 (python $($py.version))"
+Write-Ok "패키지 $($pkgs.Count)개로 정했어요(python $($py.version))"
 
 # ------------------------------------------------------------------ 3. 기초 프로그램 받기
 Write-Step 3 $T '기초 프로그램 받기'
@@ -105,25 +105,25 @@ foreach ($p in $pkgs) {
     $fn = if ($p.fn) { $p.fn } else { Split-Path -Leaf $p.url }
     Write-Progress -Activity '기초 프로그램 받기' -Status "$n/$($pkgs.Count) $fn" -PercentComplete (100 * $n / $pkgs.Count)
     if (-not (Get-File $p.url (Join-Path $pdir $fn) $p.md5 $MaxTries)) {
-        Stop-Run "받지 못했다: $fn" '인터넷을 확인하고 다시 실행한다. 받은 것은 건너뛴다.'
+        Stop-Run "받지 못한 파일: $fn" '인터넷 연결을 확인하고 다시 실행하세요. 받은 것은 건너뛰어요.'
     }
 }
 Write-Progress -Activity '기초 프로그램 받기' -Completed
 # 지난 실행에서 남은, 이번 목록에 없는 파일은 지운다
 $want = @($pkgs | ForEach-Object { if ($_.fn) { $_.fn } else { Split-Path -Leaf $_.url } })
 Get-ChildItem $pdir -File | Where-Object { $want -notcontains $_.Name } | Remove-Item -Force
-Write-Ok "$($pkgs.Count)개 받음, 체크섬 확인함"
+Write-Ok "$($pkgs.Count)개를 받고 체크섬을 확인했어요"
 Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $out 'micromamba')   # 새 버전에 이어붙지 않게 매번 새로
 if (-not (Get-File 'https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64' `
         (Join-Path $out 'micromamba') $null $MaxTries)) {
-    Stop-Run '서버용 micromamba 를 받지 못했다' 'github.com 접속을 확인하고 다시 실행한다.'
+    Stop-Run 'B200 서버용 micromamba를 받지 못했어요' 'github.com 접속을 확인하고 다시 실행하세요.'
 }
-Write-Ok '서버용 micromamba 받음'
+Write-Ok 'B200 서버용 micromamba를 받았어요'
 
 # 예전 판이 받아 둔 공용 휠은 이제 쓰지 않으니 지운다(공간 확보)
 foreach ($d in 'wheels', 'lock.txt') {
     $pth = Join-Path $out $d
-    if (Test-Path $pth) { Remove-Item -Recurse -Force $pth; Write-Info "예전 공용 휠 파일 지움: $pth" }
+    if (Test-Path $pth) { Remove-Item -Recurse -Force $pth; Write-Info "이제 쓰지 않는 예전 공용 휠 파일을 지웠어요: $pth" }
 }
 
 # ------------------------------------------------------------------ 4. 묶기 + 검사
@@ -137,13 +137,13 @@ Write-Lf (Join-Path $out 'pack_info.txt') @(
     "made=$(Get-Date -Format 'yyyy-MM-dd HH:mm')", "glibc=$Glibc", "cuda=$Cuda",
     "tools=$($pkgs.Count)")
 
-Write-Info '체크섬 목록 만드는 중'
+Write-Info '체크섬 목록을 만드는 중이에요'
 $files = @('micromamba', 'explicit.txt', 'pack_info.txt') + $scripts +
     @(Get-ChildItem $pdir -File | ForEach-Object { "pkgs/$($_.Name)" })
 Write-Lf (Join-Path $out 'MANIFEST.sha256') ($files | ForEach-Object {
     "$((Get-FileHash (Join-Path $out $_) -Algorithm SHA256).Hash.ToLower())  $_" })
 
-Write-Info 'tar 로 묶는 중'
+Write-Info 'tar로 묶는 중이에요'
 $tar = Join-Path $out 'b200-pack.tar'
 Remove-Item -Force -ErrorAction SilentlyContinue $tar
 Push-Location $out
@@ -151,24 +151,27 @@ Push-Location $out
 $code = $LASTEXITCODE
 $listed = @(& tar.exe -tf b200-pack.tar | Where-Object { $_ -notmatch '/$' }).Count
 Pop-Location
-if ($code -ne 0) { Stop-Run 'tar 로 묶지 못했다' '남은 공간을 확인하고 다시 실행한다.' }
-if ($listed -ne $files.Count + 1) { Stop-Run "묶음 안 파일 수가 다르다($listed / $($files.Count + 1))" '다시 실행한다.' }
-Write-Ok "묶음 안 파일 $listed 개 확인"
+if ($code -ne 0) { Stop-Run 'tar로 묶지 못했어요' '남은 공간을 확인하고 다시 실행하세요.' }
+if ($listed -ne $files.Count + 1) { Stop-Run "묶음 안의 파일 수가 맞지 않아요(묶음 ${listed}개, 있어야 할 것 $($files.Count + 1)개)" '다시 실행하세요.' }
+Write-Ok "묶음 안의 파일 ${listed}개를 확인했어요"
 
 $size = Format-Size (Get-Item $tar).Length
 Allow-Sleep
 Write-Host ''
 Write-Host '############################ 완료 ############################' -ForegroundColor Green
-Write-Host " 기초 프로그램 $($pkgs.Count)개"
+Write-Host " 기초 프로그램 패키지 $($pkgs.Count)개(함께 필요한 패키지 포함)와 B200 서버 설치 스크립트를 묶었어요."
 Write-Host ''
-Write-Host ' 접근 PC에서 할 일은 끝. B200 서버에 올릴 것 (이 파일 하나):' -ForegroundColor Green
+Write-Host ' 접근 PC에서 할 일은 끝났어요. B200 서버에 올릴 파일(하나):' -ForegroundColor Green
 Write-Host "   $tar  ($size)"
 Write-Host ''
 Write-Host " 지문(sha256): $(Get-Fingerprint @($tar))" -ForegroundColor Cyan
 Write-Host ''
-Write-Host ' FileZilla(공용 계정)로 B200 서버 /app/upload 에 올린 뒤, root 로 옮겨 지문이 같은지 보고 실행:' -ForegroundColor Green
+Write-Host ' 1) 공용 계정(shareduser)의 FileZilla로 B200 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
+Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   cp /app/upload/b200-pack.tar /app/inbox/ && sha256sum /app/inbox/b200-pack.tar'
-Write-Host '   cd /app/inbox && tar xf b200-pack.tar && bash admin_setup.sh      # 처음 한 번, 맨 먼저'
+Write-Host ' 3) 같으면 풀어서 실행하세요. admin_setup.sh 는 처음 설치할 때 맨 먼저 실행해요(/app 잠금).' -ForegroundColor Green
+Write-Host '   cd /app/inbox && tar xf b200-pack.tar && bash admin_setup.sh'
 Write-Host '   cd /app/inbox && bash pack_install.sh /app/shared'
+Write-Host ' 자세한 순서: docs\1_처음_설치.md 의 1·2단계'
 Write-Host '##############################################################' -ForegroundColor Green
 Stop-Transcript | Out-Null

@@ -16,14 +16,14 @@ def main(path):
         with zipfile.ZipFile(path) as z:
             bad = z.testzip()
         if bad:
-            print(f"  깨짐: {bad}")
+            print(f"  깨진 파일: {bad}")
             return 1
         return 0
 
     try:
         t = tarfile.open(path)
     except tarfile.ReadError:
-        print("  zip, tar 가 아니라 검사하지 않음")
+        print("  zip·tar 파일이 아니라서 검사하지 않았어요")
         return 2
     with t:
         for m in t:
@@ -38,5 +38,5 @@ if __name__ == "__main__":
     try:
         sys.exit(main(sys.argv[1]))
     except Exception as e:
-        print(f"  깨짐: {e}")
+        print(f"  압축 파일을 끝까지 읽지 못했어요(깨짐): {e}")
         sys.exit(1)

@@ -21,7 +21,7 @@ warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() {
     echo; echo "${c_r}################ 멈춤 ################${c_0}"
     echo "${c_r}무엇이: $1${c_0}"; echo "할 일 : $2"
-    echo "고친 뒤 같은 명령을 다시 실행하면 된다. 기록: $LOG"
+    echo "고친 뒤 같은 명령을 다시 실행하세요: cd $HERE && bash docker_install.sh"; echo "기록 파일: $LOG  (해결이 안 되면 docs/8_문제_해결.md)"
     exit 1
 }
 info() { sed -n "s/^$1=//p" docker_info.txt; }
@@ -30,54 +30,54 @@ echo "[B200 서버] rootless Docker 설치  ($(date '+%Y-%m-%d %H:%M'), 공용 �
 
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
-[ "$(id -u)" = 0 ] || stop 'root 가 아니다' '관리자(root) 계정으로 접속해 다시 실행한다.'
-id "$ACC" >/dev/null 2>&1 || stop "공용 계정 $ACC 가 없다" "계정 이름이 다르면 B200_ACCOUNT=계정 bash docker_install.sh 로 실행한다."
+[ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
+id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" "공용 계정 이름이 다르면 앞에 붙여 실행하세요: B200_ACCOUNT=계정이름 bash docker_install.sh"
 UID_A=$(id -u "$ACC")
-for f in MANIFEST.sha256 docker_info.txt; do [ -f "$f" ] || stop "$f 가 없다" "$HERE 에서 tar xf b200-docker.tar 를 했는지 본다."; done
+for f in MANIFEST.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf b200-docker.tar"; done
 bad=$(grep -v '  docker_install\.sh$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
-[ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨짐: /'; stop '올리는 중에 파일이 깨졌다' '접근 PC의 pack_docker\b200-docker.tar 를 다시 올린다.'; }
-ok "파일 체크섬 일치 (Docker $(info docker), NVIDIA Container Toolkit $(info nvidia_toolkit))"
+[ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨진 파일: /'; stop '올리는 중에 파일이 깨졌어요' '접근 PC의 pack_docker\b200-docker.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요.'; }
+ok "파일 체크섬이 맞아요 (Docker $(info docker), NVIDIA Container Toolkit $(info nvidia_toolkit))"
 CODE=$(. /etc/os-release && echo "${VERSION_CODENAME:-}")
 ok "운영체제 $(. /etc/os-release && echo "$PRETTY_NAME"), 커널 $(uname -r)"
-id -nG "$ACC" | tr ' ' '\n' | grep -qx docker && warn "$ACC 가 docker 그룹에 있다. root 권한과 같으니 admin_setup.sh 가 뺀다."
-command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 && ok "GPU $(nvidia-smi -L | wc -l)장 보임" ||
-    warn 'nvidia-smi 가 GPU를 못 본다. 도커는 설치하지만 GPU 컨테이너는 드라이버를 고친 뒤에 된다.'
-[ -d /app ] || stop '/app 이 없다' '2 TB SSD 를 /app 에 연결한 뒤 다시 실행한다.'
+id -nG "$ACC" | tr ' ' '\n' | grep -qx docker && warn "공용 계정($ACC)이 docker 그룹에 있어요. root 권한과 같으니 서버 관리 팀에 빼 달라고 하세요(gpasswd -d $ACC docker)"
+command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 && ok "GPU $(nvidia-smi -L | wc -l)장이 보여요" ||
+    warn 'nvidia-smi가 GPU를 못 봐요. 도커는 설치하지만, GPU 컨테이너는 드라이버를 고친 뒤에 돼요(check_server.sh 로 확인).'
+[ -d /app ] || stop '/app 폴더가 없어요' '서버 관리 팀에 2 TB SSD를 /app에 연결해 달라고 요청한 뒤 다시 실행하세요.'
 
 # ------------------------------------------------------------------ 2. 시스템 패키지
-step 2 'rootless 에 필요한 시스템 패키지'
+step 2 'rootless 도커에 필요한 시스템 패키지'
 need_debs=()
 if [ -d "debs/$CODE" ]; then
     for deb in "debs/$CODE"/*.deb; do
         pkg=$(dpkg-deb -f "$deb" Package)
-        if dpkg -s "$pkg" >/dev/null 2>&1; then ok "$pkg 이미 있음"; else need_debs+=("$deb"); fi
+        if dpkg -s "$pkg" >/dev/null 2>&1; then ok "$pkg 이미 있어요"; else need_debs+=("$deb"); fi
     done
 else
-    warn "Ubuntu $CODE 용 패키지는 묶음에 없다(22.04 jammy, 24.04 noble 만 넣었다). 이미 있는지만 본다."
+    warn "Ubuntu $CODE 용 패키지는 묶음에 없어요(22.04 jammy, 24.04 noble만 넣었어요). 서버에 이미 있는지만 확인해요."
 fi
 if [ ${#need_debs[@]} -gt 0 ]; then
-    dpkg -i "${need_debs[@]}" || stop '시스템 패키지 설치 실패' '위 dpkg 오류를 본다. 빠진 의존 패키지가 있으면 서버 관리 팀에 요청한다.'
-    ok "설치함: $(printf '%s ' "${need_debs[@]##*/}")"
+    dpkg -i "${need_debs[@]}" || stop '시스템 패키지를 설치하지 못했어요' '바로 위 dpkg 오류를 확인하세요. 빠진 의존 패키지가 있으면 서버 관리 팀에 설치를 요청하세요.'
+    ok "설치했어요: $(printf '%s ' "${need_debs[@]##*/}")"
 fi
-command -v newuidmap >/dev/null || stop 'newuidmap 이 없다(uidmap 패키지)' '서버 관리 팀에 uidmap 설치를 요청한다.'
-command -v slirp4netns >/dev/null || command -v pasta >/dev/null || stop 'slirp4netns 와 pasta 가 모두 없다' '서버 관리 팀에 slirp4netns 설치를 요청한다.'
+command -v newuidmap >/dev/null || stop 'newuidmap 명령이 없어요(uidmap 패키지)' '서버 관리 팀에 uidmap 패키지 설치를 요청하세요.'
+command -v slirp4netns >/dev/null || command -v pasta >/dev/null || stop 'slirp4netns, pasta가 둘 다 없어요' '서버 관리 팀에 slirp4netns 패키지 설치를 요청하세요.'
 NET=slirp4netns; command -v slirp4netns >/dev/null || NET=pasta
-ok "uidmap, 컨테이너 네트워크($NET) 준비됨"
+ok "uidmap, 컨테이너 네트워크($NET) 준비됐어요"
 
 nv_have=$(dpkg-query -W -f='${Version}' nvidia-container-toolkit 2>/dev/null || true)
 # 이미 깔려 있으면 판이 달라도 그대로 쓴다(다른 팀이 같이 쓰는 서버에서 남의 도커 GPU 설정을 바꾸지 않게)
-if [ -n "$nv_have" ]; then ok "NVIDIA Container Toolkit $nv_have 이미 있음(그대로 씀)"
+if [ -n "$nv_have" ]; then ok "NVIDIA Container Toolkit $nv_have 이미 있어요(그대로 써요)"
 else
-    dpkg -i debs/nvidia/*.deb || stop 'NVIDIA Container Toolkit 설치 실패' '위 dpkg 오류를 본다.'
-    ok "NVIDIA Container Toolkit $(info nvidia_toolkit) 설치함"
+    dpkg -i debs/nvidia/*.deb || stop 'NVIDIA Container Toolkit을 설치하지 못했어요' '바로 위 dpkg 오류를 확인하세요.'
+    ok "NVIDIA Container Toolkit $(info nvidia_toolkit) 설치했어요"
 fi
 # rootless 에서는 cgroup 을 직접 못 만지므로 GPU 연결 도구가 cgroup 을 건드리지 않게 한다.
 # 서버 전체 설정(/etc/nvidia-container-runtime)은 그대로 두고, 우리 도커만 읽는 설정 파일을 따로 둔다(서비스의 XDG_CONFIG_HOME)
 mkdir -p "$CONF/nvidia-container-runtime"
 [ -f /etc/nvidia-container-runtime/config.toml ] && cp /etc/nvidia-container-runtime/config.toml "$CONF/nvidia-container-runtime/config.toml"
 nvidia-ctk config --set nvidia-container-cli.no-cgroups --in-place --config "$CONF/nvidia-container-runtime/config.toml" >/dev/null 2>&1 &&
-    ok "GPU 연결 도구를 rootless 모드로 설정($CONF/nvidia-container-runtime, 서버 전체 설정은 그대로)" ||
-    warn "nvidia-ctk 설정 실패. $CONF/nvidia-container-runtime/config.toml 에 [nvidia-container-cli] no-cgroups = true 를 적는다."
+    ok "GPU 연결 도구를 rootless 모드로 설정했어요($CONF/nvidia-container-runtime. 서버 전체 설정은 그대로)" ||
+    warn "nvidia-ctk 설정에 실패했어요. $CONF/nvidia-container-runtime/config.toml 의 [nvidia-container-cli] 아래에 no-cgroups = true 를 직접 적으세요."
 
 # ------------------------------------------------------------------ 3. Docker 프로그램
 step 3 "Docker $(info docker) 설치 → $OPT"
@@ -86,14 +86,14 @@ if [ ! -x "$OPT/$V/dockerd" ]; then
     rm -rf "$OPT/$V.tmp" && mkdir -p "$OPT/$V.tmp"
     tar xzf "docker-$V.tgz" -C "$OPT/$V.tmp" --strip-components=1 &&
         tar xzf "docker-rootless-extras-$V.tgz" -C "$OPT/$V.tmp" --strip-components=1 ||
-        stop 'Docker 압축 풀기 실패' '남은 공간을 본다.'
+        stop 'Docker 압축을 풀지 못했어요' '남은 공간을 확인하세요: df -h /opt'
     mv "$OPT/$V.tmp" "$OPT/$V"
 fi
 ln -sfn "$OPT/$V" "$OPT/current"
 # buildx·compose 는 우리 도커 폴더에 둔다. /usr/local/lib/docker/cli-plugins 에 두면 다른 계정의 docker 도 이것을 쓰게 된다
 mkdir -p "$OPT/cli-plugins"
 for p in docker-buildx docker-compose; do
-    [ -f "plugins/$p" ] && install -m 755 "plugins/$p" "$OPT/cli-plugins/$p" && ok "$p 설치함"
+    [ -f "plugins/$p" ] && install -m 755 "plugins/$p" "$OPT/cli-plugins/$p" && ok "$p 설치했어요"
 done
 runuser -u "$ACC" -- mkdir -p "$(getent passwd "$ACC" | cut -d: -f6)/.docker"
 runuser -u "$ACC" -- python3 - "$(getent passwd "$ACC" | cut -d: -f6)/.docker/config.json" "$OPT/cli-plugins" <<'PY'
@@ -114,10 +114,10 @@ for f in /etc/subuid /etc/subgid; do
     if ! grep -q "^$ACC:" "$f"; then
         start=$(awk -F: '{e=$2+$3; if (e>m) m=e} END {print (m>100000 ? m : 100000)}' "$f")
         echo "$ACC:$start:65536" >> "$f"
-        ok "$f 에 $ACC:$start:65536 추가"
-    else ok "$f 에 $ACC 범위 있음"; fi
+        ok "$f 에 $ACC:$start:65536 을 추가했어요"
+    else ok "$f 에 공용 계정 범위가 이미 있어요"; fi
 done
-loginctl enable-linger "$ACC" && ok '로그인하지 않아도 도커가 돌게 함(linger)'
+loginctl enable-linger "$ACC" && ok '공용 계정이 로그인하지 않아도 도커가 돌게 했어요(linger)'
 # Ubuntu 24.04 는 일반 사용자의 이름공간 만들기를 AppArmor 로 막는다. rootlesskit 만 풀어 준다
 if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
     cat > /etc/apparmor.d/b200-rootlesskit <<EOF
@@ -129,10 +129,10 @@ include <tunables/global>
   include if exists <local/b200-rootlesskit>
 }
 EOF
-    apparmor_parser -r /etc/apparmor.d/b200-rootlesskit && ok 'AppArmor: rootlesskit 허용' ||
-        stop 'AppArmor 프로필 적용 실패' '위 오류를 본다.'
+    apparmor_parser -r /etc/apparmor.d/b200-rootlesskit && ok 'AppArmor에서 rootlesskit을 허용했어요' ||
+        stop 'AppArmor 프로필을 적용하지 못했어요' '바로 위 오류를 확인하세요.'
 fi
-[ "$(stat -c %U /app)" = root ] && [ ! -L "$DATA" ] || stop '/app 이 잠기지 않았거나 /app/docker 가 링크다' '먼저 bash admin_setup.sh 를 실행한다.'
+[ "$(stat -c %U /app)" = root ] && [ ! -L "$DATA" ] || stop '/app이 잠기지 않았거나 /app/docker가 링크예요' '관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh'
 mkdir -p "$DATA" && chown "$ACC:$ACC" "$DATA" && chmod 700 "$DATA"
 mkdir -p "$CONF"
 # 기본 런타임은 runc 그대로 둔다. nvidia 를 기본으로 하면 --gpus 없이 띄운 CUDA 이미지에도 GPU 8장이 모두 보인다
@@ -144,7 +144,7 @@ cat > "$CONF/daemon.json" <<EOF
 }
 EOF
 chmod 644 "$CONF/daemon.json"
-ok "이미지·컨테이너 저장 위치 $DATA, 설정 $CONF/daemon.json (root 만 고칠 수 있음)"
+ok "이미지·컨테이너 저장 위치 $DATA, 설정 $CONF/daemon.json (설정은 root만 고칠 수 있어요)"
 
 cat > /etc/systemd/system/b200-docker.service <<EOF
 [Unit]
@@ -180,7 +180,7 @@ if [ "\$(id -un)" = "$ACC" ]; then
     export DOCKER_HOST=unix:///run/user/$UID_A/docker.sock
 fi
 EOF
-ok 'b200-docker 서비스와 /etc/profile.d/b200-docker.sh 만듦'
+ok 'b200-docker 서비스와 /etc/profile.d/b200-docker.sh 를 만들었어요'
 
 # ------------------------------------------------------------------ 5. 켜기
 step 5 '켜기'
@@ -190,23 +190,24 @@ systemctl restart b200-docker
 for i in $(seq 1 30); do [ -S "/run/user/$UID_A/docker.sock" ] && break; sleep 1; done
 [ -S "/run/user/$UID_A/docker.sock" ] || {
     journalctl -u b200-docker -n 30 --no-pager | sed 's/^/    /'
-    stop '도커 데몬이 켜지지 않았다' '위 기록을 본다. 모르겠으면 기록 파일을 담당자에게 보낸다.'
+    stop '도커 데몬이 켜지지 않았어요' '바로 위 서비스 기록을 확인하세요. 더 보려면: journalctl -u b200-docker -n 100'
 }
-ok 'b200-docker 실행 중'
+ok 'b200-docker 서비스가 돌고 있어요'
 
 # ------------------------------------------------------------------ 6. 검사
 step 6 '검사 (공용 계정으로)'
 as_acc() { runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" PATH="$OPT/current:/usr/bin:/bin" "$@"; }
 as_acc docker info --format '{{.SecurityOptions}} {{.DockerRootDir}}' | grep -q rootless &&
-    ok "rootless 로 동작, 저장 위치 $(as_acc docker info --format '{{.DockerRootDir}}')" ||
-    stop 'rootless 로 동작하지 않는다' 'docker info 결과를 본다.'
-as_acc docker info --format '{{json .Runtimes}}' | grep -q nvidia && ok 'GPU 런타임(nvidia) 등록됨' || warn 'GPU 런타임이 보이지 않는다'
-echo "  GPU 컨테이너 실행은 이미지를 처음 들여온 뒤 확인한다: b200 doctor <이미지>"
+    ok "rootless로 동작해요. 저장 위치 $(as_acc docker info --format '{{.DockerRootDir}}')" ||
+    stop 'rootless로 동작하지 않아요' "공용 계정 도커 정보를 확인하세요: runuser -u $ACC -- env DOCKER_HOST=unix:///run/user/$UID_A/docker.sock $OPT/current/docker info"
+as_acc docker info --format '{{json .Runtimes}}' | grep -q nvidia && ok 'GPU 런타임(nvidia)이 등록됐어요' || warn "GPU 런타임(nvidia)이 보이지 않아요. $CONF/daemon.json 의 runtimes 항목과 nvidia-container-runtime 설치를 확인하세요"
+echo "  GPU 컨테이너는 PyTorch 이미지를 처음 들여온 뒤 공용 계정으로 확인해요: b200 doctor <이미지>"
 
 echo
 echo "${c_g}############################ 완료 ############################${c_0}"
-echo " 공용 계정 $ACC 전용 rootless Docker $(info docker)"
-echo " 팀원은 다시 접속하면 docker 명령을 바로 쓴다. GPU는 --gpus 로 정한 것만 보인다."
-echo " 관리: systemctl status|restart b200-docker,  기록: journalctl -u b200-docker"
-echo " 정리: rm -rf $HERE/*"
+echo " 공용 계정($ACC) 전용 rootless Docker $(info docker)를 설치했어요."
+echo " 팀원은 다시 접속하면 docker 명령을 바로 써요. 컨테이너에는 --gpus 로 정한 GPU만 보여요."
+echo " 관리: systemctl status b200-docker (다시 켜기: systemctl restart b200-docker),  기록: journalctl -u b200-docker"
+echo " 다음 단계: 데이터셋·모델(docs/1_처음_설치.md 4·5단계), 그다음 공용 계정으로 b200 doctor <PyTorch 이미지>"
+echo " 공간 정리(묶음 파일만): rm -f $HERE/b200-docker.tar /app/upload/b200-docker.tar"
 echo "${c_g}##############################################################${c_0}"

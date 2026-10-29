@@ -149,14 +149,14 @@ cmd_who() {
         who=$(users_of "$i" | tr '\n' ',' | sed 's/,$//')
         where=$(echo "$USAGE" | awk -v g="$i" '$1==g && $3!="-" {print $3}' | sort -u | tr '\n' ',' | sed 's/,$//')
         n=$(users_of "$i" | grep -c .)
-        if [ "$grp" = "$OTHER" ]; then grp='다른 팀'; [ -n "$who" ] && { col=$c_r; who="$who(다른팀)"; }
+        if [ "$grp" = "$OTHER" ]; then grp='다른 팀'; [ -n "$who" ] && { col=$c_r; who="$who(다른 팀)"; }
         elif [ "$n" -ge 2 ]; then col=$c_r; who="$who(겹침)"
         elif [ "$who" = '?' ]; then col=$c_r; who='?(이름 없음)'
         elif [ -n "$who" ] && [ "$grp" != 공용 ] && [ "$grp" != - ] && [ "$(group_of "$who")" != "$grp" ]; then col=$c_y; who="$who(빌림)"
         fi
         echo "$(pad "$i" 4)$(pad "$grp" 15)$col$(pad "${who:--}" 16)$c_0$(pad "$ut%" 7)$(pad "$((mu / 1024))/$((mt / 1024))" 10)${where:--}"
     done
-    echo "  빈 GPU를 골라 docker run --gpus '\"device=번호\"' 로 쓰세요. 내 그룹·공용 먼저."
+    echo "  빈 GPU를 골라 docker run --gpus '\"device=번호\"' 처럼 번호로 쓰세요. 내 그룹이나 공용 GPU부터 골라요."
     local oth; oth=$(other_gpus | tr '\n' ',' | sed 's/,$//')
     [ -z "$oth" ] || echo "  ${c_y}GPU ${oth}번은 다른 팀 GPU예요. 우리 팀은 쓰지 않아요.${c_0}"
 }
@@ -168,13 +168,14 @@ cmd__gpu_warn() {
     load_usage
     mygrp=$(group_of "$ME")
     w() { echo "  ${c_y}[경고]${c_0} $*" >&2; }
-    [ "$spec" = all ] && { w "GPU ${c_b}8장 모두${c_0}를 잡아요. 다른 사람과 겹쳐요."; rc=2; }
+    [ "$spec" = all ] && { w "--gpus all 은 GPU ${c_b}$(gpu_count)장을 모두${c_0} 잡아요. 다른 사람$( [ -n "$(other_gpus)" ] && echo '·다른 팀')과 겹쳐요. 번호로 정하세요: --gpus '\"device=5\"'"; rc=2; }
     case "$spec" in n*) w "--gpus ${spec#n} 처럼 장 수만 쓰면 0번부터 ${spec#n}장을 잡아요. 번호로 정하세요: --gpus '\"device=5\"'" ;; esac
     for g in $(expand_gpus "$spec"); do
         if is_other "$g"; then oth="$oth$g,"; continue; fi
         others=$(users_of "$g" | grep -vxF "${ME:-}" | tr '\n' ',' | sed 's/,$//')
         if [ -n "$others" ]; then
-            w "GPU ${g}번은 지금 ${c_b}${others}${c_0} 님이 쓰고 있어요. 같이 쓰면 메모리가 모자라 둘 다 멈출 수 있어요."; rc=2
+            others=$(echo "$others" | tr ',' '\n' | sed 's/^?$/이름 없는 작업/; /^이름 없는 작업$/!s/$/ 님/' | paste -sd, | sed 's/,/, /g')
+            w "GPU ${g}번은 지금 ${c_b}${others}${c_0}이 쓰고 있어요. 같이 쓰면 메모리가 모자라 둘 다 멈출 수 있어요."; rc=2
         fi
         grp=$(alloc_of "$g")
         if [ "$spec" != all ] && [ -n "$grp" ] && [ "$grp" != 공용 ] && [ -n "$mygrp" ] && [ "$grp" != "$mygrp" ]; then
@@ -184,7 +185,7 @@ cmd__gpu_warn() {
     [ -z "$oth" ] || { w "GPU ${oth%,}번은 ${c_b}다른 팀${c_0} GPU예요. 우리 팀은 쓰지 않아요."; rc=2; }
     if [ -n "$ME" ] && [ "$spec" != all ]; then
         mine=$( { my_gpus "$ME"; expand_gpus "$spec"; } | sort -un | grep -c .)
-        [ "$mine" -gt "$MAX_GPUS" ] && w "이걸 띄우면 내가 쓰는 GPU가 ${mine}장이에요(한 사람 ${MAX_GPUS}장까지가 약속)."
+        [ "$mine" -gt "$MAX_GPUS" ] && w "이 컨테이너까지 띄우면 내가 쓰는 GPU가 ${mine}장이 돼요. 한 사람 ${MAX_GPUS}장까지로 정했어요."
     fi
     if [ "$rc" = 2 ]; then
         free=$(for g in $(seq 0 $(( $(gpu_count) - 1 ))); do
@@ -235,13 +236,14 @@ cmd__notices() {
     since=$(date -d '14 days ago' +%F)
     echo "${c_y}알림${c_0}"
     tail -n +"$((seen + 1))" "$f" | awk -F'\t' -v s="$since" '$1>=s {print "  [" substr($1,6) "] " $3}' | tail -5
+    [ "$((total - seen))" -le 5 ] || echo "  (최근 5개만 보여요. 전체: less $f)"
     { echo "$total" > "$sf"; } 2>/dev/null
 }
 
 # ------------------------------------------------------------------ 접속 인사
 cmd__hello() {
     echo
-    echo "${c_b}B200 서버${c_0}  팀원 모두가 공용 계정으로 써요. 이름을 고르면 GPU·컨테이너 옆에 이름이 보여요."
+    echo "${c_b}B200 서버 ($(hostname -s))${c_0}  팀원 모두가 공용 계정으로 써요. 이름을 고르면 GPU·컨테이너 옆에 이름이 보여요."
     cmd_who
 }
 cmd__names() {   # 고르기 쉽게 번호를 붙인다
@@ -267,14 +269,14 @@ cmd__check() {
         local us; us=$(users_of "$g" | grep -v '^?$')
         [ "$(echo "$us" | grep -c .)" -ge 2 ] || continue
         for u in $us; do
-            notify "$u" "겹침-$g-$day" "GPU ${g}번을 $(echo "$us" | tr '\n' ' ' | sed 's/ $//; s/ /, /g') 님이 같이 쓰고 있어요. 메모리가 모자라면 둘 다 멈춰요. nvidia-smi 로 보고 서로 정해 주세요."
+            notify "$u" "겹침-$g-$day" "GPU ${g}번을 $(echo "$us" | tr '\n' ' ' | sed 's/ $//; s/ /, /g') 님이 같이 쓰고 있어요. 메모리가 모자라면 둘 다 멈춰요. nvidia-smi로 확인하고 누가 옮길지 정해 주세요."
         done
     done
     # 2-1. 다른 팀 GPU: 우리 팀이 쓰고 있으면 그 사람과 관리자에게 하루 한 번
     for g in $(other_gpus); do
         echo "$USAGE" | awk -v g="$g" '$1==g {print $2, $3}' | sort -u | while read -r u where; do
             local wtxt=''; [ "$where" = - ] || wtxt="(컨테이너 $where)"
-            notify "$u" "다른팀-$g-$day" "GPU ${g}번은 다른 팀 GPU예요$wtxt. 멈추고 우리 팀 GPU로 옮겨 주세요(nvidia-smi 의 배분 칸)."
+            notify "$u" "다른팀-$g-$day" "GPU ${g}번은 다른 팀 GPU예요$wtxt. 멈추고 우리 팀 GPU로 옮겨 주세요(nvidia-smi 아래 표의 배분 칸)."
             [ "$u" = '?' ] && u='이름 없는 작업' || u="$u 님"
             notify 관리자 "다른팀-$g-$u-$day" "${u}이 다른 팀 GPU ${g}번을 쓰고 있어요$wtxt."
         done
@@ -294,12 +296,12 @@ cmd__check() {
     echo "$USAGE" | awk '$2=="?" {print $1, $3}' | sort -u | while read -r g where; do
         is_other "$g" && continue   # 2-1 에서 알렸다
         [ "$where" = - ] && where='' || where="(컨테이너 $where)"
-        notify 관리자 "이름없음-$g-$day" "GPU ${g}번을 이름 없는 작업이 쓰고 있어요$where. nvidia-smi 로 확인하세요."
+        notify 관리자 "이름없음-$g-$day" "GPU ${g}번을 이름 없는 작업이 쓰고 있어요$where. nvidia-smi로 확인하세요."
     done
     # 5. 디스크 → 많이 쓰는 3명과 관리자에게 주 한 번
     use=$(df -P "$APP" 2>/dev/null | awk 'NR==2 {gsub("%","",$5); print $5}')
     if [ "${use:-0}" -ge "$DISK_ALERT" ]; then
-        notify 관리자 "디스크-$week" "디스크 /app 이 ${use}% 찼어요."
+        notify 관리자 "디스크-$week" "/app 디스크가 ${use}% 찼어요. 큰 작업 폴더 3곳에도 알렸어요(주간 보고서에 폴더별 크기)."
         du -s "$W"/*/ 2>/dev/null | sort -rn | head -3 | while read -r _ d; do
             local u; u=$(basename "$d"); is_member "$u" || continue
             notify "$u" "디스크-$week" "디스크가 ${use}% 찼어요. 내 작업 폴더($(du -sh "$d" | cut -f1))와 안 쓰는 도커 이미지를 정리해 주세요."
@@ -314,9 +316,9 @@ cmd__check() {
         image_table | while IFS=$'\t' read -r ref who last _; do
             [ "$last" != - ] && [[ "$last" < "$old" ]] || continue
             if is_member "$who" && [ -n "$(members)" ]; then
-                notify "$who" "이미지-$ref-$week" "도커 이미지 $ref 를 ${IMAGE_NOTICE_DAYS}일 넘게 안 썼어요(마지막 $last). 필요 없으면 docker rmi $ref"
+                notify "$who" "이미지-$ref-$week" "도커 이미지 $ref: ${IMAGE_NOTICE_DAYS}일 넘게 안 썼어요(마지막 $last). 필요 없으면 docker rmi $ref 로 지워 주세요."
             else
-                notify 관리자 "이미지-$ref-$week" "주인을 모르는 이미지 $ref, 마지막 사용 $last."
+                notify 관리자 "이미지-$ref-$week" "도커 이미지 $ref: 들여온 사람을 모르고 ${IMAGE_NOTICE_DAYS}일 넘게 안 썼어요(마지막 $last)."
             fi
         done
     fi
@@ -372,12 +374,15 @@ cmd__report() {
 cmd_doctor() {
     echo "== GPU"; "$NVSMI" -L 2>&1 | head -8
     echo "== 도커"
-    [ -n "$HAVE_DOCKER" ] || { echo '  도커 데몬에 연결하지 못했어요(systemctl status b200-docker)'; return; }
+    [ -n "$HAVE_DOCKER" ] || { echo '  도커 데몬에 연결하지 못했어요. root로 확인하세요: systemctl status b200-docker'; return; }
     "${DOCKER[@]}" info --format '  Docker {{.ServerVersion}}, {{.DockerRootDir}}, {{.SecurityOptions}}' 2>&1 | tail -1
-    [ $# -ge 1 ] || { echo '  GPU 컨테이너까지 보려면: b200 doctor <PyTorch 이미지>'; return; }
-    "${DOCKER[@]}" run --rm --gpus '"device=0"' --entrypoint '' "$1" sh -c \
-        'P=$(command -v python || command -v python3); $P -c "import torch; x=torch.randn(64,64,device=\"cuda\"); print(\"  PyTorch\", torch.__version__, \"CUDA\", torch.version.cuda, \"GPU 계산\", float((x@x).sum()) == float((x@x).sum()))"' 2>&1 | tail -3
-    echo "  (컨테이너에 GPU 1장만 보이는지: 위 명령에 nvidia-smi -L 을 넣어 확인)"
+    [ $# -ge 1 ] || { echo '  컨테이너 안 GPU 계산까지 보려면 이미지를 붙여 실행하세요: b200 doctor <PyTorch 이미지>'; return; }
+    # 다른 팀 GPU(서버 2의 0~3번)는 피해서 우리 GPU 하나로 시험한다
+    local g; g=$(seq 0 $(( $(gpu_count) - 1 )) | while read -r i; do is_other "$i" || { echo "$i"; break; }; done)
+    echo "== 컨테이너에서 GPU ${g:-0}번으로 시험"
+    "${DOCKER[@]}" run --rm --gpus "\"device=${g:-0}\"" --entrypoint '' "$1" sh -c \
+        'P=$(command -v python || command -v python3); $P -c "import torch; x=torch.randn(64,64,device=\"cuda\"); ok=float((x@x).sum())==float((x@x).sum()); print(\"  PyTorch\", torch.__version__, \"/ CUDA\", torch.version.cuda, \"/ 보이는 GPU \"+str(torch.cuda.device_count())+\"장 / GPU 계산\", \"정상\" if ok else \"이상\")"' 2>&1 | tail -3
+    echo "  보이는 GPU가 1장이고 GPU 계산이 정상이면 돼요. 오류가 나면 docs/8_문제_해결.md 의 'b200 doctor' 줄을 보세요."
 }
 
 case "${1:-}" in
@@ -390,5 +395,5 @@ case "${1:-}" in
     _gpu-warn)    cmd__gpu_warn "${2:-}" ;;
     _check)       cmd__check ;;
     _report)      cmd__report ;;
-    *)            echo "쓰는 법: b200 [who] | doctor [이미지]   (나머지는 접속 설정·docker·정기 점검이 부른다)"; exit 1 ;;
+    *)            echo "쓰는 법: b200 [who] | doctor [이미지]   (나머지 명령은 접속 설정·docker·정기 점검이 내부에서 써요)"; exit 1 ;;
 esac

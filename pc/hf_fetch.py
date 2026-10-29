@@ -66,10 +66,10 @@ def main(cmd, repo, d):
     try:
         info = api.model_info(repo, files_metadata=True, token=token)
     except GatedRepoError:
-        print(f"  승인이 필요한 모델이다. huggingface.co/{repo} 에서 약관에 동의하고 토큰을 넣는다.")
+        print(f"  승인이 필요한 모델이에요. https://huggingface.co/{repo} 에서 약관에 동의하고, 그 계정의 토큰을 넣으세요.")
         return 3
     except RepositoryNotFoundError:
-        print(f"  저장소가 없거나 권한이 없다: {repo}")
+        print(f"  저장소가 없거나 볼 권한이 없어요: {repo}")
         return 4
     files = pick(info)
     state = load_state(d)
@@ -93,20 +93,20 @@ def main(cmd, repo, d):
                 hf_hub_download(repo, name, revision=info.sha, local_dir=d, token=token)
                 break
             except GatedRepoError:
-                print("  승인이 필요한 파일이다. 약관 동의와 토큰을 확인한다.")
+                print("  승인이 필요한 파일이에요. 약관 동의와 토큰을 확인하세요.")
                 return 3
             except Exception as e:  # 끊김 등은 이어받기로 다시 시도
-                print(f"  끊김({type(e).__name__}). 20초 뒤 이어받기 ({attempt}/5)", flush=True)
+                print(f"  연결이 끊겼어요({type(e).__name__}). 20초 뒤 이어받아요({attempt}/5)", flush=True)
                 time.sleep(20)
         else:
             return 1
         if os.path.getsize(path) != size:
-            print(f"  크기가 다르다: {name}. 지우고 다시 받는다.")
+            print(f"  크기가 맞지 않아요: {name}. 지우고 다시 받아요.")
             os.remove(path)
             return 1
         digest = sha256(path)
         if s.lfs and s.lfs.sha256 and digest != s.lfs.sha256:
-            print(f"  sha256 이 다르다: {name}. 지우고 다시 받는다.")
+            print(f"  sha256이 맞지 않아요: {name}. 지우고 다시 받아요.")
             os.remove(path)
             return 1
         state[name] = {"commit": info.sha, "sha256": digest}

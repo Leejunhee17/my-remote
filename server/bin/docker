@@ -9,7 +9,7 @@ REAL=${B200_DOCKER:-/opt/b200/docker/current/docker}
 if [ ! -x "$REAL" ]; then
     self=$(readlink -f "$0"); REAL=
     for d in $(type -ap docker); do [ "$(readlink -f "$d")" = "$self" ] || { REAL=$d; break; }; done
-    [ -n "$REAL" ] || { echo "docker 가 아직 설치되지 않았어요. 관리자에게 문의하세요." >&2; exit 127; }
+    [ -n "$REAL" ] || { echo "도커가 아직 설치되지 않았어요. 관리자에게 알려 주세요." >&2; exit 127; }
 fi
 [ "$(id -u)" = 0 ] && exec "$REAL" "$@"
 ME=${B200_USER:-}
@@ -43,7 +43,9 @@ case "${pre[0]:-}:$sub" in
                 fi
             fi
         fi
-        [ -n "$ME" ] && labels+=(--label "b200.USER=$ME")
+        [ -n "$gspec" ] || [ ! -t 2 ] || echo "  [알림] --gpus 옵션이 없어서 GPU 없이 실행해요. GPU를 쓰려면 --gpus '\"device=번호\"' 를 붙여 컨테이너를 새로 만드세요." >&2
+        if [ -n "$ME" ]; then labels+=(--label "b200.USER=$ME")
+        elif [ -t 2 ]; then echo "  [알림] 접속할 때 이름을 고르지 않아 이 컨테이너는 '이름 없음'으로 보여요. 다시 접속해 이름을 고르면 붙어요." >&2; fi
         exec "$REAL" "${pre[@]}" "$sub" "${labels[@]}" "$@"
         ;;
     :load|image:load|:build|image:build|buildx:build|:commit|container:commit|:import|image:import)

@@ -22,16 +22,16 @@ ok()   { echo "  ${c_g}[정상]${c_0} $*"; }
 warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() { echo "${c_r}멈춤: $1${c_0}"; echo "할 일: $2"; exit 1; }
 
-[ "$(id -u)" = 0 ] || stop 'root 가 아니다' '관리자(root) 계정으로 접속해 다시 실행한다.'
-id "$ACC" >/dev/null 2>&1 || stop "공용 계정 $ACC 가 없다" '계정 이름이 다르면 B200_ACCOUNT=계정 bash admin_setup.sh'
+[ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
+id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" '공용 계정 이름이 다르면 앞에 붙여 실행하세요: B200_ACCOUNT=계정이름 bash admin_setup.sh'
 HOME_A=$(getent passwd "$ACC" | cut -d: -f6)
 
 if [ "${1:-}" = --undo ]; then
     step '되돌리기'
     rm -f /etc/profile.d/b200.sh /etc/cron.d/b200
     sed -i '/# b200 admin_setup/d' /etc/bash.bashrc
-    [ -d "$S" ] && chown -R "$ACC:$ACC" "$S" && ok "$S 를 다시 $ACC 소유로"
-    ok '접속 설정과 정기 점검을 지웠다. b200 명령, 기록(/app/state), 드라이버 고정은 그대로 둔다.'
+    [ -d "$S" ] && chown -R "$ACC:$ACC" "$S" && ok "$S 의 주인을 공용 계정($ACC)으로 되돌렸어요"
+    ok '접속 설정과 정기 점검을 지웠어요. b200 명령, 기록(/app/state), 드라이버 고정은 그대로 뒀어요.'
     exit 0
 fi
 
@@ -42,32 +42,32 @@ echo "[B200 서버] 관리자 기본 설정  ($(date '+%Y-%m-%d %H:%M'), 공용 
 # 지금은 없다고 들었지만 서버 관리 팀이 나중에 넣을 수도 있어 실행할 때마다 확인만 한다(바꾸지는 않는다)
 step '1. 공용 계정 권한 확인'
 bad=$(id -nG "$ACC" | tr ' ' '\n' | grep -xE 'sudo|admin|wheel|docker' | tr '\n' ' ')
-[ -z "$bad" ] && ok "$ACC 는 sudo·docker 그룹이 없다" ||
-    warn "$ACC 가 $bad그룹에 있다. 서버 관리 팀과 확인한다(빼려면: gpasswd -d $ACC 그룹)"
-sudo -l -U "$ACC" 2>/dev/null | grep -q 'may run' && warn "$ACC 가 sudo 를 쓸 수 있다: grep -rn $ACC /etc/sudoers /etc/sudoers.d/" || ok "$ACC 는 sudo 를 못 쓴다"
+[ -z "$bad" ] && ok "공용 계정($ACC)은 sudo·docker 그룹에 없어요" ||
+    warn "공용 계정($ACC)이 관리자 그룹에 있어요: $bad. 팀원 누구나 root가 될 수 있으니 서버 관리 팀과 확인하세요(빼는 명령: gpasswd -d $ACC 그룹이름)"
+sudo -l -U "$ACC" 2>/dev/null | grep -q 'may run' && warn "공용 계정($ACC)이 sudo를 쓸 수 있어요. 설정 위치: grep -rn $ACC /etc/sudoers /etc/sudoers.d/" || ok "공용 계정($ACC)은 sudo를 못 써요"
 
 # ------------------------------------------------------------------ 2. 폴더
 step '2. 폴더와 잠금'
-[ -d /app ] || stop '/app 이 없다' '2 TB SSD 를 /app 에 연결한다.'
-[ -L /app ] && stop '/app 이 링크다' 'ls -l /app 으로 확인하고 서버 관리 팀과 실제 디스크로 연결한다.'
+[ -d /app ] || stop '/app 폴더가 없어요' '서버 관리 팀에 2 TB SSD를 /app에 연결해 달라고 요청하세요.'
+[ -L /app ] && stop '/app이 링크예요' 'ls -l /app 으로 어디를 가리키는지 보고, 서버 관리 팀에 실제 디스크로 연결해 달라고 요청하세요.'
 # /app 은 root 만 고칠 수 있게 한다. 공용 계정이 /app 에 쓸 수 있으면 shared·state 같은 이름으로 시스템 폴더 링크를 심어 두고,
 # 아래 chown·chmod(링크를 따라간다)를 시스템 폴더에 하게 만들 수 있다. 잠근 뒤에 링크가 있는지 본다
 # 서버 2처럼 다른 팀과 같이 쓰는 서버에서 다른 계정이 /app 에 폴더를 두고 있으면, 잠그면 그 계정이 /app 에 새 폴더를 못 만든다
 others=$(find /app -mindepth 1 -maxdepth 1 ! -user root ! -user "$ACC" -printf '%u %p\n' 2>/dev/null)
 if [ -n "$others" ] && [ "$(stat -c '%U %a' /app)" != "root 755" ]; then
-    echo "$others" | sed 's/^/    다른 계정 것: /'
-    warn "/app 을 다른 계정도 쓰는 것 같다. 잠그면(root 소유, 755) 그 계정은 /app 바로 아래에 새 폴더를 못 만든다(있는 폴더는 그대로)"
-    if [ -t 0 ]; then read -r -p "  서버 관리 팀·다른 팀과 이야기했으면 y, 아니면 Enter(멈춤): " a; [ "$a" = y ] || stop '/app 잠금 보류' '다른 팀과 /app 사용을 정한 뒤 다시 실행한다.'
-    else stop '/app 을 다른 계정도 쓴다' '터미널에서 직접 실행해 확인하고 진행한다.'; fi
+    echo "$others" | sed 's/^/    다른 계정 폴더: /'
+    warn "/app 을 다른 계정도 쓰는 것 같아요. 잠그면(root 소유, 755) 그 계정은 /app 바로 아래에 새 폴더를 못 만들어요(있는 폴더는 그대로 써요)"
+    if [ -t 0 ]; then read -r -p "  서버 관리 팀·다른 팀과 이미 정했으면 y, 아니면 Enter(여기서 멈춰요): " a; [ "$a" = y ] || stop '/app 잠금 보류' '서버 관리 팀·다른 팀과 /app 사용을 정한 뒤 다시 실행하세요.'
+    else stop '/app 을 다른 계정도 써요' 'PuTTY 화면에서 직접 실행해 확인 질문에 답하세요: bash admin_setup.sh'; fi
 fi
 chown root:root /app && chmod 755 /app
 for d in "$S" "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen}; do
-    [ -L "$d" ] && stop "$d 가 링크다(누가 만들었는지 모른다)" "ls -l $d 로 확인하고, 이상하면 링크를 지운 뒤 다시 실행한다."
+    [ -L "$d" ] && stop "링크가 있어요(누가 만들었는지 몰라요): $d" "ls -l $d 로 어디를 가리키는지 보고, 직접 만든 게 아니면 rm $d 로 링크만 지운 뒤 다시 실행하세요."
 done
 mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen} /app/inbox
 # 공용: root 만 쓰고 모두 읽는다
 chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S"
-ok "$S : root 만 고친다, 팀원은 읽기만"
+ok "$S: root만 고치고 팀원은 읽기만 해요"
 # 작업 공간과 기록: 공용 계정이 쓴다(보고서만 root)
 chown "$ACC:$ACC" "$W" && chmod 755 "$W"
 # 기록 폴더: 공용 계정이 쓰는 곳(history, images, notice_seen)과 root 만 쓰는 곳(reports, gpu_log, notice)을 나눈다.
@@ -81,7 +81,7 @@ chown root:root /app/inbox && chmod 755 /app/inbox
 [ -d /app/inbox/images ] && rmdir /app/inbox/images/* /app/inbox/images 2>/dev/null
 # root 는 FileZilla 를 못 쓰므로 설치 파일은 공용 계정이 여기에 올린다. root 는 /app/inbox 로 새로 복사하고 지문을 확인한 뒤 실행한다
 mkdir -p /app/upload && chown "$ACC:$ACC" /app/upload && chmod 755 /app/upload
-ok "$W : 팀원 작업 공간,  $ST : 기록·알림,  /app/upload : 설치 파일 올리는 곳(공용 계정),  /app/inbox : root 가 확인한 설치 파일"
+ok "$W: 팀원 작업 공간,  $ST: 기록·알림,  /app/upload: 설치 파일 올리는 곳(공용 계정),  /app/inbox: root가 지문을 확인한 설치 파일"
 # 홈에서도 보이게 링크(홈은 10 GB 라 실제 파일은 /app 에)
 for n in shared workspace; do
     [ -e "$HOME_A/$n" ] || [ -L "$HOME_A/$n" ] || runuser -u "$ACC" -- ln -sn "/app/$n" "$HOME_A/$n"   # 공용 계정 홈이라 그 권한으로
@@ -125,10 +125,13 @@ esac; fi
 chmod 644 "$S/team.txt" "$S/gpu_alloc.txt"
 ok "GPU 배분: $(awk '!/^\s*#/ && NF>=2 {g[$2] = g[$2] (g[$2] ? "," : "") $1} END {for (k in g) printf "%s %s  ", k, g[k]}' "$S/gpu_alloc.txt")($S/gpu_alloc.txt)"
 n_team=$(grep -cvE '^\s*(#|$)' "$S/team.txt")
-[ "$n_team" -gt 0 ] && ok "팀원 $n_team 명 등록됨 ($S/team.txt)" ||
-    warn "팀원 명단이 비어 있다. $S/team.txt 에 '이름 그룹' 을 적는다(비어 있으면 번호 목록 없이 아무 이름이나 받는다)"
-grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
-    [ -d "$W/$name" ] || { runuser -u "$ACC" -- mkdir -p "$W/$name/images" && echo "    작업 폴더 만듦: $W/$name"; }
+[ "$n_team" -gt 0 ] && ok "팀원 ${n_team}명 등록돼 있어요($S/team.txt)" ||
+    warn "팀원 명단이 비어 있어요. $S/team.txt 에 한 줄에 '이름 그룹'으로 적고 다시 실행하세요(비어 있는 동안은 접속할 때 번호 목록 없이 아무 이름이나 받아요)"
+grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name grp _; do
+    case "$name" in *-*|*/*|.*) warn "쓸 수 없는 이름이라 건너뛰어요: $name ('-', '/'를 빼고 다시 적으세요)"; continue ;; esac
+    [ -n "$grp" ] && grep -qE "^\s*[0-9]+\s+$grp\s*$" "$S/gpu_alloc.txt" ||
+        warn "$name: gpu_alloc.txt에 없는 그룹이에요(${grp:-그룹 칸 비어 있음}). team.txt의 그룹 이름을 gpu_alloc.txt와 글자까지 같게 적으세요"
+    [ -d "$W/$name" ] || { runuser -u "$ACC" -- mkdir -p "$W/$name/images" && echo "    작업 폴더를 만들었어요: $W/$name"; }
 done
 # 알림 기준 숫자. 바꾸면 규칙 문서(team/)의 숫자도 같이 바꾼다. 예전 설정(자동 종료 등)이 있으면 새로 쓴다
 grep -q '^IDLE_HOURS=' "$S/b200.conf" 2>/dev/null || cat > "$S/b200.conf" <<'EOF'
@@ -143,11 +146,11 @@ chmod 644 "$S/b200.conf"
 # ------------------------------------------------------------------ 3. 도우미
 step '3. 도우미 설치 (docker, nvidia-smi, b200)'
 for f in b200 docker nvidia-smi; do
-    [ -f "bin/$f" ] || stop "bin/$f 이 없다" "$HERE 에 묶음을 다시 푼다(b200-pack.tar 에 들어 있다)."
+    [ -f "bin/$f" ] || stop "도우미 파일이 없어요: $HERE/bin/$f" "묶음을 다시 푸세요: cd $HERE && tar xf b200-pack.tar"
     install -m 755 "bin/$f" "$S/bin/$f"
 done
 rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"   # 예전 판의 파일
-ok "$S/bin: docker(이름표·GPU 겹침 경고), nvidia-smi(누가 쓰나 표), b200(접속 인사·정기 점검)"
+ok "$S/bin 에 깔았어요: docker(이름표·GPU 겹침 경고), nvidia-smi(누가 쓰나 표), b200(접속 인사·정기 점검)"
 # docker ps 에 사람(USER)과 GPU 열을 보이게 한다(공용 계정의 docker 설정). 공용 계정 홈이라 공용 계정 권한으로 쓴다
 runuser -u "$ACC" -- mkdir -p "$HOME_A/.docker"
 runuser -u "$ACC" -- python3 - "$HOME_A/.docker/config.json" <<'PY'
@@ -158,7 +161,7 @@ except Exception: c = {}
 c["psFormat"] = 'table {{.Names}}\t{{.Label "b200.USER"}}\t{{.Label "b200.GPUS"}}\t{{.Image}}\t{{.Status}}'
 json.dump(c, open(p, "w"), indent=2)
 PY
-ok 'docker ps 에 USER(이름), GPUS 열 추가'
+ok 'docker ps 에 이름(USER)과 GPU(GPUS) 열을 넣었어요'
 
 
 # ------------------------------------------------------------------ 4. 접속 설정
@@ -190,7 +193,7 @@ if [ -z "\${B200_USER:-}" ]; then
     for _b200_i in 1 2 3; do
         read -r -p "  > " _b200_a || break
         B200_USER=\$($S/bin/b200 _resolve "\$_b200_a") && break
-        echo "  목록에 없어요. 다시 입력하세요."
+        echo "  목록에 없어요. 번호나 이름을 다시 입력하세요(명단에 내 이름이 없으면 관리자에게 등록을 요청하세요)."
     done
     unset _b200_list _b200_i _b200_a
     [ -n "\${B200_USER:-}" ] || echo "  이름 없이 접속했어요. 내 GPU 작업과 컨테이너가 '이름 없음'으로 보여요. 다시 접속하면 다시 고를 수 있어요."
@@ -217,25 +220,25 @@ grep -q '# b200 admin_setup' /etc/bash.bashrc ||
     echo '[ -r /etc/profile.d/b200.sh ] && . /etc/profile.d/b200.sh  # b200 admin_setup' >> /etc/bash.bashrc
 # 예전 방식(~/.bashrc 의 PATH 줄)은 지운다. 이제 시스템 설정이 맡는다
 [ -f "$HOME_A/.bashrc" ] && runuser -u "$ACC" -- sed -i '\#shared/tools/bin#d' "$HOME_A/.bashrc"
-ok '접속할 때 이름 고르기(번호), 이름별 캐시·명령 기록, 작업 폴더로 이동, 알림 보기'
+ok '접속 설정: 이름 고르기(번호), 이름별 캐시·명령 기록, 작업 폴더로 이동, 알림 보기'
 
 # ------------------------------------------------------------------ 5. GPU 서비스
 step '5. GPU 서비스와 드라이버 고정'
 for svc in nvidia-persistenced nvidia-fabricmanager nvlsm; do
     if systemctl list-unit-files "$svc.service" 2>/dev/null | grep -q "$svc"; then
-        systemctl enable --now "$svc" >/dev/null 2>&1 && ok "$svc 켜짐(부팅 때 자동)" || warn "$svc 를 켜지 못했다: systemctl status $svc"
+        systemctl enable --now "$svc" >/dev/null 2>&1 && ok "$svc 켜짐(부팅할 때 자동으로 켜져요)" || warn "$svc 를 켜지 못했어요. 원인 확인: systemctl status $svc"
     else
-        [ "$svc" = nvidia-persistenced ] && warn "$svc 서비스가 없다(드라이버와 함께 깔리는 서비스)"
-        [ "$svc" = nvidia-fabricmanager ] && warn "$svc 가 없다. HGX B200 은 이것이 있어야 GPU를 쓴다(서버 관리 팀에 요청)"
+        [ "$svc" = nvidia-persistenced ] && warn "$svc 서비스가 없어요(보통 드라이버와 함께 깔려요). 서버 관리 팀에 확인하세요"
+        [ "$svc" = nvidia-fabricmanager ] && warn "$svc 서비스가 없어요. HGX B200은 이게 있어야 GPU를 써요. 서버 관리 팀에 드라이버와 같은 판으로 요청하세요"
     fi
 done
 mapfile -t held < <(dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null |
     awk '$NF=="installed" && $1 ~ /^(nvidia-|libnvidia-|cuda-drivers|nvlsm|libnvsdm|datacenter-gpu-manager)/ {print $1}')
 if grep -qE '^\s*[0-9]+\s+다른팀' "$S/gpu_alloc.txt" 2>/dev/null; then
-    warn '다른 팀과 같이 쓰는 서버라 드라이버 버전 고정(apt-mark hold)은 하지 않는다. 드라이버 업데이트는 서버 관리 팀·다른 팀과 정한다'
+    warn '다른 팀과 같이 쓰는 서버라 드라이버 버전을 고정(apt-mark hold)하지 않았어요. 드라이버 업데이트는 서버 관리 팀·다른 팀과 정하세요'
 elif [ ${#held[@]} -gt 0 ]; then
-    apt-mark hold "${held[@]}" >/dev/null && ok "드라이버 관련 패키지 ${#held[@]}개 버전 고정(apt-mark hold)"
-else warn '고정할 NVIDIA 패키지를 찾지 못했다(드라이버를 패키지가 아닌 방식으로 깔았을 수 있다)'; fi
+    apt-mark hold "${held[@]}" >/dev/null && ok "드라이버 관련 패키지 ${#held[@]}개의 버전을 고정했어요(apt-mark hold)"
+else warn '고정할 NVIDIA 패키지를 찾지 못했어요(드라이버를 apt가 아닌 방식으로 깔았을 수 있어요)'; fi
 
 # ------------------------------------------------------------------ 6. 정기 점검
 step '6. 정기 점검'
@@ -245,14 +248,14 @@ cat > /etc/cron.d/b200 <<EOF
 40 7 * * 1   root $S/bin/b200 _report > $ST/reports/\$(date +\%F).txt 2>&1 && echo "\$(date '+\%F \%H:\%M')	보고서-\$(date +\%F)	주간 보고서: $ST/reports/\$(date +\%F).txt" >> $ST/notice/관리자.txt
 EOF
 chmod 644 /etc/cron.d/b200
-ok "10분마다 GPU 사용 기록과 알림(같은 알림은 하루나 한 주에 한 번), 월요일 07:40 주간 보고서($ST/reports)"
+ok "10분마다 GPU 사용 기록과 알림(같은 알림은 하루나 한 주에 한 번), 월요일 07:40에 주간 보고서($ST/reports)"
 
 echo
 echo "${c_g}############################ 완료 ############################${c_0}"
 echo " 남은 일"
-echo "  1) $S/team.txt 에 팀원 '이름 그룹' 을 적고 이 스크립트를 한 번 더 실행(작업 폴더 생성)"
-echo "  2) GPU 배분이 바뀌면 $S/gpu_alloc.txt, 알림 기준은 $S/b200.conf 를 고친다(엑셀·규칙 문서와 같게)"
-echo "  3) 기초 프로그램·도커·데이터셋·모델 설치도 root 로: bash pack_install.sh /app/shared 등"
-echo "  4) 도커: bash docker_install.sh (b200-docker.tar)"
-echo " 확인: 공용 계정으로 다시 접속하면 GPU 현황과 이름 목록이 나온다. nvidia-smi 아래에 '누가 쓰나' 표가 붙는다."
+echo "  1) $S/team.txt 에 팀원을 한 줄에 '이름 그룹'으로 적고 이 스크립트를 한 번 더 실행하세요(작업 폴더가 생겨요)"
+echo "  2) GPU 배분은 $S/gpu_alloc.txt, 알림 기준은 $S/b200.conf 에서 바꿔요(team/ 규칙 문서·엑셀도 같이)"
+echo "  3) 기초 프로그램: cd $HERE && bash pack_install.sh /app/shared"
+echo "  4) 도커: b200-docker.tar 를 /app/upload 에 올리고 /app/inbox 로 복사해 지문을 확인한 뒤 bash docker_install.sh"
+echo " 확인: 공용 계정으로 다시 접속하면 GPU 현황과 이름 목록이 나오고, nvidia-smi 아래에 '누가 쓰나' 표가 붙어요."
 echo "${c_g}##############################################################${c_0}"
