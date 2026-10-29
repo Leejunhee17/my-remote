@@ -389,7 +389,7 @@ cmd_all() {
     local out; out=$(mktemp "$dir/network_report_${ME}_$(date +%Y%m%d-%H%M)_XXXX.txt") || out=$(mktemp)
     all_body "$@" 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' > "$out")
     sleep 1
-    echo; echo "보고서: $(readlink -f "$out")  ← 이 파일 내용을 README 에 붙여 주세요"
+    echo; echo "보고서: $(readlink -f "$out")  ← 이 파일 내용을 docs/4_네트워크.md 의 \"원본 기록\"에 붙여 주세요"
 }
 
 case "${1:-}" in

@@ -1,5 +1,5 @@
 ﻿<#
-[접근 PC] 세그멘테이션 데이터셋을 받는다. 설명은 docs\2_데이터셋.md.
+[접근 PC] 세그멘테이션 데이터셋을 받는다. 설명은 docs\6_데이터셋.md.
 점검 → 받기(끊기면 이어받기) → 검사 → B200 서버에 올릴 목록 만들기까지 한 번에 한다.
 끊기거나 실패하면 같은 명령을 다시 실행한다. 받은 것은 건너뛴다.
 
@@ -415,7 +415,7 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     Write-Host '  WildScenes 접속 정보를 넣는다. 정보는 약 48시간 유효하니 지금 새로 받는다.' -ForegroundColor Cyan
     Write-Host "  포털: $WsPortal"
     Write-Host '  포털에서 Download → Download files via S3 Client 를 고르고, 나온 네 값을 차례로 복사해 붙여 넣는다.'
-    Write-Host '  (자세한 설명: docs\2_데이터셋.md 의 "WildScenes 접속 정보 받기")'
+    Write-Host '  (자세한 설명: docs\6_데이터셋.md 의 "WildScenes 접속 정보 받기")'
     $open = Read-Host '  포털 페이지를 브라우저로 열까? [Y/n]'
     if ($open -notmatch '^[nN]') { Start-Process $WsPortal }
     $server = (Read-Host '  Server (예: s3.data.csiro.au)').Trim()
@@ -431,12 +431,12 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     Test-Site 'CSIRO S3 저장소' $script:WsEndpoint | Out-Null
     if ($script:Fails) {
         Stop-Run 'CSIRO S3 저장소에 접속 안 된다' ('위 [문제] 줄 아래 설명을 본다. 브라우저로는 열리면(401, AccessDenied 등이 떠도 열리는 것) ' +
-            'docs\2_데이터셋.md 의 "WildScenes 링크 목록으로 받기" 를 따라 -WildScenesLinks 로 실행한다.')
+            'docs\6_데이터셋.md 의 "WildScenes 링크 목록으로 받기" 를 따라 -WildScenesLinks 로 실행한다.')
     }
     $pa = $script:HostArgs[([uri]$script:WsEndpoint).Host]
     if ($pa -and $pa.Count -gt 2) {
         Stop-Run 'CSIRO S3 저장소는 윈도우 로그인 인증 프록시로만 닿는데, AWS CLI 는 그 인증을 못 한다' `
-            'docs\2_데이터셋.md 의 "WildScenes 링크 목록으로 받기" 를 따라 -WildScenesLinks 로 실행한다(curl 로 받아 인증이 된다).'
+            'docs\6_데이터셋.md 의 "WildScenes 링크 목록으로 받기" 를 따라 -WildScenesLinks 로 실행한다(curl 로 받아 인증이 된다).'
     }
 
     Write-Info 'AWS CLI 준비 중(처음 한 번)'

@@ -85,7 +85,7 @@ for b in bash tar sha256sum awk sed grep df du realpath sort; do command -v "$b"
 
 echo
 if [ ${#ASK[@]} -eq 0 ]; then
-    echo "${c_g}######## 모두 정상. 반입을 시작해도 된다 (README 1단계) ########${c_0}"
+    echo "${c_g}######## 모두 정상. 반입을 시작해도 된다 (docs/1_처음_설치.md 1단계) ########${c_0}"
 else
     echo "${c_r}############## 고칠 것 ${#ASK[@]}개 ##############${c_0}"
     printf '%s\n' "${ASK[@]}" | sort -u | sed 's/^/  - /'

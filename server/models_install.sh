@@ -138,7 +138,7 @@ echo
 if [ "$FAILS" -eq 0 ]; then
     echo "${c_g}############################ 완료 ############################${c_0}"
     echo " 모델 ${#dirs[@]}개 정상. 위치: $D"
-    echo " 불러오기 예: from_pretrained(\"$D/<만든 곳>/<모델>\")  (docs/3_모델.md)"
+    echo " 불러오기 예: from_pretrained(\"$D/<만든 곳>/<모델>\")  (docs/7_모델.md)"
     echo " 정리: rm -rf /app/inbox/models"
     echo "${c_g}##############################################################${c_0}"
 else

@@ -31,7 +31,7 @@ elif [ -n "$REAL" ]; then
             cp -a "$HOME/shared/." "$REAL/" && rm -rf "$HOME/shared" && ln -s "$REAL" "$HOME/shared" ||
                 { echo "멈춤: ~/shared 를 $REAL 로 옮기지 못했다."; exit 1; }
         else
-            echo "멈춤: ~/shared 에 이미 설치된 내용이 있다. README 의 \"공용 폴더를 큰 디스크로 옮기기\" 로 먼저 옮긴다."; exit 1
+            echo "멈춤: ~/shared 에 이미 설치된 내용이 있다. docs/8_문제_해결.md 의 \"예전 서버(RHEL)에서 ~/shared 를 큰 디스크로 옮겨야 할 때\" 로 먼저 옮긴다."; exit 1
         fi
     else
         ln -s "$REAL" "$HOME/shared"
@@ -111,7 +111,7 @@ free=$(( $(df -Pm "$S/." | awk 'NR==2 {print $4}') / 1024 ))
 if [ "$free" -lt "$need" ]; then
     [ -f b200-pack.tar ] && warn "다 푼 b200-pack.tar 를 지우면 $(( $(du -sm b200-pack.tar | cut -f1) / 1024 )) GB 가 생긴다: rm $HERE/b200-pack.tar"
     stop "$S 가 있는 디스크의 남은 공간이 ${free} GB 다(${need} GB 필요)" \
-         "b200-pack.tar 를 지우거나 홈 공간을 비운다. 홈이 작으면 ~/shared 를 큰 디스크로 옮긴다(README 문제 해결하기)."
+         "b200-pack.tar 를 지우거나 홈 공간을 비운다. 홈이 작으면 ~/shared 를 큰 디스크로 옮긴다(docs/8_문제_해결.md)."
 fi
 ok "$S 남은 공간 ${free} GB (필요 약 ${need} GB)"
 
@@ -232,7 +232,7 @@ if [ "$FAILS" -eq 0 ]; then
     echo "${c_g}############################ 완료 ############################${c_0}"
     echo " 모두 정상. 기초 프로그램 $S/tools, 공용 환경 $S/venv"
     echo " 새 터미널을 열면 기초 프로그램을 쓸 수 있다."
-    echo " 내 Python 환경 만들기: docs/1_공용_휠_기초프로그램.md"
+    echo " 내 Python 환경 만들기: docs/5_공용_휠_기초프로그램.md"
     echo " 정리: rm -rf $HERE/*"
     echo "${c_g}##############################################################${c_0}"
 else

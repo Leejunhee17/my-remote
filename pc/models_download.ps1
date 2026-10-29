@@ -1,5 +1,5 @@
 ﻿<#
-[접근 PC] Hugging Face 사전학습 모델을 받는다. 목록은 lists\models.txt, 설명은 docs\3_모델.md.
+[접근 PC] Hugging Face 사전학습 모델을 받는다. 목록은 lists\models.txt, 설명은 docs\7_모델.md.
 점검 → 받기(끊기면 이어받기) → 크기·sha256 검사 → B200 서버에 올릴 목록 만들기까지 한 번에 한다.
 끊기거나 실패하면 같은 명령을 다시 실행한다. 받은 것은 건너뛴다.
 

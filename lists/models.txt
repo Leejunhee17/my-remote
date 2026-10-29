@@ -1,4 +1,4 @@
-# Hugging Face 사전학습 모델 목록 (야지·오프로드 주행 기준). pc\models_download.ps1 이 읽는다. 설명은 docs/3_모델.md.
+# Hugging Face 사전학습 모델 목록 (야지·오프로드 주행 기준). pc\models_download.ps1 이 읽는다. 설명은 docs/7_모델.md.
 # 형식: 그룹  저장소  [gated]  [code=GitHub 주소]
 #   gated = 모델 페이지에서 약관 동의 + HF 토큰이 필요
 #   code= = 모델 코드가 GitHub에만 있을 때. 코드 묶음도 받아 B200 서버의 <모델>/code 에 푼다
