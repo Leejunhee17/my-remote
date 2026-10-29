@@ -187,7 +187,7 @@ Write-Step 4 $T '검사'
 foreach ($t in @("docker-$dv.tgz", "docker-rootless-extras-$dv.tgz")) {
     $list = & tar.exe -tzf (Join-Path $out $t) 2>&1
     if ($LASTEXITCODE -ne 0) { Remove-Item -Force (Join-Path $out $t); Stop-Run "깨진 파일: $t" '다시 실행하세요. 깨진 파일은 지웠으니 새로 받아요.' }
-    Write-Ok "${t}: 이상 없어요(안의 파일 $(@($list).Count)개)"
+    Write-Ok "${t}: 이상 없어요(들어 있는 파일 $(@($list).Count)개)"
 }
 
 # ------------------------------------------------------------------ 5. 묶기

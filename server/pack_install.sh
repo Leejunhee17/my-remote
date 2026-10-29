@@ -4,7 +4,7 @@
 # 점검 → 설치 → 검사까지 한 번에 한다. 실패하면 고친 뒤 다시 실행하면 된다.
 #   bash pack_install.sh /app/shared   관리자(root). admin_setup.sh 다음에 실행한다(지금 방식)
 #   bash pack_install.sh               공용 계정으로 ~/shared 에 설치(예전 방식, 관리자 설정 전)
-#   공용 계정으로 경로를 주면 ~/shared 를 그곳으로 가는 링크로 만들고, 작업 폴더와 링크 ~/workspace 도 없으면 만든다
+#   공용 계정으로 경로를 주면 ~/shared 를 그곳을 가리키는 링크로 만들고, 작업 폴더와 링크 ~/workspace 도 없으면 만든다
 set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행해요. 접근 PC에서는 pc 폴더의 .ps1 을 쓰세요."; exit 1; fi
 cd "$(dirname "$0")"
@@ -14,7 +14,7 @@ if [ "$(id -u)" = 0 ] && [ -d /app ] && { [ "$(stat -c %U /app)" != root ] || [ 
     echo "멈춤: /app이 아직 잠기지 않았어요. 먼저 root로 실행하세요: cd $HERE && bash admin_setup.sh"; exit 1
 fi
 
-# (공용 계정으로 실행할 때) 큰 디스크 경로를 줬으면 ~/shared 를 그곳으로 가는 링크로 만든다.
+# (공용 계정으로 실행할 때) 큰 디스크 경로를 줬으면 ~/shared 를 그곳을 가리키는 링크로 만든다.
 # 이후 모든 경로는 ~/shared 로 쓰므로 문서와 다른 스크립트를 그대로 쓸 수 있다.
 REAL=${1:-}
 if [ "$(id -u)" = 0 ]; then
@@ -26,7 +26,7 @@ elif [ -n "$REAL" ]; then
     mkdir -p "$REAL" 2>/dev/null || { echo "멈춤: 폴더를 만들지 못했어요: $REAL (쓰기 권한을 확인하세요)"; exit 1; }
     if [ -L "$HOME/shared" ]; then
         [ "$(realpath "$HOME/shared")" = "$REAL" ] ||
-            { echo "멈춤: ~/shared가 이미 다른 곳으로 가는 링크예요: $(realpath "$HOME/shared"). 그 경로를 붙여 실행하거나, 링크를 지우고 다시 실행하세요."; exit 1; }
+            { echo "멈춤: ~/shared가 이미 다른 곳을 가리키는 링크예요: $(realpath "$HOME/shared"). 그 경로를 붙여 실행하거나, 링크를 지우고 다시 실행하세요."; exit 1; }
     elif [ -d "$HOME/shared" ]; then
         if [ "$(du -sm "$HOME/shared" | cut -f1)" -lt 200 ]; then
             # 지난번 실패한 실행이 남긴 기록 정도라 옮기고 링크로 바꾼다
@@ -61,8 +61,8 @@ bad()  { echo "  ${c_r}[문제]${c_0} $*"; FAILS=$((FAILS + 1)); }
 stop() {
     echo
     echo "${c_r}################ 멈춤 ################${c_0}"
-    echo "${c_r}무엇이: $1${c_0}"
-    echo "할 일 : $2"
+    echo "${c_r}멈춘 이유: $1${c_0}"
+    echo "할 일: $2"
     echo "고친 뒤 같은 명령을 다시 실행하세요: bash pack_install.sh $S"
     echo "기록 파일: $LOG  (해결이 안 되면 docs/8_문제_해결.md)"
     exit 1
@@ -99,7 +99,7 @@ else
 fi
 
 need=$(( $(du -sm pkgs | awk '{s+=$1} END {print s}') * 3 / 1024 + 2 ))
-# ~/shared 가 큰 디스크로 가는 링크여도 그 디스크를 잰다
+# ~/shared 가 큰 디스크를 가리키는 링크여도 그 디스크를 잰다
 free=$(( $(df -Pm "$S/." | awk 'NR==2 {print $4}') / 1024 ))
 if [ "$free" -lt "$need" ]; then
     [ -f b200-pack.tar ] && warn "다 푼 b200-pack.tar 를 지우면 $(( $(du -sm b200-pack.tar | cut -f1) / 1024 )) GB를 비울 수 있어요: rm $HERE/b200-pack.tar"

@@ -35,8 +35,8 @@ bad()  { echo "  ${c_r}[문제]${c_0} $*"; FAILS=$((FAILS + 1)); }
 stop() {
     echo
     echo "${c_r}################ 멈춤 ################${c_0}"
-    echo "${c_r}무엇이: $1${c_0}"
-    echo "할 일 : $2"
+    echo "${c_r}멈춘 이유: $1${c_0}"
+    echo "할 일: $2"
     echo "고친 뒤 같은 명령을 다시 실행하세요: bash $SRC/datasets_install.sh"
     echo "기록 파일: $LOG  (해결이 안 되면 docs/8_문제_해결.md)"
     exit 1

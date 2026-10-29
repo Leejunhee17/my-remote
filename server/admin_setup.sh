@@ -6,7 +6,7 @@
 #   - 공용 계정(/etc/b200/account)에 관리자 권한(sudo, docker 그룹)이 없는지 확인한다(있으면 알려만 준다)
 #   - /app/shared(기초 프로그램·데이터셋·모델)와 /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
 #   - 접속할 때 이름을 고르게 하고, 이름별 작업 폴더·캐시·명령 기록을 나눈다(/etc/profile.d/b200.sh)
-#   - docker, nvidia-smi 도우미를 /app/shared/bin 에 설치한다(이름표, GPU 겹침 경고, "누가 쓰나" 표)
+#   - docker, nvidia-smi 도우미를 /app/shared/bin 에 설치한다(이름표, GPU 겹침 경고, "GPU별 사용자" 표)
 #   - GPU 서비스(Fabric Manager, persistenced)를 켜고 드라이버 버전을 고정한다
 #   - 10분마다 GPU 사용 기록과 알림, 월요일 아침 주간 보고서(/etc/cron.d/b200)
 set -uo pipefail
@@ -166,7 +166,7 @@ for f in b200 docker nvidia-smi; do
     install -m 755 "bin/$f" "$S/bin/$f"
 done
 rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"   # 예전 버전의 파일
-ok "$S/bin 에 설치했어요: docker(이름표·GPU 겹침 경고), nvidia-smi(누가 쓰나 표), b200(접속 인사·정기 점검)"
+ok "$S/bin 에 설치했어요: docker(이름표·GPU 겹침 경고), nvidia-smi(GPU별 사용자 표), b200(접속 인사·정기 점검)"
 # docker ps 에 사람(USER)과 GPU 열을 보이게 한다(공용 계정의 docker 설정). 공용 계정 홈이라 공용 계정 권한으로 쓴다
 runuser -u "$ACC" -- mkdir -p "$HOME_A/.docker"
 runuser -u "$ACC" -- python3 - "$HOME_A/.docker/config.json" <<'PY'
@@ -280,5 +280,5 @@ echo "  2) GPU 배분은 $S/gpu_alloc.txt, 알림 기준은 $S/b200.conf 에서 
 echo "  3) 기초 프로그램: cd $HERE && bash pack_install.sh /app/shared"
 echo "  4) 도커: b200-docker.tar 를 /app/upload 에 올린 뒤 $S/bin/b200 fetch b200-docker.tar (지문 확인) → cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh"
 echo "  5) 데이터셋·모델: $S/bin/b200 fetch datasets / models → 설치(docs/1_처음_설치.md 4·5단계)"
-echo " 확인: 공용 계정으로 다시 접속하면 GPU 현황과 이름 목록이 나오고, nvidia-smi 아래에 '누가 쓰나' 표가 붙어요."
+echo " 확인: 공용 계정으로 다시 접속하면 이름 목록이 나오고, nvidia-smi 아래에 'GPU별 사용자' 표가 붙어요."
 echo "${c_g}##############################################################${c_0}"

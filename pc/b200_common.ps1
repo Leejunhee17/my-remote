@@ -27,8 +27,8 @@ function Start-Log($path) {
 function Stop-Run($what, $fix) {
     Write-Host ''
     Write-Host '################ 멈춤 ################' -ForegroundColor Red
-    Write-Host "무엇이: $what" -ForegroundColor Red
-    Write-Host "할 일 : $fix"
+    Write-Host "멈춘 이유: $what" -ForegroundColor Red
+    Write-Host "할 일: $fix"
     Write-Host '할 일을 한 뒤 같은 명령을 다시 실행하세요. 끝난 것은 건너뛰고 이어서 해요.'
     Write-Host "해결되지 않으면 이 기록 파일을 담당자에게 보내 주세요: $script:LogPath"
     Stop-Transcript | Out-Null

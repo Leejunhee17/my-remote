@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # [B200 서버] 네트워크와 NAS를 점검해요. 설정은 아무것도 바꾸지 않아요.
 #   bash check_network.sh all               ★ 전체 점검: 두 서버에서 각각 실행하면 NAS로 서로를 찾아
-#                                           서버 사이(이더넷·InfiniBand·RDMA), 로컬 SSD, NAS 속도를 모두 재고 보고서를 남겨요(root 권장)
+#                                           서버 사이(이더넷·InfiniBand·RDMA), 로컬 SSD, NAS 속도를 모두 측정하고 보고서를 남겨요(root 권장)
 #   bash check_network.sh                   이 서버의 네트워크 카드·속도, NAS 연결 보기
 #   bash check_network.sh <다른 서버 IP>     + 다른 서버와 연결되는지, 어느 카드로 가는지
-#   bash check_network.sh listen            서버 사이 속도 재기: 받는 쪽(먼저 실행, 2분 기다려요)
-#   bash check_network.sh send <받는 쪽 IP>  서버 사이 속도 재기: 보내는 쪽(10초)
+#   bash check_network.sh listen            서버 사이 속도 측정: 받는 쪽(먼저 실행, 2분 기다려요)
+#   bash check_network.sh send <받는 쪽 IP>  서버 사이 속도 측정: 보내는 쪽(10초)
 #   bash check_network.sh disk <폴더>        그 폴더(NAS나 /app)의 쓰기·읽기 속도(시험 파일 4 GB를 쓰고 지워요)
 #   JOBS=8 bash check_network.sh disk <폴더> 파일 8개를 동시에(여럿이 함께 쓸 때의 전체 속도)
 # 숫자는 GB/s(초당 기가바이트)와 Gbps(초당 기가비트, 카드 속도 단위)를 같이 보여 줘요. 1 GB/s = 8 Gbps.
@@ -32,7 +32,7 @@ nic_line() {
     echo "  $(pad "$n" 16)$(pad "$kind" 16)$(pad "$state" 8)$(pad "${speed:+$((speed / 1000)) Gbps}" 11)$(pad "$mtu" 7)${addr:--}"
     # 묶은 카드(bond): 어떤 카드를 묶었는지와 나눠 보내는 방식. 한 연결(TCP 하나)은 카드 하나 속도를 넘지 못한다
     if [ -d "$d/bonding" ]; then
-        echo "      = $(cat "$d/bonding/slaves" 2>/dev/null | sed 's/ / + /g'),  모드 $(cut -d' ' -f1 "$d/bonding/mode" 2>/dev/null), 연결을 카드에 나누는 방식 $(cut -d' ' -f1 "$d/bonding/xmit_hash_policy" 2>/dev/null)"
+        echo "      = $(cat "$d/bonding/slaves" 2>/dev/null | sed 's/ / + /g'),  모드 $(cut -d' ' -f1 "$d/bonding/mode" 2>/dev/null), 연결 분배 방식 $(cut -d' ' -f1 "$d/bonding/xmit_hash_policy" 2>/dev/null)"
         echo "        한 연결(scp 하나 등)은 카드 하나 속도까지만 나와요. 여러 연결을 동시에 해야 합친 속도가 나와요"
     fi
 }
@@ -86,7 +86,7 @@ cmd_info() {
         echo "$opts" | grep -q 'proto=rdma' && ok 'RDMA로 연결돼 있어요(빠른 방식)'
     done < <(findmnt -rn -t nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs,fuse.sshfs,9p -o TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null)
     [ -n "$found" ] || warn 'NAS가 연결(mount)돼 있지 않아요. 연결은 서버 관리 팀이 하니, 연결할 폴더 경로를 물어보세요.'
-    [ -n "$found" ] && echo "  속도 재기: bash check_network.sh disk <위 폴더 안의 내가 쓸 수 있는 폴더>"
+    [ -n "$found" ] && echo "  속도 측정: bash check_network.sh disk <위 폴더 안의 내가 쓸 수 있는 폴더>"
 
     if [ $# -ge 1 ]; then
         local other=$1
@@ -100,7 +100,7 @@ cmd_info() {
         rm -f /tmp/.b200ping.$$
         if timeout 3 bash -c "</dev/tcp/$other/22" 2>/dev/null; then ok "SSH(22) 포트가 열려 있어요"
         else warn "SSH(22) 포트에 연결되지 않아요"; fi
-        echo "  속도 재기: 그 서버에서 bash check_network.sh listen  →  이 서버에서 bash check_network.sh send $other"
+        echo "  속도 측정: 그 서버에서 bash check_network.sh listen  →  이 서버에서 bash check_network.sh send $other"
     fi
 }
 
@@ -156,7 +156,7 @@ if tot == 0: print(f"  {host}:{port} 에 연결하지 못했어요. 받는 쪽�
 print(f"  동시 연결 {streams}개로 {tot/1e9:.1f} GB를 {secs:.0f}초 동안 보냈어요: 약 {tot/secs/1e9:.2f} GB/s ({tot/secs*8/1e9:.1f} Gbps). 정확한 값은 받는 쪽 숫자를 보세요.")
 '
 cmd_listen() {
-    if command -v iperf3 >/dev/null; then echo "  iperf3로 받을 준비를 했어요(한 번 재면 끝나요)"; exec iperf3 -s -1 -p "$PORT"; fi
+    if command -v iperf3 >/dev/null; then echo "  iperf3로 받을 준비를 했어요(한 번 측정하면 끝나요)"; exec iperf3 -s -1 -p "$PORT"; fi
     python3 -c "$PY_LISTEN" "$PORT" "$STREAMS" 120
 }
 cmd_send() {
@@ -178,7 +178,7 @@ cmd_disk() {
     # 시험 파일은 새로 만든 내 폴더 안에만 쓴다(남이 같은 이름의 링크를 심어 두어도 따라가지 않게)
     # root 는 다른 계정이 지우고 바꿀 수 있는 폴더에서 재지 않는다(시험 폴더를 링크로 바꿔치기하면 root 가 시스템 파일을 덮는다)
     if [ "$(id -u)" = 0 ] && [ ! -k "$dir" ] && { [ ! -O "$dir" ] || [ -n "$(find "$dir" -maxdepth 0 -perm /022)" ]; }; then
-        bad "root로는 다른 계정이 쓰는 폴더에서 재지 않아요: $dir. 같은 디스크의 root 폴더(예: /app/inbox)로 재거나, 그 계정으로 실행하세요"; exit 1
+        bad "root로 실행하면 다른 계정이 쓰는 폴더는 측정하지 않아요: $dir. 같은 디스크의 root 폴더(예: /app/inbox)에서 측정하거나, 그 계정으로 실행하세요"; exit 1
     fi
     TD=$(mktemp -d "$dir/.b200_speedtest.XXXXXX") || { bad "$dir 에 시험 폴더를 만들지 못했어요"; exit 1; }
     trap 'rm -rf "$TD"' EXIT   # TD 는 끝날 때 지우려고 전역
@@ -196,7 +196,7 @@ cmd_disk() {
         { dd if="$f.$i" of=/dev/null bs=16M iflag=direct status=none 2>/dev/null || dd if="$f.$i" of=/dev/null bs=16M status=none; } &
     done; wait
     t1=$(date +%s.%N); echo "  읽기: $(rate "$b" "$(awk -v a="$t1" -v b="$t0" 'BEGIN{print a-b}')")"
-    [ "$jobs" = 1 ] && [ -z "${ALL_MODE:-}" ] && echo "  (파일 하나로 잰 값이에요. 여럿이 동시에 쓸 때 속도는 JOBS=8 을 앞에 붙여 재세요)"
+    [ "$jobs" = 1 ] && [ -z "${ALL_MODE:-}" ] && echo "  (파일 하나로 측정한 값이에요. 여럿이 동시에 쓸 때 속도는 앞에 JOBS=8 을 붙여 측정하세요)"
 }
 
 # ------------------------------------------------------------------ 한 번에(턴키)
@@ -303,13 +303,13 @@ all_body() {
     # 짝 찾기
     R="$nas/.b200_net"
     if [ -n "$nas" ] && { [ -L "$R" ] || [ -L "$nas" ]; }; then
-        warn "상대 서버 찾기 폴더가 링크라서 쓰지 않아요: $R (누가 만들었는지 확인하세요). 이 서버만 재요"; nas=
+        warn "상대 서버 확인용 폴더가 링크라서 쓰지 않아요: $R (누가 만들었는지 확인하세요). 이 서버만 측정해요"; nas=
     fi
     if [ -n "$nas" ]; then
-        mkdir -p "$R" 2>/dev/null; [ -L "$R" ] && { warn "상대 서버 찾기 폴더가 링크예요: $R. 여기서 멈춰요"; return 1; }
+        mkdir -p "$R" 2>/dev/null; [ -L "$R" ] && { warn "상대 서버 확인용 폴더가 링크예요: $R. 여기서 멈춰요"; return 1; }
         # root 는 다른 계정이 만든 폴더에 쓰지 않는다(그 계정이 파일을 링크로 바꿔치기하면 root 가 이 서버의 파일을 덮는다)
         if [ "$(id -u)" = 0 ] && ! [[ "$(stat -c %u "$R" 2>/dev/null)" =~ ^(0|65534|4294967294)$ ]]; then
-            warn "상대 서버 찾기 폴더를 다른 계정이 만들었어요: $R (주인 uid $(stat -c %u "$R")). 지우거나 그 계정으로 실행하세요. 이 서버만 재요"; nas=
+            warn "상대 서버 확인용 폴더를 다른 계정이 만들었어요: $R (주인 uid $(stat -c %u "$R")). 지우거나 그 계정으로 실행하세요. 이 서버만 측정해요"; nas=
         fi
     fi
     if [ -n "$nas" ]; then
@@ -335,9 +335,9 @@ all_body() {
             sleep 1
         done
         if [ -n "$peer" ]; then local pibs; pibs=$(field IB "$pf"); ok "상대 서버: $peer (이더넷 $(field ETH "$pf"), InfiniBand ${pibs:-없음})"
-        else warn '상대 서버를 찾지 못해서 이 서버만 재요'; fi
+        else warn '상대 서버를 찾지 못해서 이 서버만 측정해요'; fi
     else
-        warn 'NAS를 찾지 못해서 이 서버만 재요(NAS 폴더를 직접 적으려면: bash check_network.sh all <NAS 폴더>)'
+        warn 'NAS를 찾지 못해서 이 서버만 측정해요(NAS 폴더를 직접 적으려면: bash check_network.sh all <NAS 폴더>)'
     fi
 
     if [ -n "$peer" ]; then
@@ -352,15 +352,15 @@ all_body() {
             head_ "서버 사이: InfiniBand로 IP 통신 (IPoIB, $pib)"
             echo "  쓰는 네트워크 카드: $(route_to "$pib")"
             pair_tcp IPoIB $((PORT + 1)) "$pib" $((pport + 1))
-            echo "  (python으로 재서 수십 Gbps보다 높게는 안 나와요. 실제 InfiniBand 속도는 아래 RDMA 값을 보세요)"
+            echo "  (python으로 측정해서 수십 Gbps보다 높게는 안 나와요. 실제 InfiniBand 속도는 아래 RDMA 값을 보세요)"
         fi
         head_ '서버 사이: RDMA (두 서버를 묶어 학습할 때 NCCL 이 쓰는 통신)'
         if command -v ib_write_bw >/dev/null && [ "$(field PERFTEST "$pf")" = 1 ]; then
             local common; common=$(comm -12 <(active_hcas | tr ' ' '\n' | grep . | sort) <(field HCAS "$pf" | tr ' ' '\n' | grep . | sort) | tr '\n' ' ')
             pair_rdma "$role" "$peth" "$common"
         else
-            warn '양쪽에 perftest(ib_write_bw)가 있어야 재요. 서버 관리 팀에 perftest 설치를 요청하세요'
-            SUM+=("RDMA: perftest 없어 못 잼")
+            warn '양쪽에 perftest(ib_write_bw)가 있어야 측정할 수 있어요. 서버 관리 팀에 perftest 설치를 요청하세요'
+            SUM+=("RDMA: perftest가 없어 측정 못 함")
         fi
         : | put "$R/$ME.netdone"; wait_file "$R/$peer.netdone" "$pf" 180 || true
     fi
@@ -370,7 +370,7 @@ all_body() {
     local_dir=; for d in /app/inbox /app/workspace /app; do [ -d "$d" ] && [ -w "$d" ] && [ -O "$d" ] && { local_dir=$d; break; }; done
     if [ -n "$peer" ] && [ "$role" = B ]; then
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
-        echo "  NAS는 상대 서버($peer)가 다 잴 때까지 기다려요..."; wait_file "$R/$peer.nasdone" "$pf" 900 || warn '상대 서버가 15분 안에 끝내지 않아서 기다리지 않고 넘어가요'
+        echo "  상대 서버($peer)가 NAS 측정을 마칠 때까지 기다려요..."; wait_file "$R/$peer.nasdone" "$pf" 900 || warn '상대 서버가 15분 안에 끝내지 않아서 기다리지 않고 넘어가요'
         head_ "NAS ($nas)"; disk_both NAS "$nas"
         : | put "$R/$ME.nasdone"
     else

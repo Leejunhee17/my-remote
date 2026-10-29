@@ -395,7 +395,7 @@ if ($Manual.Count) {
             Write-Ok 'Google Drive 파일을 받을 수 있어요. RELLIS-3D, TAS500, GO도 받아요'
         } else {
             Show-DriveDiag $d "Google Drive 시험 파일($($DriveItems[0].Set)/$($DriveItems[0].Name))"
-            if ($driveOk) { Write-Warn 'Google까지는 닿으니 파일마다 받아 볼게요.' }
+            if ($driveOk) { Write-Warn 'Google에는 접속되니 파일마다 받아 볼게요.' }
             else { Write-Warn 'RELLIS-3D, TAS500, GO는 건너뛰고 나머지를 받아요. 파일마다 자세히 보려면 -DriveCheck를 붙여 실행하세요.' }
         }
     }
@@ -517,7 +517,7 @@ if ($doWild) {
                 $shown = 0
                 foreach ($it in $todo) {
                     $i++
-                    if ($i % 20 -eq 1) { Write-Progress -Activity 'WildScenes 받기' -Status "$($doneSet.Count)/$($links.Count) 끝, 지금: $($it.Rel)" -PercentComplete (100 * $doneSet.Count / $links.Count) }
+                    if ($i % 20 -eq 1) { Write-Progress -Activity 'WildScenes 받기' -Status "$($doneSet.Count)/$($links.Count) 완료, 지금: $($it.Rel)" -PercentComplete (100 * $doneSet.Count / $links.Count) }
                     $out = Join-Path $wdir $it.Rel
                     New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
                     $ca = Get-CurlArgs $it.Url

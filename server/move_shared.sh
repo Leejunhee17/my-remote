@@ -16,8 +16,8 @@ warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() {
     echo
     echo "${c_r}################ 멈춤 ################${c_0}"
-    echo "${c_r}무엇이: $1${c_0}"
-    echo "할 일 : $2"
+    echo "${c_r}멈춘 이유: $1${c_0}"
+    echo "할 일: $2"
     echo "홈의 원래 폴더는 그대로 있어요. 고친 뒤 같은 명령을 다시 실행하세요."
     echo "기록 파일: $LOG"
     exit 1
@@ -33,7 +33,7 @@ names=()
 for n in shared inbox tools; do
     src="$HOME/$n"
     if [ -L "$src" ]; then
-        ok "~/$n: 이미 다른 곳으로 가는 링크예요($(readlink "$src")). 건너뛰어요"
+        ok "~/$n: 이미 다른 곳을 가리키는 링크예요($(readlink "$src")). 건너뛰어요"
     elif [ -d "$src" ]; then
         names+=("$n")
     fi

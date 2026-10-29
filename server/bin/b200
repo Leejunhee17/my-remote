@@ -2,7 +2,7 @@
 # B200 서버 도우미. 관리자가 /app/shared/bin/b200 에 설치한다(admin_setup.sh). 팀원이 외울 명령이 아니다.
 # 팀원은 docker, nvidia-smi 를 평소처럼 쓰고, 이 파일은 그 뒤에서 다음을 맡는다.
 #   - 접속 인사: 이름 고르기, GPU별 쓰는 사람, 나에게 온 알림
-#   - nvidia-smi 아래 "누가 쓰나" 표, docker run 의 GPU 겹침 경고
+#   - nvidia-smi 아래 "GPU별 사용자" 표, docker run 의 GPU 겹침 경고
 #   - 정기 점검(10분): 사용 기록과 알림(겹침, 놀고 있는 GPU, 디스크, 오래된 이미지). 멈추거나 지우지는 않는다
 #   - 주간 보고서(관리자)
 # 공용 계정 하나로 여럿이 쓰므로, 접속할 때 고른 이름(B200_USER)으로 사람을 구분한다.
@@ -158,11 +158,11 @@ my_gpus()  { echo "$USAGE" | awk -v me="$1" '$2==me {print $1}' | sort -un; }
 # 화면 폭(한글은 두 칸)에 맞춰 채운다
 pad() { local w; w=$(printf '%s' "$1" | wc -L); printf '%s%*s' "$1" $(( $2 > w ? $2 - w : 0 )) ''; }
 
-# ------------------------------------------------------------------ 누가 쓰나 (nvidia-smi 아래, 접속 인사)
+# ------------------------------------------------------------------ GPU별 사용자 (nvidia-smi 아래, 접속 인사)
 cmd_who() {
     "$NVSMI" -L >/dev/null 2>&1 || { echo "${c_y}GPU 정보를 읽지 못했어요(nvidia-smi). 관리자에게 알려 주세요.${c_0}"; return; }
     load_usage
-    echo "${c_b}누가 쓰나${c_0}  (공용 계정이라 접속할 때 고른 이름으로 보여요)"
+    echo "${c_b}GPU별 사용자${c_0}  (공용 계정이라 접속할 때 고른 이름으로 보여요)"
     echo "$(pad GPU 4)$(pad 배분 15)$(pad '쓰는 사람' 16)$(pad 사용률 7)$(pad '메모리 GB' 10)컨테이너"
     "$NVSMI" --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits |
     while IFS=', ' read -r i mu mt ut; do
@@ -438,7 +438,7 @@ cmd_fetch() {
     [ -e "$up/$n" ] || { echo "${c_r}멈춤:${c_0} $up/$n 이 없어요. 공용 계정 FileZilla로 먼저 올리세요."; return 1; }
     if [ "$n" = datasets ] || [ "$n" = models ]; then
         if [ ! -f "$up/$n/MANIFEST.sha256" ] || [ ! -f "$up/$n/${n}_install.sh" ]; then
-            echo "${c_r}멈춤:${c_0} $up/$n 바로 아래에 MANIFEST.sha256 과 ${n}_install.sh 가 없어요. 폴더가 한 단계 더 들어가 올라갔을 수 있어요."
+            echo "${c_r}멈춤:${c_0} $up/$n 바로 아래에 MANIFEST.sha256 과 ${n}_install.sh 가 없어요. 폴더 안에 폴더가 한 겹 더 있는 채로 올라갔을 수 있어요."
             echo "  지금 구조: $(ls "$up/$n" 2>/dev/null | head -8 | tr '\n' ' ')"
             echo "  FileZilla에서 접근 PC의 $n 폴더 자체를 /app/upload 에 끌어다 놓으세요(/app/upload/$n/MANIFEST.sha256 이 되게)."
             return 1
@@ -467,7 +467,7 @@ cmd_fetch() {
             b200-docker.tar) echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash docker_install.sh" ;;
         esac
     fi
-    echo "다르면 실행하지 마세요. $up/$n 을 지우고 다시 올린 뒤 이 명령을 다시 하세요."
+    echo "다르면 실행하지 마세요. $up/$n 을 지우고 다시 올린 뒤 이 명령을 다시 실행하세요."
 }
 
 case "${1:-}" in

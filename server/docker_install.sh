@@ -19,7 +19,7 @@ ok()   { echo "  ${c_g}[정상]${c_0} $*"; }
 warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() {
     echo; echo "${c_r}################ 멈춤 ################${c_0}"
-    echo "${c_r}무엇이: $1${c_0}"; echo "할 일 : $2"
+    echo "${c_r}멈춘 이유: $1${c_0}"; echo "할 일: $2"
     echo "고친 뒤 같은 명령을 다시 실행하세요: cd $HERE && bash docker_install.sh"; echo "기록 파일: $LOG  (해결이 안 되면 docs/8_문제_해결.md)"
     exit 1
 }
@@ -76,7 +76,7 @@ fi
 mkdir -p "$CONF/nvidia-container-runtime"
 [ -f /etc/nvidia-container-runtime/config.toml ] && cp /etc/nvidia-container-runtime/config.toml "$CONF/nvidia-container-runtime/config.toml"
 nvidia-ctk config --set nvidia-container-cli.no-cgroups --in-place --config "$CONF/nvidia-container-runtime/config.toml" >/dev/null 2>&1 &&
-    ok "GPU 연결 도구를 rootless 모드로 설정했어요($CONF/nvidia-container-runtime. 서버 전체 설정은 그대로)" ||
+    ok "GPU 연결 도구를 rootless 모드로 설정했어요(설정 위치 $CONF/nvidia-container-runtime, 서버 전체 설정은 그대로 둬요)" ||
     warn "nvidia-ctk 설정에 실패했어요. $CONF/nvidia-container-runtime/config.toml 의 [nvidia-container-cli] 아래에 no-cgroups = true 를 직접 적으세요."
 
 # ------------------------------------------------------------------ 3. Docker 프로그램

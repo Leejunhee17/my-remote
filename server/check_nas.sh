@@ -35,7 +35,7 @@ body() {
 
     head_ '연결된 NAS'
     mapfile -t mounts < <(findmnt -rn -t nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs -o TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null)
-    [ -z "${B200_NAS:-}" ] || mounts=("$B200_NAS (직접-지정) - -")   # NAS 가 mount 목록에 안 보일 때 직접 적는다
+    [ -z "${B200_NAS:-}" ] || mounts=("$B200_NAS (직접지정) - -")   # NAS 가 mount 목록에 안 보일 때 직접 적는다
     if [ ${#mounts[@]} -eq 0 ]; then
         bad 'NAS로 연결된 폴더가 없어요. 서버 관리 팀에 NAS 연결(mount)을 요청하세요'
         return
@@ -51,7 +51,7 @@ body() {
     head_ "용량 ($NAS)"
     df -hP "$NAS" | awk 'NR==2 {printf "  전체 %s, 쓴 것 %s, 남은 것 %s (%s 찼어요)\n", $2, $3, $4, $5}'
     df -iP "$NAS" 2>/dev/null | awk 'NR==2 && $2 > 0 {printf "  파일 수: 전체 %s, 쓴 것 %s (%s)\n", $2, $3, $5}'
-    echo "  (NAS에 폴더별 할당량(quota)이 있으면 그 폴더에서 df 를 했을 때 할당량이 전체로 보여요)"
+    echo "  (NAS에 폴더별 할당량(quota)이 있으면 그 폴더에서 df 를 하면 할당량이 '전체'로 보여요)"
 
     head_ "$NAS 바로 아래 폴더 (주인·권한)"
     local n=0 d st uid gid mode
