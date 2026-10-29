@@ -20,7 +20,7 @@ echo; echo "${c_c}== 운영체제 ==${c_0}"
 os=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")
 glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
 echo "  $os, 커널 $(uname -r), glibc $glibc"
-case "$os" in Ubuntu*) ;; *) warn "Ubuntu가 아니에요($os). 설치 스크립트는 Ubuntu 22.04·24.04 기준이에요" ;; esac
+case "$os" in Ubuntu*) ;; *) warn "Ubuntu가 아니에요($os). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)" ;; esac
 id "$ACC" >/dev/null 2>&1 && ok "공용 계정($ACC)이 있어요" ||
     bad "공용 계정이 없어요: $ACC" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"
 if ver_ge "$glibc" "$GLIBC_NEED"; then ok "glibc $glibc (묶음 기준 $GLIBC_NEED 이상)"

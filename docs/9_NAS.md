@@ -91,7 +91,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 | 할 일 | 명령 |
 |---|---|
 | 데이터셋·모델 원본 보관(서버 1 설치 뒤) | `runuser -u shareduser -- cp -r /app/inbox/datasets /data/shareduser/archive/` (모델도 같은 방식) |
-| 서버 2로 가져오기 | 공용 계정으로 `/app/upload` 에 복사: `runuser -u shareduser -- cp -r /data/shareduser/archive/datasets /app/upload/` → 그다음은 평소처럼 root 로 `/app/inbox` 에 복사·지문 확인·설치(`docs/1_처음_설치.md` 의 "서버에 파일 올리기") |
+| 서버 2로 가져오기 | 공용 계정으로 `/app/upload` 에 복사: `runuser -u shareduser -- cp -r /data/shareduser/archive/datasets /app/upload/` → 그다음은 평소처럼 root 로 `/app/shared/bin/b200 fetch datasets` 로 지문 확인·설치(`docs/1_처음_설치.md` 의 "서버에 파일 올리기") |
 | 실험 결과 보관(팀원) | `rsync -a /app/workspace/<이름>/runs/exp1 /data/shareduser/backup/<이름>/` |
 | 도커 이미지 보관·다른 서버에서 쓰기(팀원) | `docker save -o /data/shareduser/images/<이름>/myseg_v1.tar myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
 | 서버 사이 큰 파일 전달 | `transfer/` 에 두고 다른 서버에서 가져간 뒤 지워요 |

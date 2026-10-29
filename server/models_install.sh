@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 SRC=$PWD
 # root 는 공용 계정이 올린 폴더를 /app/inbox 로 새로 복사한 뒤 실행한다. 복사본에 링크가 있으면 누가 심은 것이라 멈춘다
 if [ "$(id -u)" = 0 ] && [ -n "$(find "$SRC" -type l -print -quit)" ]; then
-    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/models 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 복사하세요: rm -rf $SRC && cp -r /app/upload/models /app/inbox/"; exit 1
+    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/models 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/shared/bin/b200 fetch models"; exit 1
 fi
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
 if [ "$(id -u)" = 0 ] && [ -d /app ] && { [ "$(stat -c %U /app)" != root ] || [ -L /app/shared ] || [ -L /app/workspace ]; }; then
@@ -76,9 +76,17 @@ for d in "${dirs[@]}"; do
     fi
     echo "  $repo 옮기는 중이에요"
     mkdir -p "$dest"
-    # 받기 도구가 남긴 .cache, 상태 파일은 옮기지 않는다
-    { cp -a "$d/." "$dest/" && rm -rf "$dest/.cache" "$dest"/.b200_*; } ||
-        { bad "$repo: 옮기지 못했어요(남은 공간과 권한을 확인하세요)"; continue; }
+    # 체크섬 목록(MANIFEST.sha256)에 있는 파일과 b200_model.json 만 옮긴다.
+    # 올린 폴더는 공용 계정이 고칠 수 있어서, 목록에 없는 파일(예: 몰래 넣은 .py)은 root 소유 공용 폴더로 가져가지 않는다
+    extra=$(comm -23 <(find "$d" -type f ! -path "$d/.cache/*" ! -name '.b200_*' ! -path "$d/b200_model.json" | sort) \
+                     <(sed -n "s|^[0-9a-f]\{64\}  \($d/.*\)|\1|p" MANIFEST.sha256 | sort))
+    [ -z "$extra" ] || warn "$repo: 체크섬 목록에 없는 파일 $(echo "$extra" | grep -c .)개는 옮기지 않아요(예: $(echo "$extra" | head -1))"
+    copied=1
+    while IFS= read -r rel; do
+        t="$dest/${rel#"$d"/}"
+        mkdir -p "$(dirname "$t")" && cp "$rel" "$t" || { copied=; break; }
+    done < <(sed -n "s|^[0-9a-f]\{64\}  \($d/.*\)|\1|p" MANIFEST.sha256; echo "$d/b200_model.json")
+    [ -n "$copied" ] || { bad "$repo: 옮기지 못했어요(남은 공간과 권한을 확인하세요)"; continue; }
     # GitHub 코드 묶음은 code/ 폴더로 푼다(맨 위 폴더 한 단계는 뺀다)
     if [ -f "$dest/code.zip" ]; then
         rm -rf "$dest/code"

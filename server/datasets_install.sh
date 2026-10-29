@@ -9,7 +9,7 @@ cd "$(dirname "$0")"
 SRC=$PWD
 # root 는 공용 계정이 올린 폴더를 /app/inbox 로 새로 복사한 뒤 실행한다. 복사본에 링크가 있으면 누가 심은 것이라 멈춘다
 if [ "$(id -u)" = 0 ] && [ -n "$(find "$SRC" -type l -print -quit)" ]; then
-    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/datasets 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 복사하세요: rm -rf $SRC && cp -r /app/upload/datasets /app/inbox/"; exit 1
+    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/datasets 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/shared/bin/b200 fetch datasets"; exit 1
 fi
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
 if [ "$(id -u)" = 0 ] && [ -d /app ] && { [ "$(stat -c %U /app)" != root ] || [ -L /app/shared ] || [ -L /app/workspace ]; }; then

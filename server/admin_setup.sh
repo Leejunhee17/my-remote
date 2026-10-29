@@ -142,6 +142,8 @@ DISK_ALERT=85         # /app 이 이 % 를 넘으면 많이 쓰는 3명과 관�
 IMAGE_NOTICE_DAYS=30  # 이 일수 동안 안 쓴 도커 이미지는 들여온 사람에게 알림(주 한 번)
 NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/shareduser). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)
 EOF
+grep -q '^NAS_DIR=' "$S/b200.conf" ||   # 예전 판으로 만든 설정에는 없다
+    echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/shareduser). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)' >> "$S/b200.conf"
 chmod 644 "$S/b200.conf"
 
 # ------------------------------------------------------------------ 3. 도우미
@@ -244,7 +246,8 @@ else warn '고정할 NVIDIA 패키지를 찾지 못했어요(드라이버를 apt
 # ------------------------------------------------------------------ 6. 정기 점검
 step '6. 정기 점검'
 cat > /etc/cron.d/b200 <<EOF
-# b200 admin_setup.sh 가 만든다
+# b200 admin_setup.sh 가 만든다. cron 기본 PATH 에는 /usr/sbin(runuser)이 없다
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 */10 * * * * root $S/bin/b200 _check
 40 7 * * 1   root $S/bin/b200 _report > $ST/reports/\$(date +\%F).txt 2>&1 && echo "\$(date '+\%F \%H:\%M')	보고서-\$(date +\%F)	주간 보고서: $ST/reports/\$(date +\%F).txt" >> $ST/notice/관리자.txt
 EOF

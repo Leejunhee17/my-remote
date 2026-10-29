@@ -49,27 +49,33 @@ resolve_name() {
 
 # ------------------------------------------------------------------ 도커(진짜 docker 를 바로 부른다)
 if is_root && id "$ACC" >/dev/null 2>&1 && [ -z "${B200_DOCKER:-}" ]; then
-    DOCKER=(runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$(id -u "$ACC")/docker.sock" /opt/b200/docker/current/docker)
+    # root 가 공용 계정 도커를 볼 때: 터미널을 떼고(setsid) 공용 계정이 고칠 수 있는 ~/.docker 설정(플러그인 등)은 읽지 않는다
+    DOCKER=(setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$(id -u "$ACC")/docker.sock" DOCKER_CONFIG=/etc/b200/docker/cli /opt/b200/docker/current/docker)
 else
     DOCKER=(${B200_DOCKER:-/opt/b200/docker/current/docker})
 fi
-HAVE_DOCKER=; "${DOCKER[@]}" version --format '{{.Server.Version}}' >/dev/null 2>&1 && HAVE_DOCKER=1
+# 도커가 필요한 명령에서만 확인한다(접속할 때 알림 보기 등에서는 도커를 부르지 않는다)
+HAVE_DOCKER=; DOCKER_CHECKED=
+have_docker() {
+    [ -n "$DOCKER_CHECKED" ] || { DOCKER_CHECKED=1; "${DOCKER[@]}" version --format '{{.Server.Version}}' </dev/null >/dev/null 2>&1 && HAVE_DOCKER=1; }
+    [ -n "$HAVE_DOCKER" ]
+}
 
-# 실행 중인 컨테이너: "pid<TAB>이름<TAB>사람<TAB>GPU<TAB>이미지"
+# 실행 중인 컨테이너: "pid<TAB>이름<TAB>사람<TAB>GPU<TAB>이미지<TAB>컨테이너ID"
 # GPU 는 3,4 | all | n2(앞에서 2장) | -(없음). 사람은 docker 래퍼가 붙인 이름표(b200.USER)
 CONTAINERS=
 load_containers() {
-    [ -n "$HAVE_DOCKER" ] || return 0
+    have_docker || return 0
     local ids; ids=$("${DOCKER[@]}" ps -q 2>/dev/null); [ -n "$ids" ] || return 0
     # shellcheck disable=SC2086
-    CONTAINERS=$("${DOCKER[@]}" inspect -f '{{.State.Pid}}{{"\t"}}{{slice .Name 1}}{{"\t"}}{{printf "%q" (index .Config.Labels "b200.USER")}}{{"\t"}}{{range .HostConfig.DeviceRequests}}{{if .DeviceIDs}}{{join .DeviceIDs ","}}{{else if eq .Count -1}}all{{else}}n{{.Count}}{{end}}{{end}}{{"\t"}}{{printf "%q" .Config.Image}}{{"\t"}}{{printf "%q" (index .Config.Labels "b200.GPUS")}}' $ids 2>/dev/null |
+    CONTAINERS=$("${DOCKER[@]}" inspect -f '{{.State.Pid}}{{"\t"}}{{slice .Name 1}}{{"\t"}}{{printf "%q" (index .Config.Labels "b200.USER")}}{{"\t"}}{{range .HostConfig.DeviceRequests}}{{if .DeviceIDs}}{{join .DeviceIDs ","}}{{else if eq .Count -1}}all{{else}}n{{.Count}}{{end}}{{end}}{{"\t"}}{{printf "%q" .Config.Image}}{{"\t"}}{{printf "%q" (index .Config.Labels "b200.GPUS")}}{{"\t"}}{{.Id}}' $ids 2>/dev/null |
         # 이름표는 누구나 아무 글자(줄바꿈 포함)나 넣을 수 있다. %q 로 한 줄로 받고, 모양이 맞는 줄만 쓴다(root 가 읽는다)
         # GPU 요청 정보가 비어 있으면 이름표(b200.GPUS)로 본다
-        awk -F'\t' -v OFS='\t' 'NF==6 && $1 ~ /^[0-9]+$/ {
+        awk -F'\t' -v OFS='\t' 'NF==7 && $1 ~ /^[0-9]+$/ && $7 ~ /^[0-9a-f]+$/ {
             gsub(/^"|"$/, "", $3); gsub(/^"|"$/, "", $5); gsub(/^"|"$/, "", $6)
-            if ($3 ~ /[\\"]/) $3="?"; if ($5 ~ /[\\"]/) $5="?"
+            if ($3 ~ /[\\"[:space:][:cntrl:]]/) $3="?"; if ($5 ~ /[\\"[:space:][:cntrl:]]/) $5="?"
             if ($4=="" && $6 ~ /^[0-9,]+$/) $4=$6
-            NF=5; print}')
+            $6=$7; NF=6; print}')
 }
 gpu_count() { "$NVSMI" -L 2>/dev/null | grep -c '^GPU'; }
 # 3,4 | all | n2 → GPU 번호들(줄마다 하나)
@@ -87,8 +93,15 @@ expand_gpus() {
 # ------------------------------------------------------------------ GPU 프로세스 → 사람
 # ① 컨테이너 안 프로세스면 그 컨테이너의 이름표 ② 프로세스 환경의 B200_USER(접속할 때 고른 이름이 따라간다)
 # ③ 작업 폴더 이름 순서로 찾는다. 결과는 "사람 어디(컨테이너 이름이나 -)"
+# docker exec 로 띄운 프로세스는 컨테이너 첫 프로세스의 자손이 아니라서(부모가 containerd-shim), cgroup 의 컨테이너 ID 로 먼저 찾는다
 owner_of_pid() {
-    local pid=$1 p=$1 u cwd line i
+    local pid=$1 p=$1 u cwd line i cid
+    for cid in $(grep -oE '[0-9a-f]{64}' "/proc/$pid/cgroup" 2>/dev/null); do
+        line=$(echo "$CONTAINERS" | awk -F'\t' -v c="$cid" '$6==c' | head -1)
+        if [ -n "$line" ]; then
+            u=$(echo "$line" | cut -f3); echo "${u:-?} $(echo "$line" | cut -f2)"; return
+        fi
+    done
     for i in $(seq 1 40); do
         [ "$p" -gt 1 ] 2>/dev/null || break
         line=$(echo "$CONTAINERS" | awk -F'\t' -v p="$p" '$1==p' | head -1)
@@ -102,6 +115,8 @@ owner_of_pid() {
         cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
         case "$cwd" in "$W"/*) u=${cwd#"$W"/}; u=${u%%/*} ;; esac
     fi
+    # 프로세스 환경·폴더 이름은 누구나 정할 수 있다. 화면 제어 문자나 띄어쓰기가 든 이름은 쓰지 않는다
+    [[ "$u" =~ ^[^[:cntrl:][:space:]/]{1,32}$ ]] || u=
     echo "${u:-?} -"
 }
 # 한 줄에 "gpu pid 메모리MiB 사람 어디"
@@ -308,7 +323,7 @@ cmd__check() {
         done
     fi
     # 6. 이미지: 쓰는 날 기록, 오래 안 쓴 이미지는 들여온 사람에게 주 한 번
-    if [ -n "$HAVE_DOCKER" ]; then
+    if have_docker; then
         echo "$CONTAINERS" | cut -f5 | grep . | sort -u | while read -r ref; do printf '%s\t%s\n' "$ref" "$day"; done |
             cat - "$USED" 2>/dev/null | sort -t$'\t' -k1,1 -k2,2r | sort -t$'\t' -u -k1,1 > "$USED.new" &&
             mv "$USED.new" "$USED"
@@ -330,7 +345,7 @@ cmd__check() {
 
 # 이미지마다 "이미지<TAB>들여온 사람<TAB>마지막 사용일<TAB>크기" (들여온 날과 컨테이너로 쓴 날 중 늦은 날)
 image_table() {
-    [ -n "$HAVE_DOCKER" ] || return 0
+    have_docker || return 0
     local led=() f
     for f in "$ST/images/loaded.tsv" "$USED"; do [ -f "$f" ] && [ ! -L "$f" ] && led+=("$f"); done   # loaded.tsv 는 docker 래퍼(공용 계정)가 쓴다. root 가 만들지 않는다
     "${DOCKER[@]}" images --format '{{.Repository}}:{{.Tag}}{{"\t"}}{{.CreatedAt}}{{"\t"}}{{.Size}}' 2>/dev/null | grep -v '^<none>' |
@@ -357,7 +372,7 @@ cmd__report() {
     echo "== 디스크"
     df -h "$APP" | awk 'NR==2 {print "  /app "$3" / "$2" ("$5")"}'
     du -sh "$W"/*/ 2>/dev/null | sort -rh | head -10 | sed "s#$W/##; s#/\$##; s/^/  /"
-    if [ -n "$HAVE_DOCKER" ]; then
+    if have_docker; then
         echo
         echo "== 도커 이미지 (이미지, 들여온 사람, 마지막 사용, 크기)"
         image_table | sort -t$'\t' -k3,3 | awk -F'\t' '{printf "  %-50s %-10s %s  %s\n", $1, $2, $3, $4}'
@@ -385,7 +400,7 @@ cmd__report() {
 cmd_doctor() {
     echo "== GPU"; "$NVSMI" -L 2>&1 | head -8
     echo "== 도커"
-    [ -n "$HAVE_DOCKER" ] || { echo '  도커 데몬에 연결하지 못했어요. root로 확인하세요: systemctl status b200-docker'; return; }
+    have_docker || { echo '  도커 데몬에 연결하지 못했어요. root로 확인하세요: systemctl status b200-docker'; return; }
     "${DOCKER[@]}" info --format '  Docker {{.ServerVersion}}, {{.DockerRootDir}}, {{.SecurityOptions}}' 2>&1 | tail -1
     [ $# -ge 1 ] || { echo '  컨테이너 안 GPU 계산까지 보려면 이미지를 붙여 실행하세요: b200 doctor <PyTorch 이미지>'; return; }
     # 다른 팀 GPU(서버 2의 0~3번)는 피해서 우리 GPU 하나로 시험한다
@@ -396,9 +411,48 @@ cmd_doctor() {
     echo "  보이는 GPU가 1장이고 GPU 계산이 정상이면 돼요. 오류가 나면 docs/8_문제_해결.md 의 'b200 doctor' 줄을 보세요."
 }
 
+# ------------------------------------------------------------------ 관리자: 올린 파일 들여오기
+# /app/upload(공용 계정이 올리는 곳) → /app/inbox(root 만 고침)로 새로 복사하고 지문을 보여 준다.
+# 폴더는 링크를 링크 그대로 복사하므로, 링크가 하나라도 있으면 지운다(지문을 본 뒤에 링크 너머를 바꿔치기할 수 있다)
+cmd_fetch() {
+    is_root || { echo "root 전용이에요."; return 1; }
+    local n=${1:-} up=$APP/upload in=$APP/inbox
+    case "$n" in
+        datasets|models|b200-pack.tar|b200-docker.tar) ;;
+        *) echo "쓰는 법: b200 fetch datasets | models | b200-pack.tar | b200-docker.tar"; return 1 ;;
+    esac
+    [ "$(stat -c '%U %a' "$in" 2>/dev/null)" = "root 755" ] && [ ! -L "$in" ] ||
+        { echo "${c_r}멈춤:${c_0} $in 이 root 소유(755)가 아니에요. 먼저 실행하세요: cd /app/inbox && bash admin_setup.sh"; return 1; }
+    [ -e "$up/$n" ] || { echo "${c_r}멈춤:${c_0} $up/$n 이 없어요. 공용 계정 FileZilla로 먼저 올리세요."; return 1; }
+    rm -rf "${in:?}/$n"
+    if [ "$n" = datasets ] || [ "$n" = models ]; then
+        cp -r "$up/$n" "$in/" || { echo "${c_r}멈춤:${c_0} 복사하지 못했어요(남은 공간: df -h /app)"; return 1; }
+        if [ -n "$(find "$in/$n" -type l -print -quit)" ]; then
+            find "$in/$n" -type l | head -5 | sed 's/^/    링크: /'
+            rm -rf "${in:?}/$n"
+            echo "${c_r}멈춤:${c_0} 올린 폴더에 링크가 있어서 복사본을 지웠어요. $up/$n 을 지우고 접근 PC 폴더를 다시 올리세요."
+            return 1
+        fi
+        local s=${n}_install.sh
+        echo "지문(sha256): $(cat "$in/$n/MANIFEST.sha256" "$in/$n/$s" 2>/dev/null | sha256sum | cut -d' ' -f1)"
+        echo "접근 PC 화면의 지문과 같으면 실행하세요: bash $in/$n/$s"
+    else
+        cp "$up/$n" "$in/" || { echo "${c_r}멈춤:${c_0} 복사하지 못했어요(남은 공간: df -h /app)"; return 1; }
+        echo "지문(sha256): $(sha256sum "$in/$n" | cut -d' ' -f1)"
+        case "$n" in
+            b200-pack.tar)   echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash pack_install.sh /app/shared" ;;
+            b200-docker.tar) echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash docker_install.sh" ;;
+        esac
+    fi
+    echo "다르면 실행하지 마세요. $up/$n 을 지우고 다시 올린 뒤 이 명령을 다시 하세요."
+}
+
 case "${1:-}" in
     ''|who)       cmd_who ;;
+    fetch)        shift; cmd_fetch "$@" ;;
     doctor)       shift; cmd_doctor "$@" ;;
+    docker)       shift; is_root || { echo "root 전용이에요. 공용 계정은 docker 를 바로 쓰세요."; exit 1; }
+                  "${DOCKER[@]}" "$@" ;;   # 관리자가 공용 계정 도커를 볼 때: /app/shared/bin/b200 docker ps -a
     _hello)       cmd__hello ;;
     _names)       cmd__names ;;
     _resolve)     resolve_name "${2:-}" ;;
@@ -406,5 +460,5 @@ case "${1:-}" in
     _gpu-warn)    cmd__gpu_warn "${2:-}" ;;
     _check)       cmd__check ;;
     _report)      cmd__report ;;
-    *)            echo "쓰는 법: b200 [who] | doctor [이미지]   (나머지 명령은 접속 설정·docker·정기 점검이 내부에서 써요)"; exit 1 ;;
+    *)            echo "쓰는 법: b200 [who] | doctor [이미지] | docker <명령>(root) | fetch <이름>(root)   (나머지 명령은 접속 설정·docker·정기 점검이 내부에서 써요)"; exit 1 ;;
 esac

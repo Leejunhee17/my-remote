@@ -146,8 +146,15 @@ foreach ($plug in @(
     $loc = & curl.exe -sS -o NUL -w '%{redirect_url}' @ca "https://github.com/$($plug.Repo)/releases/latest"
     if ($loc -match '/tag/(v[\d.]+)$') {
         $t = $Matches[1]
-        $plan += [pscustomobject]@{ Dir = 'plugins'; Url = "https://github.com/$($plug.Repo)/releases/download/$t/$(& $plug.File $t)"; Sha = $null; Name = $plug.Name }
-        Write-Ok "$($plug.Name) $t"
+        $fn = & $plug.File $t
+        # 파일 이름이 판과 상관없이 같으므로, 공식 체크섬으로 확인한다(없으면 매번 새로 받아 예전 파일에 이어 붙지 않게)
+        $sha = $null
+        $sums = @(& curl.exe -sS -L --fail @ca "https://github.com/$($plug.Repo)/releases/download/$t/checksums.txt" 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            foreach ($l in $sums) { if ($l -match "^([0-9a-f]{64})\s+\*?$([regex]::Escape($fn))\s*$") { $sha = $Matches[1] } }
+        }
+        $plan += [pscustomobject]@{ Dir = 'plugins'; Url = "https://github.com/$($plug.Repo)/releases/download/$t/$fn"; Sha = $sha; Name = $plug.Name; Fresh = (-not $sha) }
+        if ($sha) { Write-Ok "$($plug.Name) $t" } else { Write-Warn "$($plug.Name) ${t}: 공식 체크섬을 찾지 못해 새로 받아요(받은 뒤 확인은 못 해요)" }
     } else { Write-Warn "최신 판을 찾지 못해 묶음에서 뺐어요: $($plug.Name) (없어도 docker는 돼요)" }
 }
 $plan += [pscustomobject]@{ Dir = '.'; Url = "$DockerBase/docker-$dv.tgz"; Sha = $null }
@@ -164,6 +171,7 @@ foreach ($it in $plan) {
     New-Item -ItemType Directory -Force $dir | Out-Null
     $dest = Join-Path $dir $name
     Write-Host "  ($n/$($plan.Count)) $($it.Dir)/$name"
+    if ($it.Fresh) { Remove-Item -Force -ErrorAction SilentlyContinue $dest }
     if (-not (Get-File $it.Url $dest $null $MaxTries $it.Sha)) { Stop-Run "받지 못한 파일: $name" '인터넷 연결을 확인하고 다시 실행하세요. 받은 것은 건너뛰어요.' }
     $files += (($it.Dir -replace '^\.$', '') + '/' + $name).TrimStart('/')
 }
@@ -188,12 +196,12 @@ $sh = [IO.File]::ReadAllText((Join-Path $root 'server\docker_install.sh')) -repl
 [IO.File]::WriteAllText((Join-Path $out 'docker_install.sh'), $sh, (New-Object Text.UTF8Encoding $false))
 Write-Lf (Join-Path $out 'docker_info.txt') @("made=$(Get-Date -Format 'yyyy-MM-dd HH:mm')", "docker=$dv", "nvidia_toolkit=$nv")
 $all = @($files) + 'docker_info.txt'
-Write-Lf (Join-Path $out 'MANIFEST.sha256') ($all | ForEach-Object {
+Write-Lf (Join-Path $out 'MANIFEST_docker.sha256') ($all | ForEach-Object {
     "$((Get-FileHash (Join-Path $out $_) -Algorithm SHA256).Hash.ToLower())  $_" })
 $tar = Join-Path $out 'b200-docker.tar'
 Remove-Item -Force -ErrorAction SilentlyContinue $tar
 Push-Location $out
-& tar.exe -cf b200-docker.tar MANIFEST.sha256 docker_install.sh docker_info.txt @files
+& tar.exe -cf b200-docker.tar MANIFEST_docker.sha256 docker_install.sh docker_info.txt @files
 $code = $LASTEXITCODE
 Pop-Location
 if ($code -ne 0) { Stop-Run 'tar로 묶지 못했어요' '남은 공간을 확인하고 다시 실행하세요.' }
@@ -211,7 +219,7 @@ Write-Host " 지문(sha256): $(Get-Fingerprint @($tar))" -ForegroundColor Cyan
 Write-Host ''
 Write-Host ' 1) 공용 계정(shareduser)의 FileZilla로 B200 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
-Write-Host '   cp /app/upload/b200-docker.tar /app/inbox/ && sha256sum /app/inbox/b200-docker.tar'
+Write-Host '   /app/shared/bin/b200 fetch b200-docker.tar'
 Write-Host ' 3) 같으면 풀어서 실행하세요. admin_setup.sh 를 먼저 실행해 둬야 해요.' -ForegroundColor Green
 Write-Host '   cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh'
 Write-Host ' 자세한 순서: docs\1_처음_설치.md 의 3단계'

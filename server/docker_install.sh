@@ -33,8 +33,8 @@ step 1 '점검'
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
 id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" "공용 계정 이름이 다르면 앞에 붙여 실행하세요: B200_ACCOUNT=계정이름 bash docker_install.sh"
 UID_A=$(id -u "$ACC")
-for f in MANIFEST.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf b200-docker.tar"; done
-bad=$(grep -v '  docker_install\.sh$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
+for f in MANIFEST_docker.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf b200-docker.tar"; done
+bad=$(grep -v '  docker_install\.sh$' MANIFEST_docker.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
 [ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨진 파일: /'; stop '올리는 중에 파일이 깨졌어요' '접근 PC의 pack_docker\b200-docker.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요.'; }
 ok "파일 체크섬이 맞아요 (Docker $(info docker), NVIDIA Container Toolkit $(info nvidia_toolkit))"
 CODE=$(. /etc/os-release && echo "${VERSION_CODENAME:-}")
@@ -196,10 +196,11 @@ ok 'b200-docker 서비스가 돌고 있어요'
 
 # ------------------------------------------------------------------ 6. 검사
 step 6 '검사 (공용 계정으로)'
-as_acc() { runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" PATH="$OPT/current:/usr/bin:/bin" "$@"; }
+# 터미널을 떼고(setsid), 공용 계정이 고칠 수 있는 ~/.docker 설정(플러그인 등)은 읽지 않는다
+as_acc() { setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" DOCKER_CONFIG=/etc/b200/docker/cli PATH="$OPT/current:/usr/bin:/bin" "$@" </dev/null; }
 as_acc docker info --format '{{.SecurityOptions}} {{.DockerRootDir}}' | grep -q rootless &&
     ok "rootless로 동작해요. 저장 위치 $(as_acc docker info --format '{{.DockerRootDir}}')" ||
-    stop 'rootless로 동작하지 않아요' "공용 계정 도커 정보를 확인하세요: runuser -u $ACC -- env DOCKER_HOST=unix:///run/user/$UID_A/docker.sock $OPT/current/docker info"
+    stop 'rootless로 동작하지 않아요' "공용 계정 도커 정보를 확인하세요: /app/shared/bin/b200 docker info"
 as_acc docker info --format '{{json .Runtimes}}' | grep -q nvidia && ok 'GPU 런타임(nvidia)이 등록됐어요' || warn "GPU 런타임(nvidia)이 보이지 않아요. $CONF/daemon.json 의 runtimes 항목과 nvidia-container-runtime 설치를 확인하세요"
 echo "  GPU 컨테이너는 PyTorch 이미지를 처음 들여온 뒤 공용 계정으로 확인해요: b200 doctor <이미지>"
 

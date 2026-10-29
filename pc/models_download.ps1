@@ -215,15 +215,14 @@ if ($skipped.Count) {
 Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝났어요. B200 서버에 올릴 폴더(통째로):' -ForegroundColor Green
 Write-Host "   $Dest  ($(Format-Size $total))"
-if ((Split-Path -Leaf $Dest) -ne 'models') { Write-Host '   폴더 이름이 models 가 아니면, 아래 명령의 models 를 그 이름으로 바꿔 쓰세요.' -ForegroundColor Yellow }
+if ((Split-Path -Leaf $Dest) -ne 'models') { Write-Host '   폴더 이름이 models 가 아니면, 올리기 전에 models 로 바꾸세요(서버 명령이 이 이름만 받아요).' -ForegroundColor Yellow }
 Write-Host ''
 Write-Host " 지문(sha256): $(Get-Fingerprint @((Join-Path $Dest 'MANIFEST.sha256'), (Join-Path $Dest 'models_install.sh')))" -ForegroundColor Cyan
 Write-Host '   (MANIFEST.sha256과 models_install.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
 Write-Host ''
 Write-Host ' 1) 공용 계정(shareduser)의 FileZilla로 B200 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
-Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
-Write-Host '   rm -rf /app/inbox/models && cp -r /app/upload/models /app/inbox/'
-Write-Host '   cat /app/inbox/models/MANIFEST.sha256 /app/inbox/models/models_install.sh | sha256sum'
+Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
+Write-Host '   /app/shared/bin/b200 fetch models'
 Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/models 는 지워 공간을 비우세요.' -ForegroundColor Green
 Write-Host '   bash /app/inbox/models/models_install.sh'
 Write-Host ' 자세한 순서: docs\7_모델.md'
