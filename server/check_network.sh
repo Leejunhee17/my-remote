@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # [B200 서버] 네트워크와 NAS를 점검해요. 설정은 아무것도 바꾸지 않아요.
-#   bash check_network.sh all               ★ 한 번에: 두 서버에서 각각 실행하면 NAS로 서로를 찾아
+#   bash check_network.sh all               ★ 전체 점검: 두 서버에서 각각 실행하면 NAS로 서로를 찾아
 #                                           서버 사이(이더넷·InfiniBand·RDMA), 로컬 SSD, NAS 속도를 모두 재고 보고서를 남겨요(root 권장)
 #   bash check_network.sh                   이 서버의 네트워크 카드·속도, NAS 연결 보기
 #   bash check_network.sh <다른 서버 IP>     + 다른 서버와 연결되는지, 어느 카드로 가는지
@@ -49,7 +49,7 @@ rate() {   # 바이트 초 → "x.xx GB/s (y Gbps)"
 }
 
 cmd_info() {
-    echo "${c_c}[B200 서버] 네트워크 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))${c_0}"
+    [ -n "${ALL_MODE:-}" ] || echo "${c_c}[B200 서버] 네트워크 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))${c_0}"
     head_ '네트워크 카드'
     command -v ip >/dev/null || warn 'ip 명령(iproute2)이 없어 주소와 경로를 못 봐요'
     echo "  $(pad 이름 16)$(pad 종류 16)$(pad 상태 8)$(pad 속도 11)$(pad MTU 7)IPv4"
@@ -296,7 +296,7 @@ disk_both() {   # 한 줄기와 8줄기
 all_body() {
     local nas R peer= pf role mine local_dir PINFO=
     nas=$(nas_dir "${1:-}")
-    echo "${c_c}[한 번에 재기] $ME  $(date '+%F %T')  ($(id -un))${c_0}"
+    echo "${c_c}[B200 서버] 네트워크 전체 점검  ($(date '+%Y-%m-%d %H:%M'), $ME, $(id -un))${c_0}"
     [ "$(id -u)" = 0 ] || warn 'root가 아니라서 InfiniBand 망 조회(ibhosts)는 건너뛰어요'
     cmd_info
 
