@@ -10,7 +10,7 @@ ok()   { echo "  ${c_g}[정상]${c_0} $*"; }
 warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 bad()  { echo "  ${c_r}[문제]${c_0} $*"; }
 head_() { echo; echo "${c_c}== $* ==${c_0}"; }
-ACC=${B200_ACCOUNT:-shareduser}
+ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
 ME=$(hostname -s)
 TEAM_DIR=${1:-}
 IS_ROOT=; [ "$(id -u)" = 0 ] && IS_ROOT=1
@@ -51,7 +51,7 @@ body() {
     head_ "용량 ($NAS)"
     df -hP "$NAS" | awk 'NR==2 {printf "  전체 %s, 쓴 것 %s, 남은 것 %s (%s 찼어요)\n", $2, $3, $4, $5}'
     df -iP "$NAS" 2>/dev/null | awk 'NR==2 && $2 > 0 {printf "  파일 수: 전체 %s, 쓴 것 %s (%s)\n", $2, $3, $5}'
-    echo "  (Isilon·PowerScale 은 폴더별 할당량(quota)이 있으면 그 폴더에서 df 를 했을 때 할당량이 전체로 보여요)"
+    echo "  (NAS에 폴더별 할당량(quota)이 있으면 그 폴더에서 df 를 했을 때 할당량이 전체로 보여요)"
 
     head_ "$NAS 바로 아래 폴더 (주인·권한)"
     local n=0 d st uid gid mode
@@ -70,7 +70,7 @@ body() {
         ACC_UID=$(id -u "$ACC"); ACC_GID=$(id -g "$ACC")
         echo "  우리 공용 계정 $ACC: uid $ACC_UID, gid $ACC_GID"
     else
-        bad "공용 계정이 없어요: $ACC"; ACC_UID=; ACC_GID=
+        bad "공용 계정이 없거나 이름을 몰라요: ${ACC:-(비어 있음)}. /etc/b200/account 를 확인하세요"; ACC_UID=; ACC_GID=
     fi
     echo "  이 서버의 일반 계정(uid 1000 이상):"
     getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 {printf "    %-16s uid %s\n", $1, $3}'
@@ -155,5 +155,4 @@ body 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' > "$out")
 sleep 1
 chmod 644 "$out" 2>/dev/null   # 공용 계정(FileZilla)으로 내려받을 수 있게
 echo; echo "보고서: $(readlink -f "$out")"
-case "$out" in /app/*) echo "  공용 계정 FileZilla로 내려받아 docs/9_NAS.md 의 '정해야 할 것'을 채울 때 쓰세요." ;;
-               *) echo "  이 폴더는 FileZilla로 못 받을 수 있어요. 화면 내용을 복사해 두세요." ;; esac
+echo "  사내 정보(서버 이름·NAS 주소·계정)가 들어 있어서 저장소에는 올리지 마세요. 결정한 내용만 docs/9_NAS.md 의 '정해야 할 것'에 적어요."

@@ -3,7 +3,7 @@
 #   bash admin_setup.sh          적용
 #   bash admin_setup.sh --undo   되돌리기(공용 폴더 잠금 풀기, 시스템 설정 지우기)
 # 하는 일 (팀원에게 새 명령을 외우게 하지 않고, 막기보다 알린다)
-#   - 공용 계정(shareduser)에 관리자 권한(sudo, docker 그룹)이 없는지 확인한다(있으면 알려만 준다)
+#   - 공용 계정(/etc/b200/account)에 관리자 권한(sudo, docker 그룹)이 없는지 확인한다(있으면 알려만 준다)
 #   - /app/shared(기초 프로그램·데이터셋·모델)와 /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
 #   - 접속할 때 이름을 고르게 하고, 이름별 작업 폴더·캐시·명령 기록을 나눈다(/etc/profile.d/b200.sh)
 #   - docker, nvidia-smi 도우미를 /app/shared/bin 에 깐다(이름표, GPU 겹침 경고, "누가 쓰나" 표)
@@ -12,7 +12,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 HERE=$PWD
-ACC=${B200_ACCOUNT:-shareduser}
+ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
 S=/app/shared
 W=/app/workspace
 ST=/app/state
@@ -23,7 +23,9 @@ warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() { echo "${c_r}멈춤: $1${c_0}"; echo "할 일: $2"; exit 1; }
 
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
-id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" '공용 계정 이름이 다르면 앞에 붙여 실행하세요: B200_ACCOUNT=계정이름 bash admin_setup.sh'
+[ -n "$ACC" ] || stop '공용 계정 이름을 모르겠어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo 공용계정이름 > /etc/b200/account'
+[[ "$ACC" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || stop "공용 계정 이름이 이상해요: $ACC" '/etc/b200/account 에 계정 이름 한 줄만 적으세요'
+id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" '/etc/b200/account 의 계정 이름을 확인하세요: cat /etc/b200/account'
 HOME_A=$(getent passwd "$ACC" | cut -d: -f6)
 
 if [ "${1:-}" = --undo ]; then
@@ -140,10 +142,10 @@ MAX_GPUS=4            # docker run 때 내 GPU가 이보다 많아지면 경고
 IDLE_HOURS=12         # GPU를 잡고 이 시간 내내 사용률 0%면 그 사람에게 알림(하루 한 번)
 DISK_ALERT=85         # /app 이 이 % 를 넘으면 많이 쓰는 3명과 관리자에게 알림(주 한 번)
 IMAGE_NOTICE_DAYS=30  # 이 일수 동안 안 쓴 도커 이미지는 들여온 사람에게 알림(주 한 번)
-NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/shareduser). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)
+NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)
 EOF
 grep -q '^NAS_DIR=' "$S/b200.conf" ||   # 예전 판으로 만든 설정에는 없다
-    echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/shareduser). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)' >> "$S/b200.conf"
+    echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)' >> "$S/b200.conf"
 chmod 644 "$S/b200.conf"
 
 # ------------------------------------------------------------------ 3. 도우미

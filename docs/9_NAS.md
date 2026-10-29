@@ -7,13 +7,13 @@
 
 | 항목 | 내용 |
 |---|---|
-| 주소 | `NAS망-IP:/nas`, 두 서버 모두 `/data` 에 연결. 경로 모양으로 보아 Dell PowerScale(Isilon)이에요 |
+| 주소 | 두 서버 모두 `/data` 에 연결(주소는 서버의 `findmnt /data` 로 확인) |
 | 연결 방식 | NFSv3 over RDMA(InfiniBand 400 Gbps), `nconnect=24` |
 | 속도 | 1줄기 쓰기 1.82 GB/s, 읽기 4.3 GB/s(`docs/4_네트워크.md`) |
 | 같이 쓰는 곳 | 다른 팀도 같은 NAS를 써요. 그래서 **우리 팀 폴더 하나 아래에만** 구조를 만들어요 |
-| 아직 모르는 것 | 전체·남은 용량, 우리 팀 몫(할당량), 우리가 폴더를 만들 수 있는지, root squash, 두 서버의 `shareduser` 계정 번호가 같은지 |
+| 아직 모르는 것 | 전체·남은 용량, 우리 팀 몫(할당량), 우리가 폴더를 만들 수 있는지, root squash, 두 서버의 공용 계정 번호가 같은지 |
 
-모르는 것은 두 서버에서 각각 아래를 실행하면 한 화면에 나와요. 바꾸는 것은 없어요. 결과는 `/app/inbox/reports/nas_report_<서버>_<시각>.txt` 에도 남아서 공용 계정 FileZilla로 내려받을 수 있어요.
+모르는 것은 두 서버에서 각각 아래를 실행하면 한 화면에 나와요. 바꾸는 것은 없어요. 결과는 `/app/inbox/reports/nas_report_<서버>_<시각>.txt` 에도 남아요. NAS 주소·계정 같은 사내 정보가 들어 있으니 이 저장소에는 올리지 말고, 정한 내용만 아래 표에 적어요.
 
 ```bash
 # [서버 1, 서버 2 각각] root
@@ -24,18 +24,18 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
 1. **우리 팀 폴더 하나 아래에만 만들어요.** 다른 팀 폴더와 NAS 최상위는 건드리지 않아요.
 2. **NAS의 파일은 믿지 않고, 가져올 때 지문을 확인해요.** NAS는 팀원 모두(공용 계정)와 다른 팀이 닿는 곳이에요. root 가 실행할 것은 지금처럼 `/app/inbox` 로 새로 복사하고 지문을 맞춘 뒤 실행해요.
-3. **root 는 NAS에서 직접 쓰거나 실행하지 않아요.** 폴더 만들기·정리는 공용 계정 권한(`runuser -u shareduser --`)으로 해요.
+3. **root 는 NAS에서 직접 쓰거나 실행하지 않아요.** 폴더 만들기·정리는 공용 계정 권한(`runuser -u "$(cat /etc/b200/account)" --`)으로 해요.
    - NAS가 root squash 를 하면 root 는 어차피 `nobody` 로 바뀌어 우리 폴더에 못 써요.
    - 하지 않으면, 누가 심어 둔 링크를 따라 root 가 서버의 시스템 파일을 덮을 수 있어요.
 4. **학습은 `/app`(로컬 SSD)에서, NAS는 보관·전달용이에요.** 작은 파일이 많은 데이터셋은 NAS에서 직접 읽으면 느려요.
-5. **두 서버의 `shareduser` 계정 번호(uid·gid)가 같아야 해요.** NFSv3는 이름이 아니라 번호로 주인을 구분해요. 다르면 한 서버에서 만든 파일을 다른 서버에서 못 고쳐요.
+5. **두 서버의 공용 계정 번호(uid·gid)가 같아야 해요.** NFSv3는 이름이 아니라 번호로 주인을 구분해요. 다르면 한 서버에서 만든 파일을 다른 서버에서 못 고쳐요.
 
 ## 폴더 구조 (안)
 
-팀 폴더 이름은 정해야 해요. 아래는 `/data/shareduser` 으로 가정한 모양이에요.
+팀 폴더 이름은 정해야 해요. 아래는 `/data/<팀 폴더>` 로 적은 모양이에요.
 
 ```text
-/data/shareduser/                     주인 shareduser, 750 (다른 팀은 못 봐요)
+/data/<팀 폴더>/                     주인 공용 계정, 750 (다른 팀은 못 봐요)
 ├── archive/                      반입 원본. 지울 일이 거의 없어요
 │   ├── datasets/                 접근 PC의 datasets 폴더 그대로(MANIFEST.sha256 포함)
 │   ├── models/                   접근 PC의 models 폴더 그대로
@@ -77,23 +77,23 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
    ```bash
    # [서버 1] root. 공용 계정 권한으로 만들어요(원칙 3)
-   T=/data/shareduser
-   runuser -u shareduser -- mkdir -p $T/archive/datasets $T/archive/models $T/archive/packs $T/images $T/backup $T/transfer
-   runuser -u shareduser -- chmod 750 $T
+   T=/data/<팀 폴더>
+   runuser -u "$(cat /etc/b200/account)" -- mkdir -p $T/archive/datasets $T/archive/models $T/archive/packs $T/images $T/backup $T/transfer
+   runuser -u "$(cat /etc/b200/account)" -- chmod 750 $T
    bash /app/inbox/check_nas.sh $T                  # 주인·권한·용량 확인
    ```
 
 3. 만들 수 없으면 아래 "서버 관리 팀에 요청할 것" 으로 요청해요.
-4. `/app/shared/b200.conf` 에 `NAS_DIR=/data/shareduser` 을 적으면 주간 보고서에 폴더별 사용량과 오래된 `transfer/` 파일이 나와요.
+4. `/app/shared/b200.conf` 에 `NAS_DIR=/data/<팀 폴더>` 을 적으면 주간 보고서에 폴더별 사용량과 오래된 `transfer/` 파일이 나와요.
 
 ## 쓰는 법
 
 | 할 일 | 명령 |
 |---|---|
-| 데이터셋·모델 원본 보관(서버 1 설치 뒤) | `runuser -u shareduser -- cp -r /app/inbox/datasets /data/shareduser/archive/` (모델도 같은 방식) |
-| 서버 2로 가져오기 | 공용 계정으로 `/app/upload` 에 복사: `runuser -u shareduser -- cp -r /data/shareduser/archive/datasets /app/upload/` → 그다음은 평소처럼 root 로 `/app/shared/bin/b200 fetch datasets` 로 지문 확인·설치(`docs/1_처음_설치.md` 의 "서버에 파일 올리기") |
-| 실험 결과 보관(팀원) | `rsync -a /app/workspace/<이름>/runs/exp1 /data/shareduser/backup/<이름>/` |
-| 도커 이미지 보관·다른 서버에서 쓰기(팀원) | `docker save -o /data/shareduser/images/<이름>/myseg_v1.tar myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
+| 데이터셋·모델 원본 보관(서버 1 설치 뒤) | `runuser -u "$(cat /etc/b200/account)" -- cp -r /app/inbox/datasets /data/<팀 폴더>/archive/` (모델도 같은 방식) |
+| 서버 2로 가져오기 | 공용 계정으로 `/app/upload` 에 복사: `runuser -u "$(cat /etc/b200/account)" -- cp -r /data/<팀 폴더>/archive/datasets /app/upload/` → 그다음은 평소처럼 root 로 `/app/shared/bin/b200 fetch datasets` 로 지문 확인·설치(`docs/1_처음_설치.md` 의 "서버에 파일 올리기") |
+| 실험 결과 보관(팀원) | `rsync -a /app/workspace/<이름>/runs/exp1 /data/<팀 폴더>/backup/<이름>/` |
+| 도커 이미지 보관·다른 서버에서 쓰기(팀원) | `docker save -o /data/<팀 폴더>/images/<이름>/myseg_v1.tar myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
 | 서버 사이 큰 파일 전달 | `transfer/` 에 두고 다른 서버에서 가져간 뒤 지워요 |
 
 - 서버 2에서 가져올 때 지문은 접근 PC의 `D:\b200\지문_기록.txt` 에 남은 값과 맞춰요. NAS에 같이 둔 지문 파일은 누구나 고칠 수 있어서 쓰지 않아요.
@@ -109,7 +109,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 | 우리 팀 폴더 이름·위치 | 서버 관리 팀, 화면의 "바로 아래 폴더" | |
 | 공용 계정이 만들 수 있는지 | 화면의 "공용 계정이 쓸 수 있는 곳" | |
 | root squash | 화면의 "root squash" | |
-| 두 서버의 `shareduser` 번호가 같은지 | 화면의 "계정 번호"(두 서버를 다 실행하면 맞춰 봐요) | |
+| 두 서버의 공용 계정 번호가 같은지 | 화면의 "계정 번호"(두 서버를 다 실행하면 맞춰 봐요) | |
 | 전체·남은 용량 | 화면의 "용량" | |
 | 우리 팀 할당량 | 서버 관리 팀 | |
 | 팀원 수(N), 1인당 백업 몫(B) | 팀 회의 | |
@@ -120,7 +120,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
 필요한 것만 골라 보내요.
 
-- `/data` 아래 우리 팀 폴더 하나를 만들어 주세요(주인 `shareduser`, 권한 750).
+- `/data` 아래 우리 팀 폴더 하나를 만들어 주세요(주인 공용 계정, 권한 750).
 - 그 폴더에 할당량 ○ TB를 걸어 주세요(위 용량 계획 기준).
-- 두 서버의 `shareduser` uid·gid를 같은 번호로 맞춰 주세요.
+- 두 서버의 공용 계정 uid·gid를 같은 번호로 맞춰 주세요.
 - `backup/` 폴더에 스냅숏(예: 하루 한 번, 7일 보관)을 걸어 주세요. 실수로 지운 체크포인트를 되살릴 수 있어요.

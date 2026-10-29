@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # [B200 서버 · 관리자(root) 전용] b200-docker.tar 로 공용 계정 전용 rootless Docker 를 설치한다.
-#   cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh            # 공용 계정 shareduser
-#   B200_ACCOUNT=다른계정 bash docker_install.sh
+#   cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh            # 공용 계정은 /etc/b200/account
 # 도커 데몬은 root 가 아니라 공용 계정 권한으로 돈다. 그래서 컨테이너 안에서 무엇을 해도 서버 root 권한은 얻지 못한다.
 # 데몬은 root 가 관리하는 서비스(b200-docker)라 팀원이 끄거나 설정을 바꿀 수 없다.
 set -uo pipefail
 cd "$(dirname "$0")"
 HERE=$PWD
-ACC=${B200_ACCOUNT:-shareduser}
+ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
 OPT=/opt/b200/docker
 CONF=/etc/b200/docker
 DATA=/app/docker
@@ -31,7 +30,8 @@ echo "[B200 서버] rootless Docker 설치  ($(date '+%Y-%m-%d %H:%M'), 공용 �
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
-id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" "공용 계정 이름이 다르면 앞에 붙여 실행하세요: B200_ACCOUNT=계정이름 bash docker_install.sh"
+[ -n "$ACC" ] || stop '공용 계정 이름을 모르겠어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo 공용계정이름 > /etc/b200/account'
+id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" "/etc/b200/account 의 계정 이름을 확인하세요: cat /etc/b200/account"
 UID_A=$(id -u "$ACC")
 for f in MANIFEST_docker.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf b200-docker.tar"; done
 bad=$(grep -v '  docker_install\.sh$' MANIFEST_docker.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')

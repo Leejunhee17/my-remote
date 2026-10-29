@@ -9,7 +9,7 @@ warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 ASK=(); MINE=()
 bad()  { echo "  ${c_r}[문제]${c_0} $1"; ASK+=("$2"); }    # 서버 관리 팀에 요청할 것
 mine() { echo "  ${c_r}[문제]${c_0} $1"; MINE+=("$2"); }   # 관리자가 직접 할 것
-ACC=${B200_ACCOUNT:-shareduser}
+ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 GLIBC_NEED=2.35   # 접근 PC pack_build.ps1 의 -Glibc 기본값과 같게 둔다
 APP=${APP:-/app}
@@ -21,8 +21,9 @@ os=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")
 glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
 echo "  $os, 커널 $(uname -r), glibc $glibc"
 case "$os" in Ubuntu*) ;; *) warn "Ubuntu가 아니에요($os). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)" ;; esac
-id "$ACC" >/dev/null 2>&1 && ok "공용 계정($ACC)이 있어요" ||
-    bad "공용 계정이 없어요: $ACC" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"
+if [ -z "$ACC" ]; then mine "공용 계정 이름을 몰라요" "서버에 한 번 적어 두기: mkdir -p /etc/b200 && echo 공용계정이름 > /etc/b200/account"
+elif id "$ACC" >/dev/null 2>&1; then ok "공용 계정($ACC)이 있어요"; else
+    bad "공용 계정이 없어요: $ACC" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"; fi
 if ver_ge "$glibc" "$GLIBC_NEED"; then ok "glibc $glibc (묶음 기준 $GLIBC_NEED 이상)"
 else mine "glibc $glibc: 묶음 기준($GLIBC_NEED)보다 낮아요" "접근 PC에서 묶음을 다시 만들기: pack_build.ps1 -Glibc $glibc"; fi
 

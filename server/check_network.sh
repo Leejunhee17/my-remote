@@ -410,8 +410,7 @@ cmd_all() {
     sleep 1
     chmod 644 "$out" 2>/dev/null   # 공용 계정(FileZilla)으로 내려받을 수 있게
     echo; echo "보고서: $(readlink -f "$out")"
-    case "$out" in /app/*) echo "  공용 계정 FileZilla로 내려받아 docs/4_네트워크.md 의 \"원본 기록\"에 붙여 주세요." ;;
-                   *) echo "  이 폴더는 FileZilla로 못 받을 수 있어요. 화면 내용을 복사해 docs/4_네트워크.md 의 \"원본 기록\"에 붙여 주세요." ;; esac
+    echo "  사내 정보(서버 이름·IP)가 들어 있어서 저장소에는 올리지 마세요. 숫자만 docs/4_네트워크.md 의 \"측정 결과\" 표에 옮겨 적어요."
 }
 
 case "${1:-}" in
