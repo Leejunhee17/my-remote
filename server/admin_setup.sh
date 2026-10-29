@@ -23,7 +23,7 @@ warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() { echo "${c_r}멈춤: $1${c_0}"; echo "할 일: $2"; exit 1; }
 
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
-[ -n "$ACC" ] || stop '공용 계정 이름을 모르겠어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo 공용계정이름 > /etc/b200/account'
+[ -n "$ACC" ] || stop '공용 계정 이름을 모르겠어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account'
 [[ "$ACC" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || stop "공용 계정 이름이 이상해요: $ACC" '/etc/b200/account 에 계정 이름 한 줄만 적으세요'
 id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" '/etc/b200/account 의 계정 이름을 확인하세요: cat /etc/b200/account'
 HOME_A=$(getent passwd "$ACC" | cut -d: -f6)
@@ -32,8 +32,8 @@ if [ "${1:-}" = --undo ]; then
     step '되돌리기'
     rm -f /etc/profile.d/b200.sh /etc/cron.d/b200
     sed -i '/# b200 admin_setup/d' /etc/bash.bashrc
-    [ -d "$S" ] && chown -R "$ACC:$ACC" "$S" && ok "$S 의 주인을 공용 계정($ACC)으로 되돌렸어요"
-    ok '접속 설정과 정기 점검을 지웠어요. b200 명령, 기록(/app/state), 드라이버 고정은 그대로 뒀어요.'
+    ok '접속 설정과 정기 점검을 지웠어요. b200 명령, 공용 폴더 잠금, 기록(/app/state), 드라이버 고정은 그대로 뒀어요.'
+    echo "  다시 쓰려면 같은 폴더에서 bash admin_setup.sh 를 실행하세요."
     exit 0
 fi
 
@@ -63,10 +63,10 @@ if [ -n "$others" ] && [ "$(stat -c '%U %a' /app)" != "root 755" ]; then
     else stop '/app 을 다른 계정도 써요' 'PuTTY 화면에서 직접 실행해 확인 질문에 답하세요: bash admin_setup.sh'; fi
 fi
 chown root:root /app && chmod 755 /app
-for d in "$S" "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen}; do
+for d in "$S" "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty}; do
     [ -L "$d" ] && stop "링크가 있어요(누가 만들었는지 몰라요): $d" "ls -l $d 로 어디를 가리키는지 보고, 직접 만든 게 아니면 rm $d 로 링크만 지운 뒤 다시 실행하세요."
 done
-mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen} /app/inbox
+mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty} /app/inbox
 # 공용: root 만 쓰고 모두 읽는다
 chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S"
 ok "$S: root만 고치고 팀원은 읽기만 해요"
@@ -75,7 +75,7 @@ chown "$ACC:$ACC" "$W" && chmod 755 "$W"
 # 기록 폴더: 공용 계정이 쓰는 곳(history, images, notice_seen)과 root 만 쓰는 곳(reports, gpu_log, notice)을 나눈다.
 # root 는 공용 계정이 쓸 수 있는 곳에 파일을 만들거나 고치지 않는다(미리 심어 둔 링크로 시스템 파일을 덮거나 주인을 바꿀 수 있다)
 chown root:root "$ST" && chmod 755 "$ST"   # root 소유라야 공용 계정이 아래 root 폴더를 바꿔치기하지 못한다
-for d in history images notice_seen; do chown -R "$ACC:$ACC" "$ST/$d"; done
+for d in history images notice_seen tty; do chown -R "$ACC:$ACC" "$ST/$d"; done
 for d in reports gpu_log notice; do chown -R root:root "$ST/$d" && chmod 755 "$ST/$d"; done
 runuser -u "$ACC" -- touch "$ST/images/loaded.tsv"   # docker 래퍼(공용 계정)가 이미지를 들여온 사람을 적는다
 # root 가 실행할 설치 파일을 두는 곳. 공용 계정이 고칠 수 있으면 누구든 root 로 원하는 명령을 실행시킬 수 있다
@@ -147,6 +147,17 @@ EOF
 grep -q '^NAS_DIR=' "$S/b200.conf" ||   # 예전 판으로 만든 설정에는 없다
     echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)' >> "$S/b200.conf"
 chmod 644 "$S/b200.conf"
+# NAS 팀 폴더를 정했으면(NAS_DIR) 팀원별 backup·images 폴더도 공용 계정 권한으로 만든다(root 는 NAS에 쓰지 않는다)
+NAS_DIR=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$S/b200.conf" | tail -1)
+if [ -n "$NAS_DIR" ]; then
+    if runuser -u "$ACC" -- test -d "$NAS_DIR" -a -w "$NAS_DIR"; then
+        grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
+            case "$name" in *-*|*/*|.*) continue ;; esac
+            runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/images/$name" "$NAS_DIR/transfer"
+        done
+        ok "NAS 팀 폴더($NAS_DIR)에 팀원별 backup·images 폴더를 맞췄어요"
+    else warn "NAS 팀 폴더($NAS_DIR)가 없거나 공용 계정이 쓸 수 없어요(docs/9_NAS.md 의 '처음 만들기')"; fi
+fi
 
 # ------------------------------------------------------------------ 3. 도우미
 step '3. 도우미 설치 (docker, nvidia-smi, b200)'
@@ -175,6 +186,8 @@ cat > /etc/profile.d/b200.sh <<EOF
 # B200 서버 공용 설정. admin_setup.sh 가 만든다. 관리자만 고칠 수 있다.
 [ -n "\${BASH_VERSION:-}" ] || return 0
 # 우리 공용 계정에만 건다. 다른 계정(서버 2의 다른 팀, root)의 docker·nvidia-smi·PATH 는 건드리지 않는다
+# 한글이 깨지지 않게 UTF-8 로 맞춘다(HIWARE 접속은 언어 설정이 비어 올 수 있다). root 도 team.txt 에 한글을 적는다
+case "\$(locale charmap 2>/dev/null)" in UTF-8) ;; *) unset LC_ALL; export LANG=C.UTF-8 ;; esac
 if [ "\$(id -u)" = 0 ]; then
     # 관리자: 아직 안 본 알림(이름 없는 GPU 사용, 디스크, GPU 오류, 주간 보고서)
     case \$- in *i*) [ -n "\${B200_ADMIN_DONE:-}" ] || $S/bin/b200 _notices 관리자; B200_ADMIN_DONE=1 ;; esac
@@ -185,8 +198,6 @@ fi
 case ":\$PATH:" in *":$S/bin:"*) ;; *) PATH="$S/bin:\$PATH:$S/tools/bin"; export PATH ;; esac
 [ -n "\${B200_PROFILE_DONE:-}" ] && return 0
 B200_PROFILE_DONE=1
-# 한글이 깨지지 않게 UTF-8 로 맞춘다(HIWARE 접속은 언어 설정이 비어 올 수 있다)
-case "\$(locale charmap 2>/dev/null)" in UTF-8) ;; *) unset LC_ALL; export LANG=C.UTF-8 ;; esac
 # 서버에는 인터넷이 없으니 Hugging Face 가 접속을 시도하지 않게 한다
 export HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 case \$- in *i*) ;; *) return 0 ;; esac   # 파일 전송(FileZilla) 같은 비대화 접속은 여기까지
@@ -201,12 +212,17 @@ if [ -z "\${B200_USER:-}" ]; then
         echo "  목록에 없어요. 번호나 이름을 다시 입력하세요(명단에 내 이름이 없으면 관리자에게 등록을 요청하세요)."
     done
     unset _b200_list _b200_i _b200_a
-    [ -n "\${B200_USER:-}" ] || echo "  이름 없이 접속했어요. 내 GPU 작업과 컨테이너가 '이름 없음'으로 보여요. 다시 접속하면 다시 고를 수 있어요."
+    [ -n "\${B200_USER:-}" ] || echo "  이름 없이 접속했어요. 내 GPU 작업과 컨테이너가 '이름 없음'으로 보여요. 다시 고르려면: exec bash -l"
+    # 이 창에 알림을 보낼 수 있게 창(pts)과 이름을 적어 둔다
+    _b200_t=\$(tty 2>/dev/null)
+    case "\$_b200_t" in /dev/pts/[0-9]*) [ -n "\${B200_USER:-}" ] && printf '%s' "\$B200_USER" > "$ST/tty/pts-\${_b200_t##*/}" 2>/dev/null ;; esac
+    unset _b200_t
 fi
 # 사람마다 tmux 를 따로 쓴다(계정이 같아 tmux 하나를 같이 쓰면 남의 창이 섞인다)
 tmux() { LC_ALL=C.UTF-8 command tmux -L "u-\${B200_USER:-이름없음}" "\$@"; }
 [ -n "\${B200_USER:-}" ] || return 0
 export B200_USER B200_WS=$W/\$B200_USER
+[ -d "\$B200_WS" ] || mkdir -p "\$B200_WS/images" 2>/dev/null   # 명단에 나중에 넣은 사람
 # 홈(10 GB)은 모두가 같이 쓰므로 캐시와 pip --user 설치는 내 작업 폴더에
 export XDG_CACHE_HOME=\$B200_WS/.cache TRITON_CACHE_DIR=\$B200_WS/.cache/triton PYTHONUSERBASE=\$B200_WS/.local
 case ":\$PATH:" in *":\$PYTHONUSERBASE/bin:"*) ;; *) PATH="\$PATH:\$PYTHONUSERBASE/bin" ;; esac
@@ -262,6 +278,7 @@ echo " 남은 일"
 echo "  1) $S/team.txt 에 팀원을 한 줄에 '이름 그룹'으로 적고 이 스크립트를 한 번 더 실행하세요(작업 폴더가 생겨요)"
 echo "  2) GPU 배분은 $S/gpu_alloc.txt, 알림 기준은 $S/b200.conf 에서 바꿔요(team/ 규칙 문서·엑셀도 같이)"
 echo "  3) 기초 프로그램: cd $HERE && bash pack_install.sh /app/shared"
-echo "  4) 도커: b200-docker.tar 를 /app/upload 에 올리고 /app/inbox 로 복사해 지문을 확인한 뒤 bash docker_install.sh"
+echo "  4) 도커: b200-docker.tar 를 /app/upload 에 올린 뒤 $S/bin/b200 fetch b200-docker.tar (지문 확인) → cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh"
+echo "  5) 데이터셋·모델: $S/bin/b200 fetch datasets / models → 설치(docs/1_처음_설치.md 4·5단계)"
 echo " 확인: 공용 계정으로 다시 접속하면 GPU 현황과 이름 목록이 나오고, nvidia-smi 아래에 '누가 쓰나' 표가 붙어요."
 echo "${c_g}##############################################################${c_0}"

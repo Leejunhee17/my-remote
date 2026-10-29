@@ -14,6 +14,9 @@ fi
 [ "$(id -u)" = 0 ] && exec "$REAL" "$@"
 ME=${B200_USER:-}
 
+# 경고하고 한 번 묻는다(화면에서 실행할 때만). 아니라고 하면 끝낸다
+ask() { echo "  [경고] $*" >&2; [ -t 0 ] && [ -t 2 ] || return 0
+        read -r -p "  그래도 실행할까요? [y/N] " ans; [[ "$ans" =~ ^[yY] ]] || { echo "  실행하지 않았어요." >&2; exit 1; }; }
 pre=(); sub=${1:-}
 case "$sub" in container|image|buildx) pre=("$1"); shift; sub=${1:-} ;; esac
 
@@ -48,9 +51,35 @@ case "${pre[0]:-}:$sub" in
         elif [ -t 2 ]; then echo "  [알림] 접속할 때 이름을 고르지 않아 이 컨테이너는 '이름 없음'으로 보여요. 다시 접속해 이름을 고르면 붙어요." >&2; fi
         exec "$REAL" "${pre[@]}" "$sub" "${labels[@]}" "$@"
         ;;
+    :stop|:rm|:kill|container:stop|container:rm|container:kill)
+        # 남의 이름표가 붙은 컨테이너를 멈추거나 지우려 하면 한 번 묻는다
+        others=
+        for a in "${@:2}"; do
+            case "$a" in -*) continue ;; esac
+            u=$("$REAL" inspect -f '{{index .Config.Labels "b200.USER"}}' "$a" 2>/dev/null)
+            [ -n "$u" ] && [ "$u" != "${ME:-}" ] && others="$others $a($u)"
+        done
+        [ -z "$others" ] || ask "남의 컨테이너예요:${others}. 학습이 멈추거나 안에서 설치한 것이 지워져요. 먼저 그 사람에게 물어보세요."
+        ;;
+    image:prune|container:prune)
+        ask "docker ${pre[0]} prune 은 팀 전체(공용 계정 하나)의 멈춘 컨테이너·이미지를 지워요. 내 것만 지우려면 docker rm, docker rmi 로 하나씩 지우세요."
+        ;;
+    :system|:builder|:volume|:network)
+        case "${2:-}" in prune) ask "docker ${1} prune 은 팀 전체(공용 계정 하나)의 멈춘 컨테이너·이미지를 지워요. 내 것만 지우려면 docker rm, docker rmi 로 하나씩 지우세요." ;; esac
+        ;;
     :load|image:load|:build|image:build|buildx:build|:commit|container:commit|:import|image:import)
         before=$("$REAL" images --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' 2>/dev/null | sort)
         "$REAL" "${pre[@]}" "$@"; rc=$?
+        # 같은 이름(태그)을 남이 먼저 쓰고 있었으면 알려 준다. 데몬이 하나라 앞사람 이미지는 이름 없는 이미지(<none>)가 된다
+        if [ $rc = 0 ] && [ -r "$APP/state/images/loaded.tsv" ]; then
+            after=$("$REAL" images --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' 2>/dev/null | sort)
+            LC_ALL=C join -1 2 -2 2 <(echo "$before" | LC_ALL=C sort -k2) <(echo "$after" | LC_ALL=C sort -k2) 2>/dev/null | awk '$2 != $3 {print $1}' |
+            while read -r ref; do
+                prev=$(awk -F'\t' -v r="$ref" '$3==r {w=$2} END {print w}' "$APP/state/images/loaded.tsv")
+                [ -n "$prev" ] && [ "$prev" != "${ME:-}" ] &&
+                    echo "  [경고] 이미지 이름 $ref: $prev 님이 쓰던 이름이라 덮어썼어요. 앞 이미지는 <none> 이 됐어요. 이름 앞에 내 영어 이름을 붙여 쓰세요(예: hong/myseg:v1)." >&2
+            done
+        fi
         if [ $rc = 0 ] && [ -n "$ME" ] && [ -w "$APP/state/images" ]; then
             comm -13 <(echo "$before") <("$REAL" images --no-trunc --format '{{.ID}} {{.Repository}}:{{.Tag}}' 2>/dev/null | sort) |
                 awk '$2 !~ /^<none>/ {print $2}' | while read -r ref; do

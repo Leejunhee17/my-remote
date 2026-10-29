@@ -152,7 +152,8 @@ if [ "$FAILS" -eq 0 ]; then
     echo " 모델 ${#dirs[@]}개가 모두 정상이에요. 위치: $D"
     echo " 불러오기 예: from_pretrained(\"$D/<만든 곳>/<모델>\")  (docs/7_모델.md)"
     echo " 다음 단계: 공용 계정으로 접속해 확인(docs/1_처음_설치.md 6단계)"
-    echo " 공간 정리: rm -rf /app/inbox/models /app/upload/models"
+    echo " 서버 2로 옮길 거면 지우기 전에 NAS에 먼저 보관하세요(docs/9_NAS.md 의 \"쓰는 법\")."
+    echo " 공간 정리(보관한 뒤): rm -rf /app/inbox/models /app/upload/models"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"

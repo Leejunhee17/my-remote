@@ -21,9 +21,9 @@ os=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")
 glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
 echo "  $os, 커널 $(uname -r), glibc $glibc"
 case "$os" in Ubuntu*) ;; *) warn "Ubuntu가 아니에요($os). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)" ;; esac
-if [ -z "$ACC" ]; then mine "공용 계정 이름을 몰라요" "서버에 한 번 적어 두기: mkdir -p /etc/b200 && echo 공용계정이름 > /etc/b200/account"
+if [ -z "$ACC" ]; then mine "공용 계정 이름을 몰라요" "서버에 한 번 적어 두기: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account"
 elif id "$ACC" >/dev/null 2>&1; then ok "공용 계정($ACC)이 있어요"; else
-    bad "공용 계정이 없어요: $ACC" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"; fi
+    bad "공용 계정이 없어요: $ACC (이름을 잘못 적었으면 /etc/b200/account 를 고치세요)" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"; fi
 if ver_ge "$glibc" "$GLIBC_NEED"; then ok "glibc $glibc (묶음 기준 $GLIBC_NEED 이상)"
 else mine "glibc $glibc: 묶음 기준($GLIBC_NEED)보다 낮아요" "접근 PC에서 묶음을 다시 만들기: pack_build.ps1 -Glibc $glibc"; fi
 

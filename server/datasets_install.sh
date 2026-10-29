@@ -141,7 +141,8 @@ if [ "$FAILS" -eq 0 ]; then
     echo " 올린 데이터셋이 모두 정상이에요. 위치: $D"
     echo " 엑셀 '데이터셋 목록' 시트의 진행 상황을 '서버 반입'으로 바꾸세요."
     echo " 다음 단계: 사전학습 모델(docs/1_처음_설치.md 5단계)"
-    echo " 공간 정리: rm -rf /app/inbox/datasets /app/upload/datasets"
+    echo " 서버 2로 옮길 거면 지우기 전에 NAS에 먼저 보관하세요(docs/9_NAS.md 의 \"쓰는 법\")."
+    echo " 공간 정리(보관한 뒤): rm -rf /app/inbox/datasets /app/upload/datasets"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"

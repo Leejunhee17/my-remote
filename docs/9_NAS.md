@@ -88,15 +88,55 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
 ## 쓰는 법
 
+### 서버 1: 설치가 끝나면 원본을 NAS에 보관
+
+`/app/inbox` 의 원본을 지우기 전에 해요. 공용 계정 권한으로 옮겨요(원칙 3).
+
+```bash
+# [서버 1] root
+A=$(cat /etc/b200/account); T=/data/<팀 폴더>/archive
+runuser -u "$A" -- mkdir -p $T/packs
+runuser -u "$A" -- cp /app/inbox/b200-pack.tar /app/inbox/b200-docker.tar $T/packs/
+runuser -u "$A" -- cp -r /app/inbox/datasets /app/inbox/models $T/
+```
+
+### 서버 2: NAS에서 가져와 설치
+
+공용 계정이 NAS에서 `/app/upload` 로 옮겨 오면, 그다음은 서버 1과 같은 순서예요. 지문은 접근 PC의 `D:\b200\지문_기록.txt` 와 맞춰요.
+
+```bash
+# [서버 2] root. 0단계(/etc/b200/account, /app/inbox·upload 만들기)는 먼저 해 둬요
+A=$(cat /etc/b200/account); T=/data/<팀 폴더>/archive
+runuser -u "$A" -- cp $T/packs/b200-pack.tar $T/packs/b200-docker.tar /app/upload/
+runuser -u "$A" -- cp -r $T/datasets $T/models /app/upload/
+
+```
+
+그다음은 **지문을 보는 줄과 실행하는 줄을 나눠서** 해요. 지문이 `지문_기록.txt` 와 같을 때만 다음 줄을 실행해요.
+
+```bash
+# 1·2단계: 아직 b200 명령이 없어서 직접 복사해요
+cp /app/upload/b200-pack.tar /app/inbox/ && sha256sum /app/inbox/b200-pack.tar          # 지문 확인
+cd /app/inbox && tar xf b200-pack.tar && bash admin_setup.sh && bash pack_install.sh /app/shared
+
+# 3~5단계: 여기부터는 b200 fetch 를 써요
+/app/shared/bin/b200 fetch b200-docker.tar                                               # 지문 확인
+cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh
+/app/shared/bin/b200 fetch datasets                                                      # 지문 확인
+bash /app/inbox/datasets/datasets_install.sh
+/app/shared/bin/b200 fetch models                                                        # 지문 확인
+bash /app/inbox/models/models_install.sh
+```
+
+### 팀원
+
 | 할 일 | 명령 |
 |---|---|
-| 데이터셋·모델 원본 보관(서버 1 설치 뒤) | `runuser -u "$(cat /etc/b200/account)" -- cp -r /app/inbox/datasets /data/<팀 폴더>/archive/` (모델도 같은 방식) |
-| 서버 2로 가져오기 | 공용 계정으로 `/app/upload` 에 복사: `runuser -u "$(cat /etc/b200/account)" -- cp -r /data/<팀 폴더>/archive/datasets /app/upload/` → 그다음은 평소처럼 root 로 `/app/shared/bin/b200 fetch datasets` 로 지문 확인·설치(`docs/1_처음_설치.md` 의 "서버에 파일 올리기") |
-| 실험 결과 보관(팀원) | `rsync -a /app/workspace/<이름>/runs/exp1 /data/<팀 폴더>/backup/<이름>/` |
-| 도커 이미지 보관·다른 서버에서 쓰기(팀원) | `docker save -o /data/<팀 폴더>/images/<이름>/myseg_v1.tar myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
+| 실험 결과 보관 | `rsync -a /app/workspace/<이름>/runs/exp1 /data/<팀 폴더>/backup/<이름>/` |
+| 도커 이미지 보관·다른 서버에서 쓰기 | `docker save -o /data/<팀 폴더>/images/<이름>/myseg_v1.tar myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
 | 서버 사이 큰 파일 전달 | `transfer/` 에 두고 다른 서버에서 가져간 뒤 지워요 |
 
-- 서버 2에서 가져올 때 지문은 접근 PC의 `D:\b200\지문_기록.txt` 에 남은 값과 맞춰요. NAS에 같이 둔 지문 파일은 누구나 고칠 수 있어서 쓰지 않아요.
+- NAS에 지문 파일을 같이 두지 않아요. 누구나 고칠 수 있어서 맞춰 봐도 의미가 없어요.
 - root 가 NAS에서 바로 복사하지 않는 이유: root squash 면 root 는 `nobody` 라 750 팀 폴더를 못 읽고, 아니면 원칙 3의 위험이 있어요. 공용 계정이 `/app/upload` 로 옮겨 오면 서버 1과 같은 순서가 돼요.
 - `cp -r` 는 링크를 링크로 복사해요. 설치 스크립트는 복사본에 링크가 있으면 멈춰요.
 

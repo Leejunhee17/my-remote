@@ -30,7 +30,7 @@ echo "[B200 서버] rootless Docker 설치  ($(date '+%Y-%m-%d %H:%M'), 공용 �
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
-[ -n "$ACC" ] || stop '공용 계정 이름을 모르겠어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo 공용계정이름 > /etc/b200/account'
+[ -n "$ACC" ] || stop '공용 계정 이름을 모르겠어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account'
 id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" "/etc/b200/account 의 계정 이름을 확인하세요: cat /etc/b200/account"
 UID_A=$(id -u "$ACC")
 for f in MANIFEST_docker.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf b200-docker.tar"; done
@@ -186,6 +186,15 @@ ok 'b200-docker 서비스와 /etc/profile.d/b200-docker.sh 를 만들었어요'
 step 5 '켜기'
 systemctl daemon-reload
 systemctl enable b200-docker >/dev/null 2>&1
+# 이미 돌고 있으면 다시 켤 때 팀원 컨테이너(학습)가 모두 멈춘다. 몇 개인지 보여 주고 한 번 묻는다
+if systemctl is-active -q b200-docker; then
+    nrun=$(setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" DOCKER_CONFIG=/etc/b200/docker/cli "$OPT/current/docker" ps -q </dev/null 2>/dev/null | grep -c .)
+    if [ "${nrun:-0}" -gt 0 ]; then
+        warn "도커를 다시 켜면 돌고 있는 컨테이너 ${nrun}개(팀원 학습)가 모두 멈춰요. 팀에 미리 알리세요"
+        if [ -t 0 ]; then read -r -p "  지금 다시 켤까요? [y/N] " a; [[ "$a" =~ ^[yY] ]] || stop '도커 다시 켜기를 미뤘어요' '팀원이 쓰지 않을 때 같은 명령을 다시 실행하세요. 설치한 판은 다시 켤 때 적용돼요.'
+        else stop '돌고 있는 컨테이너가 있어요' 'PuTTY 화면에서 직접 실행해 확인 질문에 답하세요.'; fi
+    fi
+fi
 systemctl restart b200-docker
 for i in $(seq 1 30); do [ -S "/run/user/$UID_A/docker.sock" ] && break; sleep 1; done
 [ -S "/run/user/$UID_A/docker.sock" ] || {
