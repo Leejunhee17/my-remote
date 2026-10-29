@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# B200 서버의 docker. 관리자가 /app/shared/bin/docker 에 깐다(admin_setup.sh). 팀원은 평소처럼 docker 를 쓴다.
+# B200 서버의 docker. 관리자가 /app/shared/bin/docker 에 설치한다(admin_setup.sh). 팀원은 평소처럼 docker 를 쓴다.
 # 진짜 docker 를 부르기 전후로 두 가지만 더 한다. 막지는 않는다.
 #   - run·create: 컨테이너에 이름표(b200.USER=내 이름, b200.GPUS=GPU)를 붙인다. 남이 쓰는 GPU면 경고하고 한 번 묻는다
 #   - load·build·commit·import: 새로 생긴 이미지를 누가 들여왔는지 적어 둔다(오래 안 쓰면 그 사람에게 알림)
@@ -38,7 +38,7 @@ case "${pre[0]:-}:$sub" in
             elif [[ "$v" =~ ^[0-9]+$ ]]; then spec=n$v
             else spec=; fi
             if [ -n "$spec" ]; then
-                labels+=(--label "b200.GPUS=$( [ "${spec#n}" != "$spec" ] && echo "앞 ${spec#n}장" || echo "$spec")")
+                labels+=(--label "b200.GPUS=$( [ "${spec#n}" != "$spec" ] && echo "0번부터 ${spec#n}장" || echo "$spec")")
                 "$S/bin/b200" _gpu-warn "$spec"
                 if [ $? = 2 ] && [ -t 0 ] && [ -t 2 ]; then
                     read -r -p "  그래도 실행할까요? [y/N] " ans

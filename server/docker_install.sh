@@ -30,7 +30,7 @@ echo "[B200 서버] rootless Docker 설치  ($(date '+%Y-%m-%d %H:%M'), 공용 �
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
-[ -n "$ACC" ] || stop '공용 계정 이름을 모르겠어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account'
+[ -n "$ACC" ] || stop '공용 계정 이름을 알 수 없어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account'
 id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" "/etc/b200/account 의 계정 이름을 확인하세요: cat /etc/b200/account"
 UID_A=$(id -u "$ACC")
 for f in MANIFEST_docker.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf b200-docker.tar"; done
@@ -65,7 +65,7 @@ NET=slirp4netns; command -v slirp4netns >/dev/null || NET=pasta
 ok "uidmap, 컨테이너 네트워크($NET) 준비됐어요"
 
 nv_have=$(dpkg-query -W -f='${Version}' nvidia-container-toolkit 2>/dev/null || true)
-# 이미 깔려 있으면 판이 달라도 그대로 쓴다(다른 팀이 같이 쓰는 서버에서 남의 도커 GPU 설정을 바꾸지 않게)
+# 이미 설치돼 있으면 버전이 달라도 그대로 쓴다(다른 팀이 같이 쓰는 서버에서 남의 도커 GPU 설정을 바꾸지 않게)
 if [ -n "$nv_have" ]; then ok "NVIDIA Container Toolkit $nv_have 이미 있어요(그대로 써요)"
 else
     dpkg -i debs/nvidia/*.deb || stop 'NVIDIA Container Toolkit을 설치하지 못했어요' '바로 위 dpkg 오류를 확인하세요.'
@@ -93,7 +93,7 @@ ln -sfn "$OPT/$V" "$OPT/current"
 # buildx·compose 는 우리 도커 폴더에 둔다. /usr/local/lib/docker/cli-plugins 에 두면 다른 계정의 docker 도 이것을 쓰게 된다
 mkdir -p "$OPT/cli-plugins"
 for p in docker-buildx docker-compose; do
-    [ -f "plugins/$p" ] && install -m 755 "plugins/$p" "$OPT/cli-plugins/$p" && ok "$p 설치했어요"
+    [ -f "plugins/$p" ] && install -m 755 "plugins/$p" "$OPT/cli-plugins/$p" && ok "설치했어요: $p"
 done
 runuser -u "$ACC" -- mkdir -p "$(getent passwd "$ACC" | cut -d: -f6)/.docker"
 runuser -u "$ACC" -- python3 - "$(getent passwd "$ACC" | cut -d: -f6)/.docker/config.json" "$OPT/cli-plugins" <<'PY'
@@ -191,7 +191,7 @@ if systemctl is-active -q b200-docker; then
     nrun=$(setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" DOCKER_CONFIG=/etc/b200/docker/cli "$OPT/current/docker" ps -q </dev/null 2>/dev/null | grep -c .)
     if [ "${nrun:-0}" -gt 0 ]; then
         warn "도커를 다시 켜면 돌고 있는 컨테이너 ${nrun}개(팀원 학습)가 모두 멈춰요. 팀에 미리 알리세요"
-        if [ -t 0 ]; then read -r -p "  지금 다시 켤까요? [y/N] " a; [[ "$a" =~ ^[yY] ]] || stop '도커 다시 켜기를 미뤘어요' '팀원이 쓰지 않을 때 같은 명령을 다시 실행하세요. 설치한 판은 다시 켤 때 적용돼요.'
+        if [ -t 0 ]; then read -r -p "  지금 다시 켤까요? [y/N] " a; [[ "$a" =~ ^[yY] ]] || stop '도커 다시 켜기를 미뤘어요' '팀원이 쓰지 않을 때 같은 명령을 다시 실행하세요. 설치한 버전은 다시 켤 때 적용돼요.'
         else stop '돌고 있는 컨테이너가 있어요' 'PuTTY 화면에서 직접 실행해 확인 질문에 답하세요.'; fi
     fi
 fi

@@ -245,24 +245,24 @@ function Show-DriveDiag($d, $label) {
     if ($d.Server) { $info += ", Server: $($d.Server)" }
     if ($d.Title)  { $info += ", 페이지 제목: $($d.Title)" }
     switch ($d.Kind) {
-        'ok'      { Write-Ok "$label : 받을 수 있어요" }
-        'confirm' { Write-Ok "$label : 받을 수 있어요(큰 파일 확인 페이지는 스크립트가 넘겨요)" }
-        'quota'   { Write-Bad "$label : Google 다운로드 한도 초과 ($info)"
+        'ok'      { Write-Ok "${label}: 받을 수 있어요" }
+        'confirm' { Write-Ok "${label}: 받을 수 있어요(큰 파일 확인 페이지는 스크립트가 넘겨요)" }
+        'quota'   { Write-Bad "${label}: Google 다운로드 한도 초과 ($info)"
                     Write-Info '    최근 이 파일을 받은 사람이 많아서 Google이 하루쯤 막았어요. 내일 다시 실행하세요.'
                     Write-Info '    급하면 브라우저에서 Google에 로그인해 "내 드라이브에 사본 만들기"를 한 뒤, 그 사본을 받아 datasets\<폴더> 에 넣으세요.' }
-        'login'   { Write-Bad "$label : 로그인이나 접근 권한이 필요해요 ($info)"
+        'login'   { Write-Bad "${label}: 로그인이나 접근 권한이 필요해요 ($info)"
                     Write-Info '    공유 설정이 "링크가 있는 모든 사용자"에서 바뀌었어요. 브라우저에서 로그인해 받아 datasets\<폴더> 에 넣으세요.' }
-        'bot'     { Write-Bad "$label : Google이 이 망의 요청을 자동 요청으로 보고 막았어요 ($info)"
+        'bot'     { Write-Bad "${label}: Google이 이 망의 요청을 자동 요청으로 보고 막았어요 ($info)"
                     Write-Info '    회사 전체가 같은 IP로 나가는 망에서 생겨요. 몇 시간 뒤 다시 실행하거나, 브라우저로 받아 datasets\<폴더> 에 넣으세요.' }
-        'proxy'   { Write-Bad "$label : 회사 프록시나 보안 장비가 막았어요 ($info)"
+        'proxy'   { Write-Bad "${label}: 회사 프록시나 보안 장비가 막았어요 ($info)"
                     Write-Info '    Google이 아니라 중간 장비가 보낸 응답이에요. 웹 페이지는 열어 주고 파일 받기만 막는 설정이 흔해요.'
                     Write-Info '    사내 IT에 drive.usercontent.google.com 파일 다운로드 허용을 요청하세요. 위 Server와 페이지 제목도 같이 알려 주세요.' }
-        'google'  { Write-Bad "$label : Google이 거절했는데 이유를 알 수 없어요 ($info)" }
-        'net'     { Write-Bad "$label : 응답을 받기 전에 연결이 끊겼어요 ($($d.Err))"
+        'google'  { Write-Bad "${label}: Google이 거절했는데 이유를 알 수 없어요 ($info)" }
+        'net'     { Write-Bad "${label}: 응답을 받기 전에 연결이 끊겼어요 ($($d.Err))"
                     if ($d.Err -match '\((6|7|28)\)') { Write-Info '    주소를 찾지 못했거나 연결이 막혔어요. 브라우저만 프록시를 쓰는 망일 수 있어요.' }
                     elseif ($d.Err -match '\((35|60)\)') { Write-Info '    보안 연결(TLS) 단계에서 실패했어요. 회사 보안 장비가 막거나 인증서를 바꾸는 망이에요.' }
                     elseif ($d.Err -match '\(56\)') { Write-Info '    연결 중에 끊겼어요. 대부분 회사 프록시나 방화벽이 막은 경우예요.' } }
-        default   { Write-Bad "$label : 예상하지 못한 응답이에요 ($info)" }
+        default   { Write-Bad "${label}: 예상하지 못한 응답이에요 ($info)" }
     }
     if ($d.Kind -ne 'ok' -and $d.Kind -ne 'confirm') {
         Write-Info "    진단 기록: $($d.Saved) (파일 ID마다 .report.txt). 해결되지 않으면 이 폴더를 담당자에게 보내 주세요."
@@ -443,7 +443,7 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     }
     $pa = $script:HostArgs[([uri]$script:WsEndpoint).Host]
     if ($pa -and $pa.Count -gt 2) {
-        Stop-Run 'CSIRO S3 저장소는 윈도우 로그인 인증 프록시로만 닿는데, AWS CLI는 그 인증을 하지 못해요' `
+        Stop-Run 'CSIRO S3 저장소는 윈도우 로그인 인증 프록시로만 연결되는데, AWS CLI는 그 인증을 하지 못해요' `
             'docs\6_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요(curl로 받아서 인증이 돼요).'
     }
 
@@ -484,7 +484,7 @@ foreach ($it in $Items) {
     $n++
     $target = Join-Path (Join-Path $Dest $it.Set) $it.Name
     $label  = "$($it.Set)/$($it.Name)"
-    if (Test-Path "$target.ok") { Write-Host "  ($n/$($Items.Count)) $label : 이미 받았어요"; $result[$label] = '받음'; continue }
+    if (Test-Path "$target.ok") { Write-Host "  ($n/$($Items.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
     Write-Host ''
     Write-Host "  ($n/$($Items.Count)) $label 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
     $f = Get-Url $it.Url $target
@@ -495,7 +495,7 @@ foreach ($it in $Items) {
 if ($doWild) {
     $wdir = Join-Path $Dest 'wildscenes'
     if (Test-Path "$wdir.ok") {
-        Write-Host '  wildscenes : 이미 받았어요'; $result['wildscenes'] = '받음'
+        Write-Host '  wildscenes: 이미 받았어요'; $result['wildscenes'] = '받음'
     } else {
         Write-Host ''
         Write-Host '  wildscenes 받는 중 (약 47 GB, 파일이 많아 오래 걸려요)' -ForegroundColor Cyan
@@ -580,7 +580,7 @@ foreach ($it in $DriveItems) {
     $n++
     $target = Join-Path (Join-Path $Dest $it.Set) $it.Name
     $label  = "$($it.Set)/$($it.Name)"
-    if (Get-DoneDrive $target) { Write-Host "  (Drive $n/$($DriveItems.Count)) $label : 이미 받았어요"; $result[$label] = '받음'; continue }
+    if (Get-DoneDrive $target) { Write-Host "  (Drive $n/$($DriveItems.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
     if (-not $driveOk) { $result[$label] = '건너뜀(Drive 접속 안 됨. 접속되면 다시 실행)'; continue }
     Write-Host ''
     Write-Host "  (Drive $n/$($DriveItems.Count)) $label 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
@@ -648,7 +648,7 @@ Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 B200 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/shared/bin/b200 fetch datasets'
-Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/datasets 는 지워 공간을 비우세요.' -ForegroundColor Green
+Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/datasets 는 지워 공간을 비우세요(서버 2도 쓸 거면 먼저 NAS에 보관: docs\9_NAS.md).' -ForegroundColor Green
 Write-Host '   bash /app/inbox/datasets/datasets_install.sh'
 Write-Host ' 자세한 순서: docs\6_데이터셋.md'
 Write-Host '##############################################################'

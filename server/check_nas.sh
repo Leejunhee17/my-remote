@@ -70,7 +70,7 @@ body() {
         ACC_UID=$(id -u "$ACC"); ACC_GID=$(id -g "$ACC")
         echo "  우리 공용 계정 $ACC: uid $ACC_UID, gid $ACC_GID"
     else
-        bad "공용 계정이 없거나 이름을 몰라요: ${ACC:-(비어 있음)}. /etc/b200/account 를 확인하세요"; ACC_UID=; ACC_GID=
+        bad "공용 계정이 없거나 이름을 알 수 없어요: ${ACC:-(비어 있음)}. /etc/b200/account 를 확인하세요"; ACC_UID=; ACC_GID=
     fi
     echo "  이 서버의 일반 계정(uid 1000 이상):"
     getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 {printf "    %-16s uid %s\n", $1, $3}'
@@ -80,7 +80,7 @@ body() {
         mkdir -p "$shr" 2>/dev/null && chmod 1777 "$shr" 2>/dev/null
         # root 는 다른 계정이 만든 폴더에 쓰지 않는다(그 계정이 파일을 링크로 바꿔치기하면 root 가 이 서버의 파일을 덮는다)
         if [ -n "$IS_ROOT" ] && ! [[ "$(stat -c %u "$shr" 2>/dev/null)" =~ ^(0|65534|4294967294)$ ]]; then
-            warn "번호 맞춰 보기 폴더를 다른 계정이 만들었어요: $shr. 두 서버의 번호는 위 목록을 눈으로 비교하세요"
+            warn "두 서버 번호 비교용 폴더를 다른 계정이 만들었어요: $shr. 두 서버의 번호는 위 목록을 눈으로 비교하세요"
         elif [ -d "$shr" ] && [ ! -L "$shr" ] && [ -k "$shr" ]; then
             local t; t=$(mktemp "$shr/.tmp.XXXXXX" 2>/dev/null) &&
                 printf 'HOST=%s\nUID=%s\nGID=%s\n' "$ME" "$ACC_UID" "$ACC_GID" > "$t" && chmod 644 "$t" && mv -f "$t" "$shr/$ME.txt"
@@ -150,9 +150,36 @@ report_dir() {
     fi
     if [ -O . ] && [ -w . ]; then echo "$PWD"; else echo "$HOME"; fi
 }
-out=$(mktemp "$(report_dir)/nas_report_${ME}_$(date +%Y%m%d-%H%M)_XXXX.txt" 2>/dev/null) || out=$(mktemp)
+# 공유용 사본(check_network.sh 와 같음): 서버 이름·IP·NAS 주소·계정·폴더 이름을 가려서 git 으로 올려도 되게 만든다.
+# $1 원본, $2 사본, 나머지는 "가릴말=바꿀말". IP 는 처음 나온 순서대로 IP-1, IP-2 … 로 바꿔 같은 IP 는 같은 번호가 된다
+share_copy() {
+    local src=$1 dst=$2; shift 2
+    perl -Mutf8 -CSDA -ne '
+        BEGIN { for (@ARGV) { my ($k, $v) = split /=/, $_, 2; $m{$k} //= $v if length($k) >= 2 }
+                @ARGV = (); $re = join "|", map { quotemeta } sort { length($b) <=> length($a) } keys %m; $n = 0 }
+        next if /^\s*장비: /;                                  # InfiniBand 망의 장비 이름(다른 팀 장비일 수 있음)
+        s/($re)/$m{$1}/g if length $re;                         # 한 번에 바꾼다(바꾼 말을 다시 바꾸지 않게)
+        s{\b[\w.-]+:/[\w./-]*}{NAS주소}g;
+        s{\b((?:\d{1,3}\.){3}\d{1,3})(?:/\d+)?\b}{ $ip{$1} //= "IP-" . ++$n }ge;
+        print;
+    ' "$@" < "$src" > "$dst"
+    chmod 644 "$dst" 2>/dev/null
+}
+LABEL="서버(…$(hostname -s | tail -c 3))"   # 공유용 사본에서 이 서버를 부르는 이름(이름 끝 두 글자만)
+RDIR=$(report_dir)
+out=$(mktemp "$RDIR/nas_report_${ME}_$(date +%Y%m%d-%H%M)_XXXX.txt" 2>/dev/null) || out=$(mktemp)
 body 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' > "$out")
 sleep 1
 chmod 644 "$out" 2>/dev/null   # 공용 계정(FileZilla)으로 내려받을 수 있게
-echo; echo "보고서: $(readlink -f "$out")"
-echo "  사내 정보(서버 이름·NAS 주소·계정)가 들어 있어서 저장소에는 올리지 마세요. 결정한 내용만 docs/9_NAS.md 의 '정해야 할 것'에 적어요."
+# 공유용 사본: 서버 이름, 계정 이름, NAS 바로 아래 폴더 이름(다른 팀 이름일 수 있음)을 가린다
+masks=("$(hostname -f 2>/dev/null)=$LABEL" "$ME=$LABEL")
+[ -n "$ACC" ] && masks+=("$ACC=공용계정")
+i=0; while IFS=: read -r n _ u _; do [ "$u" -ge 1000 ] && [ "$u" -lt 60000 ] && [ "$n" != "$ACC" ] && { i=$((i + 1)); masks+=("$n=계정$i"); }; done < <(getent passwd)
+NASD=$(findmnt -rn -t nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs -o TARGET 2>/dev/null | head -1); NASD=${B200_NAS:-$NASD}
+i=0; for d in "$NASD"/*/; do n=$(basename "$d"); case "$n" in tmp|data|home|'*') continue ;; esac; i=$((i + 1)); masks+=("$n=폴더$i"); done 2>/dev/null
+for f in "$NASD"/tmp/.b200_nas/*.txt; do h=$(sed -n 's/^HOST=//p' "$f" 2>/dev/null | head -1); [[ "$h" =~ ^[A-Za-z0-9._-]{2,64}$ ]] && [ "$h" != "$ME" ] && masks+=("$h=상대서버(…${h: -2})"); done 2>/dev/null
+share="$RDIR/nas_공유용_${LABEL//[^A-Za-z0-9]/}_$(date +%Y%m%d-%H%M).txt"
+share_copy "$out" "$share" "${masks[@]}"
+echo; echo "보고서(원본, 사내 정보 있음): $(readlink -f "$out")"
+echo "보고서(공유용, git 으로 올려도 돼요): $share"
+echo "  공유용만 내려받아 저장소의 reports 폴더에 넣고 올리세요(docs/4_네트워크.md 의 \"결과 가져오기\")."

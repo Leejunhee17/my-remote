@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# B200 서버 도우미. 관리자가 /app/shared/bin/b200 에 깐다(admin_setup.sh). 팀원이 외울 명령이 아니다.
+# B200 서버 도우미. 관리자가 /app/shared/bin/b200 에 설치한다(admin_setup.sh). 팀원이 외울 명령이 아니다.
 # 팀원은 docker, nvidia-smi 를 평소처럼 쓰고, 이 파일은 그 뒤에서 다음을 맡는다.
 #   - 접속 인사: 이름 고르기, GPU별 쓰는 사람, 나에게 온 알림
 #   - nvidia-smi 아래 "누가 쓰나" 표, docker run 의 GPU 겹침 경고
@@ -13,7 +13,7 @@ S=$APP/shared
 W=$APP/workspace
 ST=$APP/state
 ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
-[ -n "$ACC" ] || [ "$(id -u)" != 0 ] || echo "${0##*/}: 공용 계정 이름을 몰라요. /etc/b200/account 를 확인하세요(도커 컨테이너가 안 보여요)" >&2
+[ -n "$ACC" ] || [ "$(id -u)" != 0 ] || echo "${0##*/}: 공용 계정 이름을 알 수 없어요. /etc/b200/account 를 확인하세요(그동안 도커 컨테이너가 안 보여요)" >&2
 TEAM=$S/team.txt
 ALLOC=$S/gpu_alloc.txt
 NOTE=$ST/notice          # 알림: root(정기 점검)만 쓰는 곳
@@ -28,7 +28,7 @@ c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_b=$'\e[1m'; c_0=$'\e[0m'
 is_root() { [ "$(id -u)" = 0 ]; }
 # root 가 이 파일을 실행하는데 root 소유가 아니면(예: admin_setup.sh --undo 뒤) 공용 계정이 고친 내용을 root 가 실행하게 된다
 if is_root && [ "$(stat -c %U "$0" 2>/dev/null)" != root ]; then
-    echo "멈춤: $0 이 root 소유가 아니에요. root 로 쓰기 전에 다시 까세요: cd /app/inbox && bash admin_setup.sh" >&2; exit 1
+    echo "멈춤: $0 이 root 소유가 아니에요. root 로 쓰기 전에 다시 설치하세요: cd /app/inbox && bash admin_setup.sh" >&2; exit 1
 fi
 
 # ------------------------------------------------------------------ 명단·배분
@@ -375,7 +375,7 @@ cmd__report() {
     local since; since=$(date -d '7 days ago' '+%F %T')
     echo "B200 주간 보고서  $(date -d '7 days ago' +%F) ~ $(date +%F)"
     echo
-    echo "== 사람별 GPU 시간 (10분 기록 ÷ 6)"
+    echo "== 사람별 GPU 사용 시간 (10분마다 남긴 기록으로 계산)"
     cat "$ST/gpu_log/$(date -d '7 days ago' +%Y-%m).tsv" "$ST/gpu_log/$(date +%Y-%m).tsv" 2>/dev/null | sort -u |
         awk -F'\t' -v s="$since" '$1>=s {k=$1"\t"$2"\t"$3; if (!(k in seen)) {seen[k]=1; n[$3]++; if ($5+0==0) idle[$3]++}}
             END {for (u in n) printf "%s\t%.1f\t%.1f\n", u, n[u]/6, idle[u]/6}' | sort -t$'\t' -k2,2 -rn |
@@ -463,7 +463,7 @@ cmd_fetch() {
         echo "지문(sha256): $(sha256sum "$in/$n" | cut -d' ' -f1)"
         case "$n" in
             b200-pack.tar)   echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash admin_setup.sh && bash pack_install.sh /app/shared"
-                             echo "  (admin_setup.sh 도 다시 실행해야 묶음 안의 고친 도우미가 /app/shared/bin 에 깔려요)" ;;
+                             echo "  (admin_setup.sh 도 다시 실행해야 묶음 안의 고친 도우미가 /app/shared/bin 에 설치돼요)" ;;
             b200-docker.tar) echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash docker_install.sh" ;;
         esac
     fi

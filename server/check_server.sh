@@ -21,7 +21,7 @@ os=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")
 glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
 echo "  $os, 커널 $(uname -r), glibc $glibc"
 case "$os" in Ubuntu*) ;; *) warn "Ubuntu가 아니에요($os). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)" ;; esac
-if [ -z "$ACC" ]; then mine "공용 계정 이름을 몰라요" "서버에 한 번 적어 두기: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account"
+if [ -z "$ACC" ]; then mine "공용 계정 이름을 알 수 없어요" "서버에 한 번 적어 두기: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account"
 elif id "$ACC" >/dev/null 2>&1; then ok "공용 계정($ACC)이 있어요"; else
     bad "공용 계정이 없어요: $ACC (이름을 잘못 적었으면 /etc/b200/account 를 고치세요)" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"; fi
 if ver_ge "$glibc" "$GLIBC_NEED"; then ok "glibc $glibc (묶음 기준 $GLIBC_NEED 이상)"
@@ -40,14 +40,14 @@ if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
     case "$fab" in
         Completed) ok "NVLink Fabric 초기화가 끝났어요" ;;
         ""|N/A)    warn "NVLink Fabric 상태를 읽지 못했어요(HGX 보드가 아니면 상관없어요)" ;;
-        *)         bad "NVLink Fabric 상태: $fab (Completed여야 GPU를 써요)" "드라이버와 같은 판의 nvidia-fabricmanager와 B200용 nvlsm을 설치하고 서비스를 켜 주세요" ;;
+        *)         bad "NVLink Fabric 상태: $fab (Completed여야 GPU를 써요)" "드라이버와 같은 버전의 nvidia-fabricmanager와 B200용 nvlsm을 설치하고 서비스를 켜 주세요" ;;
     esac
     if command -v systemctl >/dev/null; then
         st=$(systemctl is-active nvidia-fabricmanager 2>/dev/null)
         [ "$st" = active ] && ok "nvidia-fabricmanager 서비스가 돌고 있어요" || warn "nvidia-fabricmanager 서비스: ${st:-없음}. 서버 관리 팀에 확인하세요"
     fi
     pm=$(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader | sort -u | tr '\n' ' ')
-    [ "${pm% }" = Enabled ] && ok "Persistence mode 켜져 있어요" || warn "Persistence mode: ${pm% }. nvidia-persistenced를 켜 두면 GPU를 처음 쓸 때 기다리지 않아요"
+    [ "${pm% }" = Enabled ] && ok "Persistence mode가 켜져 있어요" || warn "Persistence mode: ${pm% }. nvidia-persistenced를 켜 두면 GPU를 처음 쓸 때 기다리지 않아요"
 else
     bad "nvidia-smi가 없거나 GPU를 못 봐요" "NVIDIA 드라이버 580 이상(open 커널 모듈)과 nvidia-fabricmanager를 설치해 주세요"
 fi
@@ -69,7 +69,7 @@ if [ -d "$APP" ]; then
         mine "$APP/workspace 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
     fi
     if [ -e "$APP/shared" ]; then
-        warn "$APP/shared 가 남아 있어요(예전 설치). pack_install.sh 가 이어서 써요(새로 깔려면 docs/1_처음_설치.md 2단계)"
+        warn "$APP/shared 가 남아 있어요(예전 설치). pack_install.sh 가 이어서 써요(새로 설치돼면 docs/1_처음_설치.md 2단계)"
     fi
     [ -d "$APP/shared/datasets" ] && ok "예전 데이터셋이 남아 있어요: $APP/shared/datasets (다시 올리지 않아도 돼요)"
     [ -d "$APP/shared/models" ] && ok "예전 모델이 남아 있어요: $APP/shared/models (다시 올리지 않아도 돼요)"

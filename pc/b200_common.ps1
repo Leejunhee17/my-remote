@@ -183,7 +183,7 @@ function Test-Site($name, $url) {
     } elseif ($first.Msg -match 'reset|abort|closed') {
         Write-Info "    → 방화벽이나 보안 장비가 이 주소($site) 연결을 중간에 끊었어요. 사내 IT에 $site (포트 443) 접속 허용을 요청하세요."
     }
-    Write-Info "    확인: 브라우저에서 https://$site/ 를 열어 보세요. 오류 글자(XML)라도 뜨면 브라우저로는 닿는 거고, '연결할 수 없음'이 뜨면 브라우저도 막힌 거예요."
+    Write-Info "    확인: 브라우저에서 https://$site/ 를 열어 보세요. 오류 글자(XML)라도 뜨면 브라우저로는 연결되는 거고, '연결할 수 없음'이 뜨면 브라우저도 막힌 거예요."
     $pac = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue).AutoConfigURL
     if ($pac) { Write-Info "    이 PC 브라우저는 자동 프록시 설정(PAC)을 써요: $pac" }
     Write-Info "    브라우저가 이 주소에 쓰는 프록시: $(if ($bp) { $bp } else { '없음(바로 접속)' })"

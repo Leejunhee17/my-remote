@@ -58,7 +58,9 @@
 | `team/` | 팀원에게 줄 규칙과 사용법 |
 | `pc/` | 접근 PC에서 실행하는 받기·묶기 스크립트 |
 | `server/` | B200 서버에서 root 로 실행하는 점검·설치 스크립트 |
-| `server/bin/` | 팀원이 쓰는 `docker`, `nvidia-smi` 뒤에서 이름표·경고·"누가 쓰나" 표를 붙이는 도우미와 정기 점검(`b200`). `admin_setup.sh` 가 `/app/shared/bin` 에 깔아요 |
+| `server/bin/` | 팀원이 쓰는 `docker`, `nvidia-smi` 뒤에서 이름표·경고·"누가 쓰나" 표를 붙이는 도우미와 정기 점검(`b200`). `admin_setup.sh` 가 `/app/shared/bin` 에 설치해요 |
 | `lists/` | 받을 목록(기초 프로그램, 모델) |
+| `reports/` | 서버 점검 결과 중 사내 정보를 가린 공유용만 올리는 곳 |
+| `.githooks/` | 커밋 전에 사내 정보가 들어가지 않았는지 보는 검사(`git config core.hooksPath .githooks`) |
 
 받은 결과는 저장소 맨 위의 `pack\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요(git에는 올라가지 않아요).

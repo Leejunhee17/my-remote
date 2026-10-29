@@ -6,7 +6,7 @@
 #   - 공용 계정(/etc/b200/account)에 관리자 권한(sudo, docker 그룹)이 없는지 확인한다(있으면 알려만 준다)
 #   - /app/shared(기초 프로그램·데이터셋·모델)와 /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
 #   - 접속할 때 이름을 고르게 하고, 이름별 작업 폴더·캐시·명령 기록을 나눈다(/etc/profile.d/b200.sh)
-#   - docker, nvidia-smi 도우미를 /app/shared/bin 에 깐다(이름표, GPU 겹침 경고, "누가 쓰나" 표)
+#   - docker, nvidia-smi 도우미를 /app/shared/bin 에 설치한다(이름표, GPU 겹침 경고, "누가 쓰나" 표)
 #   - GPU 서비스(Fabric Manager, persistenced)를 켜고 드라이버 버전을 고정한다
 #   - 10분마다 GPU 사용 기록과 알림, 월요일 아침 주간 보고서(/etc/cron.d/b200)
 set -uo pipefail
@@ -23,7 +23,7 @@ warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() { echo "${c_r}멈춤: $1${c_0}"; echo "할 일: $2"; exit 1; }
 
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
-[ -n "$ACC" ] || stop '공용 계정 이름을 모르겠어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account'
+[ -n "$ACC" ] || stop '공용 계정 이름을 알 수 없어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account'
 [[ "$ACC" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || stop "공용 계정 이름이 이상해요: $ACC" '/etc/b200/account 에 계정 이름 한 줄만 적으세요'
 id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" '/etc/b200/account 의 계정 이름을 확인하세요: cat /etc/b200/account'
 HOME_A=$(getent passwd "$ACC" | cut -d: -f6)
@@ -144,7 +144,7 @@ DISK_ALERT=85         # /app 이 이 % 를 넘으면 많이 쓰는 3명과 관�
 IMAGE_NOTICE_DAYS=30  # 이 일수 동안 안 쓴 도커 이미지는 들여온 사람에게 알림(주 한 번)
 NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)
 EOF
-grep -q '^NAS_DIR=' "$S/b200.conf" ||   # 예전 판으로 만든 설정에는 없다
+grep -q '^NAS_DIR=' "$S/b200.conf" ||   # 예전 버전으로 만든 설정에는 없다
     echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)' >> "$S/b200.conf"
 chmod 644 "$S/b200.conf"
 # NAS 팀 폴더를 정했으면(NAS_DIR) 팀원별 backup·images 폴더도 공용 계정 권한으로 만든다(root 는 NAS에 쓰지 않는다)
@@ -165,8 +165,8 @@ for f in b200 docker nvidia-smi; do
     [ -f "bin/$f" ] || stop "도우미 파일이 없어요: $HERE/bin/$f" "묶음을 다시 푸세요: cd $HERE && tar xf b200-pack.tar"
     install -m 755 "bin/$f" "$S/bin/$f"
 done
-rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"   # 예전 판의 파일
-ok "$S/bin 에 깔았어요: docker(이름표·GPU 겹침 경고), nvidia-smi(누가 쓰나 표), b200(접속 인사·정기 점검)"
+rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"   # 예전 버전의 파일
+ok "$S/bin 에 설치했어요: docker(이름표·GPU 겹침 경고), nvidia-smi(누가 쓰나 표), b200(접속 인사·정기 점검)"
 # docker ps 에 사람(USER)과 GPU 열을 보이게 한다(공용 계정의 docker 설정). 공용 계정 홈이라 공용 계정 권한으로 쓴다
 runuser -u "$ACC" -- mkdir -p "$HOME_A/.docker"
 runuser -u "$ACC" -- python3 - "$HOME_A/.docker/config.json" <<'PY'
@@ -247,10 +247,10 @@ ok '접속 설정: 이름 고르기(번호), 이름별 캐시·명령 기록, �
 step '5. GPU 서비스와 드라이버 고정'
 for svc in nvidia-persistenced nvidia-fabricmanager nvlsm; do
     if systemctl list-unit-files "$svc.service" 2>/dev/null | grep -q "$svc"; then
-        systemctl enable --now "$svc" >/dev/null 2>&1 && ok "$svc 켜짐(부팅할 때 자동으로 켜져요)" || warn "$svc 를 켜지 못했어요. 원인 확인: systemctl status $svc"
+        systemctl enable --now "$svc" >/dev/null 2>&1 && ok "$svc 서비스를 켰어요(부팅할 때도 자동으로 켜져요)" || warn "$svc 를 켜지 못했어요. 원인 확인: systemctl status $svc"
     else
-        [ "$svc" = nvidia-persistenced ] && warn "$svc 서비스가 없어요(보통 드라이버와 함께 깔려요). 서버 관리 팀에 확인하세요"
-        [ "$svc" = nvidia-fabricmanager ] && warn "$svc 서비스가 없어요. HGX B200은 이게 있어야 GPU를 써요. 서버 관리 팀에 드라이버와 같은 판으로 요청하세요"
+        [ "$svc" = nvidia-persistenced ] && warn "$svc 서비스가 없어요(보통 드라이버와 함께 설치돼요). 서버 관리 팀에 확인하세요"
+        [ "$svc" = nvidia-fabricmanager ] && warn "$svc 서비스가 없어요. HGX B200은 이게 있어야 GPU를 써요. 서버 관리 팀에 드라이버와 같은 버전으로 요청하세요"
     fi
 done
 mapfile -t held < <(dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null |
@@ -259,7 +259,7 @@ if grep -qE '^\s*[0-9]+\s+다른팀' "$S/gpu_alloc.txt" 2>/dev/null; then
     warn '다른 팀과 같이 쓰는 서버라 드라이버 버전을 고정(apt-mark hold)하지 않았어요. 드라이버 업데이트는 서버 관리 팀·다른 팀과 정하세요'
 elif [ ${#held[@]} -gt 0 ]; then
     apt-mark hold "${held[@]}" >/dev/null && ok "드라이버 관련 패키지 ${#held[@]}개의 버전을 고정했어요(apt-mark hold)"
-else warn '고정할 NVIDIA 패키지를 찾지 못했어요(드라이버를 apt가 아닌 방식으로 깔았을 수 있어요)'; fi
+else warn '고정할 NVIDIA 패키지를 찾지 못했어요(드라이버를 apt가 아닌 방식으로 설치했을 수 있어요)'; fi
 
 # ------------------------------------------------------------------ 6. 정기 점검
 step '6. 정기 점검'

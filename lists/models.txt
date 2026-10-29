@@ -28,7 +28,7 @@ enc       smp-hub/resnet50.imagenet                                   # 0.1  smp
 # GOOSE 2026 챌린지 1위는 DINOv3 ViT-L, 2위는 DINOv3 ViT-H+ 를 백본으로 썼다
 backbone  facebook/dinov3-vitl16-pretrain-lvd1689m      gated         # 1.2  DINOv3 ViT-L (기본 추천)
 backbone  facebook/dinov3-convnext-large-pretrain-lvd1689m  gated     # 0.8  DINOv3 ConvNeXt-L (FPN/U-Net 디코더용)
-backbone  timm/vit_large_patch16_dinov3.lvd1689m                      # 1.2  DINOv3 ViT-L timm 판
+backbone  timm/vit_large_patch16_dinov3.lvd1689m                      # 1.2  DINOv3 ViT-L timm 버전
 backbone  facebook/dinov2-with-registers-large                        # 1.2  DINOv2-L (Apache-2.0)
 backbone  facebook/dinov3-vith16plus-pretrain-lvd1689m  gated         # 3.4  DINOv3 ViT-H+ (GOOSE 2026 2위 팀 단일 모델 최고)
 backbone  nvidia/C-RADIOv4-H                                          # 1.7  C-RADIOv4 (DINO+SigLIP+SAM 증류, trust_remote_code)
@@ -59,12 +59,12 @@ vlm       nvidia/Cosmos-Reason2-8B                      gated         # 17.5 물
 vlm       Qwen/Qwen3.5-9B                                             # 19.3
 #vlm      nvidia/Alpamayo-1.5-10B  code=https://github.com/NVlabs/alpamayo     # 20.6 도로 자율주행 VLA(Cosmos-Reason2 바탕, 궤적 출력). 오프로드 미세조정 출발점
 #vlm      Qwen/Qwen-Drive-1.0-4B  code=https://github.com/QwenLM/Qwen-Drive-1.0  # 13.8 도로 주행 VLM(Qwen3.5-4B 바탕, BEV 인식·궤적 헤드 포함)
-#vlm      Qwen/Qwen3.5-4B                                             # 9.3  가벼운 판
+#vlm      Qwen/Qwen3.5-4B                                             # 9.3  가벼운 버전
 #vlm      OpenGVLab/InternVL3_5-8B-HF                                 # 17.1
 #vlm      Qwen/Qwen3.8-27B                                            # 55.6 30B 급
 #vlm      Qwen/Qwen3.6-35B-A3B                                        # 71.9 MoE
 
 # ---------------------------------------------------------------- vlmseg: 말로 지시하면 분할까지 하는 VLM (약 41 GB)
 vlmseg    ByteDance/Sa2VA-Qwen3-VL-4B-SAM3                            # 21.2 [SEG] 토큰 → SAM3 마스크 (trust_remote_code)
-vlmseg    ByteDance/Sa2VA-Qwen3-VL-4B                                 # 20.2 SAM2 판 (trust_remote_code)
+vlmseg    ByteDance/Sa2VA-Qwen3-VL-4B                                 # 20.2 SAM2 버전 (trust_remote_code)
 #vlmseg   ByteDance/Sa2VA-InternVL3-8B                                # 25+

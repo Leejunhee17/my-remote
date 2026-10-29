@@ -9,11 +9,11 @@
 |---|---|
 | 주소 | 두 서버 모두 `/data` 에 연결(주소는 서버의 `findmnt /data` 로 확인) |
 | 연결 방식 | NFSv3 over RDMA(InfiniBand 400 Gbps), `nconnect=24` |
-| 속도 | 1줄기 쓰기 1.82 GB/s, 읽기 4.3 GB/s(`docs/4_네트워크.md`) |
+| 속도 | 파일 1개 쓰기 1.82 GB/s, 읽기 4.3 GB/s(`docs/4_네트워크.md`) |
 | 같이 쓰는 곳 | 다른 팀도 같은 NAS를 써요. 그래서 **우리 팀 폴더 하나 아래에만** 구조를 만들어요 |
 | 아직 모르는 것 | 전체·남은 용량, 우리 팀 몫(할당량), 우리가 폴더를 만들 수 있는지, root squash, 두 서버의 공용 계정 번호가 같은지 |
 
-모르는 것은 두 서버에서 각각 아래를 실행하면 한 화면에 나와요. 바꾸는 것은 없어요. 결과는 `/app/inbox/reports/nas_report_<서버>_<시각>.txt` 에도 남아요. NAS 주소·계정 같은 사내 정보가 들어 있으니 이 저장소에는 올리지 말고, 정한 내용만 아래 표에 적어요.
+모르는 것은 두 서버에서 각각 아래를 실행하면 한 화면에 나와요. 바꾸는 것은 없어요. 결과는 `/app/inbox/reports/nas_report_<서버>_<시각>.txt` 에도 남아요. 원본에는 NAS 주소·계정 같은 사내 정보가 있어서, 같이 생기는 공유용(`nas_공유용_…txt`)만 git 으로 올려요(`docs/4_네트워크.md` 의 "결과 가져오기").
 
 ```bash
 # [서버 1, 서버 2 각각] root
@@ -63,7 +63,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 |---|---|---|
 | `archive/datasets` | 약 112 GB | 데이터셋 7개(`docs/6_데이터셋.md`) |
 | `archive/models` | 약 132 GB | 기본 모델(`docs/7_모델.md`). 선택 모델을 받으면 늘어요 |
-| `archive/packs` | 판마다 몇 GB | 접근 PC의 `pack\b200-pack.tar` 크기. 최근 3판만 둬요 |
+| `archive/packs` | 버전마다 몇 GB | 접근 PC의 `pack\b200-pack.tar` 크기. 최근 3판만 둬요 |
 | `images/` | N × 약 40 GB | PyTorch 기반 이미지 하나 15~25 GB × 사람마다 2개 |
 | `backup/` | N × B | 체크포인트가 가장 커요. 예: ViT-L 체크포인트 하나 1~3 GB |
 | `transfer/` | 약 250 GB | 데이터셋과 모델을 한 번에 옮길 때 |

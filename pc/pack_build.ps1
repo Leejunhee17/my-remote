@@ -120,7 +120,7 @@ if (-not (Get-File 'https://github.com/mamba-org/micromamba-releases/releases/la
 }
 Write-Ok 'B200 서버용 micromamba를 받았어요'
 
-# 예전 판이 받아 둔 공용 휠은 이제 쓰지 않으니 지운다(공간 확보)
+# 예전 버전이 받아 둔 공용 휠은 이제 쓰지 않으니 지운다(공간 확보)
 foreach ($d in 'wheels', 'lock.txt') {
     $pth = Join-Path $out $d
     if (Test-Path $pth) { Remove-Item -Recurse -Force $pth; Write-Info "이제 쓰지 않는 예전 공용 휠 파일을 지웠어요: $pth" }

@@ -122,7 +122,7 @@ foreach ($m in $Models) {
     $n++
     $dir = Get-Dir $m.Repo
     $label = "[$($m.Group)] $($m.Repo)"
-    if (Test-Path (Join-Path $dir 'b200_model.json')) { Write-Host "  ($n/$($Models.Count)) $label : 이미 받았어요"; $result[$label] = '받음'; continue }
+    if (Test-Path (Join-Path $dir 'b200_model.json')) { Write-Host "  ($n/$($Models.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
     if ($m.Gated -and -not $env:HF_TOKEN) { $result[$label] = '건너뜀(승인 필요, 토큰 없음)'; continue }
     Write-Host ''
     Write-Host "  ($n/$($Models.Count)) $label 받는 중" -ForegroundColor Cyan
@@ -137,8 +137,8 @@ foreach ($m in $Models) {
     }
     switch ($code) {
         0 { Write-Ok "$label 받았어요"; $result[$label] = '받음' }
-        3 { Write-Bad "$label : 승인이 필요해요. 모델 페이지에서 약관에 동의했는지, 토큰이 맞는지 확인하세요"; $result[$label] = '실패(승인)' }
-        4 { Write-Bad "$label : 저장소를 찾지 못했어요. lists\models.txt 의 이름을 확인하세요"; $result[$label] = '실패(이름)' }
+        3 { Write-Bad "${label}: 승인이 필요해요. 모델 페이지에서 약관에 동의했는지, 토큰이 맞는지 확인하세요"; $result[$label] = '실패(승인)' }
+        4 { Write-Bad "${label}: 저장소를 찾지 못했어요. lists\models.txt 의 이름을 확인하세요"; $result[$label] = '실패(이름)' }
         default { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
     }
 }
@@ -224,7 +224,7 @@ Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 B200 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/shared/bin/b200 fetch models'
-Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/models 는 지워 공간을 비우세요.' -ForegroundColor Green
+Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/models 는 지워 공간을 비우세요(서버 2도 쓸 거면 먼저 NAS에 보관: docs\9_NAS.md).' -ForegroundColor Green
 Write-Host '   bash /app/inbox/models/models_install.sh'
 Write-Host ' 자세한 순서: docs\7_모델.md'
 Write-Host '##############################################################'

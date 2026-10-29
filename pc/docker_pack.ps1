@@ -1,5 +1,5 @@
 ﻿<#
-[접근 PC · 관리자 전용] B200 서버에 깔 rootless Docker 묶음(pack_docker\b200-docker.tar)을 만든다.
+[접근 PC · 관리자 전용] B200 서버에 설치할 rootless Docker 묶음(pack_docker\b200-docker.tar)을 만든다.
 점검 → 받기 → 검사 → 묶기까지 한 번에 한다. 끊기면 다시 실행하면 이어서 한다.
 Ubuntu 버전이 정해지지 않아도 된다(22.04, 24.04 용 패키지를 모두 넣는다).
 
@@ -66,7 +66,7 @@ function Get-AptIndex($url) {
     return $idx
 }
 
-# 1.17.8-1 같은 판 번호에서 숫자 부분만 비교용으로 꺼낸다(1:4.13+dfsg1-4ubuntu3 도 대충 맞게)
+# 1.17.8-1 같은 버전 번호에서 숫자 부분만 비교용으로 꺼낸다(1:4.13+dfsg1-4ubuntu3 도 대충 맞게)
 function Get-VerKey($v) {
     $nums = [regex]::Matches(($v -replace '^\d+:', ''), '\d+') | Select-Object -First 6 | ForEach-Object { '{0:D8}' -f [int64]$_.Value }
     return ($nums -join '.')
@@ -95,23 +95,23 @@ $free = Get-FreeGB $out
 if ($free -lt 3) { Stop-Run "남은 공간이 $free GB예요(3 GB 이상 필요해요)" '공간을 비우고 다시 실행하세요.' }
 Write-Ok "남은 공간 $free GB"
 
-# ------------------------------------------------------------------ 2. 판 정하기
-Write-Step 2 $T '받을 판 정하기'
+# ------------------------------------------------------------------ 2. 버전 정하기
+Write-Step 2 $T '받을 버전 정하기'
 $listing = Get-Text "$DockerBase/"
 if (-not $listing) { Stop-Run 'Docker 배포 목록을 받지 못했어요' '인터넷 연결을 확인하고 다시 실행하세요.' }
 $vers = @([regex]::Matches($listing, 'docker-rootless-extras-(\d+\.\d+\.\d+)\.tgz') | ForEach-Object { $_.Groups[1].Value } |
     Where-Object { $listing -match "docker-$([regex]::Escape($_))\.tgz" } | Sort-Object { [version]$_ } -Unique)
-if (-not $vers.Count) { Stop-Run 'Docker 판을 찾지 못했어요' '아래 기록 파일을 담당자에게 보내 주세요.' }
+if (-not $vers.Count) { Stop-Run 'Docker 버전을 찾지 못했어요' '아래 기록 파일을 담당자에게 보내 주세요.' }
 $dv = $vers[-1]
 Write-Ok "Docker $dv (정적 바이너리 + rootless extras)"
 
 $nvIdx = Get-AptIndex "$NvBase/Packages"
 if (-not $nvIdx) { Stop-Run 'NVIDIA 패키지 목록을 받지 못했어요' '인터넷 연결을 확인하고 다시 실행하세요.' }
 $plan = @()
-# 네 패키지를 같은 판으로 맞춘다(서로 같은 판을 요구한다)
+# 네 패키지를 같은 버전으로 맞춘다(서로 같은 버전을 요구한다)
 $nvVers = @($nvIdx['nvidia-container-toolkit'] | Where-Object { $_.Version -match '^\d+(\.\d+)+-\d+$' } |
     Sort-Object { Get-VerKey $_.Version } | ForEach-Object { $_.Version })
-if (-not $nvVers.Count) { Stop-Run 'NVIDIA Container Toolkit 판을 찾지 못했어요' '아래 기록 파일을 담당자에게 보내 주세요.' }
+if (-not $nvVers.Count) { Stop-Run 'NVIDIA Container Toolkit 버전을 찾지 못했어요' '아래 기록 파일을 담당자에게 보내 주세요.' }
 $nv = $nvVers[-1]
 foreach ($p in $NvPkgs) {
     $e = $nvIdx[$p] | Where-Object { $_.Version -eq $nv } | Select-Object -First 1
@@ -121,7 +121,7 @@ foreach ($p in $NvPkgs) {
 Write-Ok "NVIDIA Container Toolkit $nv"
 
 foreach ($code in 'jammy', 'noble') {
-    # 보안 업데이트(-updates)에 더 새 판이 있으면 그것을 쓴다
+    # 보안 업데이트(-updates)에 더 새 버전이 있으면 그것을 쓴다
     $cands = @{}
     foreach ($pocket in $code, "$code-updates") {
         foreach ($comp in 'main', 'universe') {
@@ -138,7 +138,7 @@ foreach ($code in 'jammy', 'noble') {
     Write-Ok "Ubuntu ${code}용 패키지 $($UbuPkgs[$code].Count)개 ($($UbuPkgs[$code] -join ', '))"
 }
 
-# docker buildx(빌드), compose 는 GitHub 최신 판. 받을 수 없으면 빼고 진행한다(없어도 docker 는 된다)
+# docker buildx(빌드), compose 는 GitHub 최신 버전. 받을 수 없으면 빼고 진행한다(없어도 docker 는 된다)
 foreach ($plug in @(
         @{ Repo = 'docker/buildx';  Name = 'docker-buildx';  File = { param($t) "buildx-$t.linux-amd64" } },
         @{ Repo = 'docker/compose'; Name = 'docker-compose'; File = { param($t) 'docker-compose-linux-x86_64' } })) {
@@ -147,7 +147,7 @@ foreach ($plug in @(
     if ($loc -match '/tag/(v[\d.]+)$') {
         $t = $Matches[1]
         $fn = & $plug.File $t
-        # 파일 이름이 판과 상관없이 같으므로, 공식 체크섬으로 확인한다(없으면 매번 새로 받아 예전 파일에 이어 붙지 않게)
+        # 파일 이름이 버전과 상관없이 같으므로, 공식 체크섬으로 확인한다(없으면 매번 새로 받아 예전 파일에 이어 붙지 않게)
         $sha = $null
         $sums = @(& curl.exe -sS -L --fail @ca "https://github.com/$($plug.Repo)/releases/download/$t/checksums.txt" 2>$null)
         if ($LASTEXITCODE -eq 0) {
@@ -155,7 +155,7 @@ foreach ($plug in @(
         }
         $plan += [pscustomobject]@{ Dir = 'plugins'; Url = "https://github.com/$($plug.Repo)/releases/download/$t/$fn"; Sha = $sha; Name = $plug.Name; Fresh = (-not $sha) }
         if ($sha) { Write-Ok "$($plug.Name) $t" } else { Write-Warn "$($plug.Name) ${t}: 공식 체크섬을 찾지 못해 새로 받아요(받은 뒤 확인은 못 해요)" }
-    } else { Write-Warn "최신 판을 찾지 못해 묶음에서 뺐어요: $($plug.Name) (없어도 docker는 돼요)" }
+    } else { Write-Warn "최신 버전을 찾지 못해 묶음에서 뺐어요: $($plug.Name) (없어도 docker는 돼요)" }
 }
 $plan += [pscustomobject]@{ Dir = '.'; Url = "$DockerBase/docker-$dv.tgz"; Sha = $null }
 $plan += [pscustomobject]@{ Dir = '.'; Url = "$DockerBase/docker-rootless-extras-$dv.tgz"; Sha = $null }
@@ -175,7 +175,7 @@ foreach ($it in $plan) {
     if (-not (Get-File $it.Url $dest $null $MaxTries $it.Sha)) { Stop-Run "받지 못한 파일: $name" '인터넷 연결을 확인하고 다시 실행하세요. 받은 것은 건너뛰어요.' }
     $files += (($it.Dir -replace '^\.$', '') + '/' + $name).TrimStart('/')
 }
-# 지난번에 받았지만 이번 목록에 없는 예전 판은 지운다
+# 지난번에 받았지만 이번 목록에 없는 예전 버전은 지운다
 Get-ChildItem $out -Recurse -File | Where-Object {
     $rel = $_.FullName.Substring($out.Length + 1) -replace '\\', '/'
     ($rel -like '*.deb' -or $rel -like '*.tgz' -or $rel -like 'plugins/*') -and $files -notcontains $rel
@@ -210,7 +210,7 @@ Write-Ok "묶었어요($(Format-Size (Get-Item $tar).Length))"
 Allow-Sleep
 Write-Host ''
 Write-Host '############################ 완료 ############################' -ForegroundColor Green
-Write-Host " 묶은 판: Docker $dv, NVIDIA Container Toolkit $nv"
+Write-Host " 묶은 버전: Docker $dv, NVIDIA Container Toolkit $nv"
 Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝났어요. B200 서버에 올릴 파일(하나):' -ForegroundColor Green
 Write-Host "   $tar"

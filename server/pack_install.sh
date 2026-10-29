@@ -38,7 +38,7 @@ elif [ -n "$REAL" ]; then
     else
         ln -s "$REAL" "$HOME/shared"
     fi
-    # 같은 디스크에 개인 작업 폴더를 두고 홈에는 링크만 둔다(OS를 새로 깔았을 때 다시 만들 필요 없게)
+    # 같은 디스크에 개인 작업 폴더를 두고 홈에는 링크만 둔다(OS를 새로 설치했을 때 다시 만들 필요 없게)
     W="$(dirname "$REAL")/workspace"
     if [ ! -e "$HOME/workspace" ] && mkdir -p "$W" 2>/dev/null; then ln -s "$W" "$HOME/workspace"; fi
 fi
@@ -81,7 +81,7 @@ done
 echo "  묶음 정보: $(info made)에 만든 묶음, glibc $(info glibc) 기준, 기초 프로그램 패키지 $(info tools)개"
 
 echo "  파일 체크섬을 확인하고 있어요(1~3분)"
-# 설치 스크립트 자신은 고친 판을 따로 올려 덮어쓸 수 있도록 검사에서 뺀다
+# 설치 스크립트 자신은 고친 버전을 따로 올려 덮어쓸 수 있도록 검사에서 뺀다
 bad_files=$(grep -vE '  ((pack_install|move_shared|check_server|check_network|check_nas|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | head -20 | sed 's/^/    깨진 파일: /'
@@ -115,10 +115,10 @@ cp pack_info.txt "$S/" && cp -n pkgs/* "$S/mamba/pkgs/" || stop "패키지 파�
 chmod +x micromamba
 export MAMBA_ROOT_PREFIX="$S/mamba"
 if [ -f "$S/tools/.b200_ok" ] && cmp -s explicit.txt "$S/tools/.b200_ok"; then
-    ok "이미 같은 판이 설치돼 있어서 건너뛰어요"
+    ok "이미 같은 버전이 설치돼 있어서 건너뛰어요"
 elif [ -f "$S/tools/.b200_ok" ] && [ "${B200_REBUILD_TOOLS:-0}" != 1 ]; then
     warn "기초 프로그램 목록이 바뀌었어요. 쓰는 사람이 있을 수 있어 지금 설치된 것을 그대로 뒀어요."
-    warn "팀원이 안 쓸 때 새로 까세요: B200_REBUILD_TOOLS=1 bash pack_install.sh $S"
+    warn "팀원이 안 쓸 때 새로 설치하세요: B200_REBUILD_TOOLS=1 bash pack_install.sh $S"
 else
     rm -rf "$S/tools"   # 지난번에 끝까지 못 깐 것
     ./micromamba create -p "$S/tools" --offline -y -f explicit.txt ||
@@ -149,7 +149,7 @@ if [ ${#missing[@]} -eq 0 ]; then ok "기초 프로그램 명령이 모두 있�
 "$S/tools/bin/git" --version >/dev/null 2>&1 && "$S/tools/bin/tmux" -V >/dev/null 2>&1 &&
     ok "git, tmux가 실행돼요" || bad "git이나 tmux가 실행되지 않아요. 직접 실행해 오류를 확인하세요: $S/tools/bin/tmux -V"
 
-# 예전 판이 만든 공용 휠·공용 Python 환경. 지우지는 않고 알려만 준다(쓰는 사람이 있을 수 있다)
+# 예전 버전이 만든 공용 휠·공용 Python 환경. 지우지는 않고 알려만 준다(쓰는 사람이 있을 수 있다)
 for d in "$S/wheels" "$S/venv"; do
     [ -e "$d" ] && warn "예전 공용 휠·Python 환경이 남아 있어요: $d ($(du -sh "$d" 2>/dev/null | cut -f1)). 쓰는 사람이 없으면 지우세요: rm -rf $d"
 done

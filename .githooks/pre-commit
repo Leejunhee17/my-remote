@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# 커밋 전에 사내 정보가 들어가지 않았는지 봐요. 저장소를 받은 뒤 한 번만 켜요: git config core.hooksPath .githooks
+# 가릴 낱말(서버 이름, 계정 이름, NAS 주소, 팀 이름 등)은 저장소에 올라가지 않는 .git/info/b200-blocklist.txt 에 한 줄에 하나씩 적어요.
+bad=0
+files=$(git diff --cached --name-only --diff-filter=ACM)
+if echo "$files" | grep -E '_report_'; then
+    echo "[멈춤] 원본 보고서(_report_)는 올리지 마세요. 공유용(_공유용_)만 올려요."; bad=1
+fi
+added=$(git diff --cached -U0 --diff-filter=ACM -- . ':(exclude)*.xlsx' | grep '^+' | grep -v '^+++')
+if echo "$added" | grep -nE '(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)'; then
+    echo "[멈춤] 사내 IP처럼 보이는 줄이 있어요."; bad=1
+fi
+list=$(git rev-parse --git-path info/b200-blocklist.txt)
+if [ -s "$list" ] && echo "$added" | grep -inF -f <(grep -v '^[[:space:]]*#' "$list" | grep .); then
+    echo "[멈춤] 가릴 낱말($list)이 들어 있어요."; bad=1
+fi
+[ "$bad" = 0 ] || { echo "커밋을 멈췄어요. 위 줄을 고치거나 가린 뒤 다시 커밋하세요."; exit 1; }

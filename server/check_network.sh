@@ -7,7 +7,7 @@
 #   bash check_network.sh listen            서버 사이 속도 재기: 받는 쪽(먼저 실행, 2분 기다려요)
 #   bash check_network.sh send <받는 쪽 IP>  서버 사이 속도 재기: 보내는 쪽(10초)
 #   bash check_network.sh disk <폴더>        그 폴더(NAS나 /app)의 쓰기·읽기 속도(시험 파일 4 GB를 쓰고 지워요)
-#   JOBS=8 bash check_network.sh disk <폴더> 여러 줄기로 동시에(여럿이 함께 쓸 때의 전체 속도)
+#   JOBS=8 bash check_network.sh disk <폴더> 파일 8개를 동시에(여럿이 함께 쓸 때의 전체 속도)
 # 숫자는 GB/s(초당 기가바이트)와 Gbps(초당 기가비트, 카드 속도 단위)를 같이 보여 줘요. 1 GB/s = 8 Gbps.
 set -uo pipefail
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
@@ -32,7 +32,7 @@ nic_line() {
     echo "  $(pad "$n" 16)$(pad "$kind" 16)$(pad "$state" 8)$(pad "${speed:+$((speed / 1000)) Gbps}" 11)$(pad "$mtu" 7)${addr:--}"
     # 묶은 카드(bond): 어떤 카드를 묶었는지와 나눠 보내는 방식. 한 연결(TCP 하나)은 카드 하나 속도를 넘지 못한다
     if [ -d "$d/bonding" ]; then
-        echo "      = $(cat "$d/bonding/slaves" 2>/dev/null | sed 's/ / + /g'),  모드 $(cut -d' ' -f1 "$d/bonding/mode" 2>/dev/null), 나누는 기준 $(cut -d' ' -f1 "$d/bonding/xmit_hash_policy" 2>/dev/null)"
+        echo "      = $(cat "$d/bonding/slaves" 2>/dev/null | sed 's/ / + /g'),  모드 $(cut -d' ' -f1 "$d/bonding/mode" 2>/dev/null), 연결을 카드에 나누는 방식 $(cut -d' ' -f1 "$d/bonding/xmit_hash_policy" 2>/dev/null)"
         echo "        한 연결(scp 하나 등)은 카드 하나 속도까지만 나와요. 여러 연결을 동시에 해야 합친 속도가 나와요"
     fi
 }
@@ -81,7 +81,7 @@ cmd_info() {
         local host=${src%%:*}; host=${host#//}; host=${host%%/*}
         local ip; ip=$(getent ahostsv4 "$host" 2>/dev/null | awk 'NR==1 {print $1}'); ip=${ip:-$host}
         echo "  $tgt  ←  $src  ($fs)"
-        echo "      가는 카드: $(route_to "$ip")"
+        echo "      쓰는 네트워크 카드: $(route_to "$ip")"
         echo "      옵션: $(echo "$opts" | tr ',' '\n' | grep -E '^(vers|proto|rsize|wsize|nconnect|hard|soft)=?' | tr '\n' ' ')"
         echo "$opts" | grep -q 'proto=rdma' && ok 'RDMA로 연결돼 있어요(빠른 방식)'
     done < <(findmnt -rn -t nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs,fuse.sshfs,9p -o TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null)
@@ -91,15 +91,15 @@ cmd_info() {
     if [ $# -ge 1 ]; then
         local other=$1
         head_ "다른 서버 $other"
-        echo "  가는 카드: $(route_to "$other")"
+        echo "  쓰는 네트워크 카드: $(route_to "$other")"
         if ping -c 4 -W 2 "$other" >/tmp/.b200ping.$$ 2>&1; then
-            ok "응답해요, 왕복 $(tail -1 /tmp/.b200ping.$$ | awk -F/ '{print $5}') ms"
+            ok "응답이 와요(왕복 $(tail -1 /tmp/.b200ping.$$ | awk -F/ '{print $5}') ms)"
         else
             warn "ping 응답이 없어요(ping만 막혀 있을 수도 있어요)"
         fi
         rm -f /tmp/.b200ping.$$
         if timeout 3 bash -c "</dev/tcp/$other/22" 2>/dev/null; then ok "SSH(22) 포트가 열려 있어요"
-        else warn "SSH(22) 포트에 닿지 않아요"; fi
+        else warn "SSH(22) 포트에 연결되지 않아요"; fi
         echo "  속도 재기: 그 서버에서 bash check_network.sh listen  →  이 서버에서 bash check_network.sh send $other"
     fi
 }
@@ -130,7 +130,7 @@ for _ in range(streams - 1):
     except socket.timeout: break
 for t in th: t.join()
 dt = time.time() - t0
-print(f"  {a[0]} 에서 {len(th)}줄기로 {total[0]/1e9:.1f} GB를 {dt:.1f}초에 받았어요: {total[0]/dt/1e9:.2f} GB/s ({total[0]/dt*8/1e9:.1f} Gbps)")
+print(f"  {a[0]} 에서 동시 연결 {len(th)}개로 {total[0]/1e9:.1f} GB를 {dt:.1f}초에 받았어요: {total[0]/dt/1e9:.2f} GB/s ({total[0]/dt*8/1e9:.1f} Gbps)")
 '
 PY_SEND='
 import socket, sys, time, multiprocessing as mp
@@ -153,15 +153,15 @@ for i in range(streams):
 for p in ps: p.join()
 tot = sum(q.get() for _ in ps)
 if tot == 0: print(f"  {host}:{port} 에 연결하지 못했어요. 받는 쪽에서 listen 을 먼저 실행했는지, 방화벽이 막는지 확인하세요."); sys.exit(1)
-print(f"  {streams}줄기로 {tot/1e9:.1f} GB를 {secs:.0f}초 동안 보냈어요: 약 {tot/secs/1e9:.2f} GB/s ({tot/secs*8/1e9:.1f} Gbps). 정확한 값은 받는 쪽 숫자를 보세요.")
+print(f"  동시 연결 {streams}개로 {tot/1e9:.1f} GB를 {secs:.0f}초 동안 보냈어요: 약 {tot/secs/1e9:.2f} GB/s ({tot/secs*8/1e9:.1f} Gbps). 정확한 값은 받는 쪽 숫자를 보세요.")
 '
 cmd_listen() {
-    if command -v iperf3 >/dev/null; then echo "  iperf3로 기다려요(한 번 재고 끝나요)"; exec iperf3 -s -1 -p "$PORT"; fi
+    if command -v iperf3 >/dev/null; then echo "  iperf3로 받을 준비를 했어요(한 번 재면 끝나요)"; exec iperf3 -s -1 -p "$PORT"; fi
     python3 -c "$PY_LISTEN" "$PORT" "$STREAMS" 120
 }
 cmd_send() {
     local to=${1:?받는 쪽 IP 를 적으세요: bash check_network.sh send 10.0.0.2}
-    echo "  가는 카드: $(route_to "$to"),  ${STREAMS}줄기, ${SECS}초"
+    echo "  쓰는 네트워크 카드: $(route_to "$to"),  동시 연결 ${STREAMS}개, ${SECS}초"
     if command -v iperf3 >/dev/null; then exec iperf3 -c "$to" -p "$PORT" -P "$STREAMS" -t "$SECS"; fi
     python3 -c "$PY_SEND" "$to" "$PORT" "$STREAMS" "$SECS"
     echo "  (python으로 잰 값이라 100 Gbps 이상 카드에서는 실제보다 낮게 나올 수 있어요)"
@@ -184,7 +184,7 @@ cmd_disk() {
     trap 'rm -rf "$TD"' EXIT   # TD 는 끝날 때 지우려고 전역
     f="$TD/t"
     cnt=$((size_gb * 64 / jobs)); [ "$cnt" -ge 1 ] || cnt=1; b=$((cnt * jobs * 16 * 1024 * 1024))
-    echo "${c_c}[$(hostname)] $dir 속도 ($(df -P "$dir" | awk 'NR==2 {print $1}'), 시험 파일 합계 $((b >> 30)) GB, ${jobs}줄기)${c_0}"
+    echo "${c_c}[$(hostname)] $dir 속도 ($(df -P "$dir" | awk 'NR==2 {print $1}'), 시험 파일 합계 $((b >> 30)) GB, 동시에 파일 ${jobs}개)${c_0}"
     t0=$(date +%s.%N)
     for i in $(seq 1 "$jobs"); do
         { dd if=/dev/zero of="$f.$i" bs=16M count="$cnt" oflag=direct conv=fsync status=none 2>/dev/null ||
@@ -196,7 +196,7 @@ cmd_disk() {
         { dd if="$f.$i" of=/dev/null bs=16M iflag=direct status=none 2>/dev/null || dd if="$f.$i" of=/dev/null bs=16M status=none; } &
     done; wait
     t1=$(date +%s.%N); echo "  읽기: $(rate "$b" "$(awk -v a="$t1" -v b="$t0" 'BEGIN{print a-b}')")"
-    [ "$jobs" = 1 ] && [ -z "${ALL_MODE:-}" ] && echo "  (한 줄기로 잰 값이에요. 여러 줄기 속도는 JOBS=8 을 앞에 붙여 재세요)"
+    [ "$jobs" = 1 ] && [ -z "${ALL_MODE:-}" ] && echo "  (파일 하나로 잰 값이에요. 여럿이 동시에 쓸 때 속도는 JOBS=8 을 앞에 붙여 재세요)"
 }
 
 # ------------------------------------------------------------------ 한 번에(턴키)
@@ -258,7 +258,7 @@ pair_tcp() {   # $1 이름 $2 내 포트 $3 짝 IP $4 짝 포트
     wait "$lp"
     local got; got=$(grep -v '기다려요' "$tmp"); rm -f "$tmp"
     echo "  보내기 → $3: $(echo "$sent" | gbs || echo '실패(연결하지 못했어요)')"
-    echo "  받기 ← $3: $(echo "$got" | gbs || echo '실패(짝이 보내지 못했어요)')"
+    echo "  받기 ← $3: $(echo "$got" | gbs || echo '실패(상대 서버가 보내지 못했어요)')"
     SUM+=("서버 사이 $1: 받기 $(echo "$got" | gbs || echo '실패'), 보내기 $(echo "$sent" | gbs || echo '실패')")
 }
 
@@ -289,27 +289,27 @@ disk_both() {   # 한 줄기와 8줄기
     local name=$1 dir=$2 r1 r8
     r1=$( (JOBS=1 cmd_disk "$dir") 2>&1); echo "$r1"
     r8=$( (JOBS=8 cmd_disk "$dir") 2>&1); echo "$r8"
-    SUM+=("$name 1줄기: 쓰기 $(echo "$r1" | grep 쓰기 | gbs || echo 실패) / 읽기 $(echo "$r1" | grep 읽기 | gbs || echo 실패)")
-    SUM+=("$name 8줄기: 쓰기 $(echo "$r8" | grep 쓰기 | gbs || echo 실패) / 읽기 $(echo "$r8" | grep 읽기 | gbs || echo 실패)")
+    SUM+=("$name 파일 1개: 쓰기 $(echo "$r1" | grep 쓰기 | gbs || echo 실패) / 읽기 $(echo "$r1" | grep 읽기 | gbs || echo 실패)")
+    SUM+=("$name 동시 8개: 쓰기 $(echo "$r8" | grep 쓰기 | gbs || echo 실패) / 읽기 $(echo "$r8" | grep 읽기 | gbs || echo 실패)")
 }
 
 all_body() {
     local nas R peer= pf role mine local_dir PINFO=
     nas=$(nas_dir "${1:-}")
-    echo "${c_c}[턴키 점검] $ME  $(date '+%F %T')  ($(id -un))${c_0}"
+    echo "${c_c}[한 번에 재기] $ME  $(date '+%F %T')  ($(id -un))${c_0}"
     [ "$(id -u)" = 0 ] || warn 'root가 아니라서 InfiniBand 망 조회(ibhosts)는 건너뛰어요'
     cmd_info
 
     # 짝 찾기
     R="$nas/.b200_net"
     if [ -n "$nas" ] && { [ -L "$R" ] || [ -L "$nas" ]; }; then
-        warn "짝 찾기 폴더가 링크라서 쓰지 않아요: $R (누가 만들었는지 확인하세요). 짝 없이 이 서버만 재요"; nas=
+        warn "상대 서버 찾기 폴더가 링크라서 쓰지 않아요: $R (누가 만들었는지 확인하세요). 이 서버만 재요"; nas=
     fi
     if [ -n "$nas" ]; then
-        mkdir -p "$R" 2>/dev/null; [ -L "$R" ] && { warn "짝 찾기 폴더가 링크예요: $R. 여기서 멈춰요"; return 1; }
+        mkdir -p "$R" 2>/dev/null; [ -L "$R" ] && { warn "상대 서버 찾기 폴더가 링크예요: $R. 여기서 멈춰요"; return 1; }
         # root 는 다른 계정이 만든 폴더에 쓰지 않는다(그 계정이 파일을 링크로 바꿔치기하면 root 가 이 서버의 파일을 덮는다)
         if [ "$(id -u)" = 0 ] && ! [[ "$(stat -c %u "$R" 2>/dev/null)" =~ ^(0|65534|4294967294)$ ]]; then
-            warn "짝 찾기 폴더를 다른 계정이 만들었어요: $R (주인 uid $(stat -c %u "$R")). 지우거나 그 계정으로 실행하세요. 짝 없이 이 서버만 재요"; nas=
+            warn "상대 서버 찾기 폴더를 다른 계정이 만들었어요: $R (주인 uid $(stat -c %u "$R")). 지우거나 그 계정으로 실행하세요. 이 서버만 재요"; nas=
         fi
     fi
     if [ -n "$nas" ]; then
@@ -319,7 +319,7 @@ all_body() {
         trap 'rm -f "$mine" "$PINFO"' EXIT; trap 'rm -f "$mine" "$PINFO"; exit 130' INT TERM
         { echo "HOST=$ME"; echo "ETH=${B200_ETH:-$(eth_ip)}"; echo "IB=$(ib_ips)"; echo "HCAS=$(active_hcas)"
           echo "PORT=$PORT"; echo "PERFTEST=$(command -v ib_write_bw >/dev/null && echo 1)"; } | put "$mine"
-        head_ "짝 찾기 (NAS: $R)"
+        head_ "상대 서버 찾기 (NAS: $R)"
         echo "  다른 서버에서도 bash /app/inbox/check_network.sh all 을 실행하세요. 최대 $((WAIT_PEER / 60))분 기다려요."
         local i rejected=' '
         for i in $(seq 1 "$WAIT_PEER"); do
@@ -329,15 +329,15 @@ all_body() {
                 # 짝 정보는 지금 한 번 복사해 두고 그것만 쓴다(시각도 함께: 짝의 완료 표시가 이번 실행 것인지 가릴 때 쓴다)
                 PINFO=$(mktemp); cp -p "$pf" "$PINFO"
                 if peer_ok "$PINFO"; then peer=$(field HOST "$PINFO"); pf=$PINFO; break 2; fi
-                warn "짝 정보 파일의 내용이 이상해서 짝으로 쓰지 않아요: $pf"; rm -f "$PINFO"; rejected+=" $pf "
+                warn "상대 서버 정보 파일의 내용이 이상해서 쓰지 않아요: $pf"; rm -f "$PINFO"; rejected+=" $pf "
             done
             [ $((i % 60)) = 0 ] && echo "  ...기다리는 중이에요($((i / 60))분)"
             sleep 1
         done
-        if [ -n "$peer" ]; then local pibs; pibs=$(field IB "$pf"); ok "짝: $peer (이더넷 $(field ETH "$pf"), InfiniBand ${pibs:-없음})"
-        else warn '짝을 찾지 못해 이 서버만 재요'; fi
+        if [ -n "$peer" ]; then local pibs; pibs=$(field IB "$pf"); ok "상대 서버: $peer (이더넷 $(field ETH "$pf"), InfiniBand ${pibs:-없음})"
+        else warn '상대 서버를 찾지 못해서 이 서버만 재요'; fi
     else
-        warn 'NAS를 찾지 못해서 짝 없이 이 서버만 재요(NAS 폴더를 직접 적으려면: bash check_network.sh all <NAS 폴더>)'
+        warn 'NAS를 찾지 못해서 이 서버만 재요(NAS 폴더를 직접 적으려면: bash check_network.sh all <NAS 폴더>)'
     fi
 
     if [ -n "$peer" ]; then
@@ -349,12 +349,12 @@ all_body() {
         pair_tcp 이더넷 "$PORT" "$peth" "$pport"
         myib=$(ib_ips)
         if [ -n "$pib" ] && [ -n "$myib" ]; then
-            head_ "서버 사이: InfiniBand 위 IP 통신 (IPoIB, $pib)"
-            echo "  가는 카드: $(route_to "$pib")"
+            head_ "서버 사이: InfiniBand로 IP 통신 (IPoIB, $pib)"
+            echo "  쓰는 네트워크 카드: $(route_to "$pib")"
             pair_tcp IPoIB $((PORT + 1)) "$pib" $((pport + 1))
             echo "  (python으로 재서 수십 Gbps보다 높게는 안 나와요. 실제 InfiniBand 속도는 아래 RDMA 값을 보세요)"
         fi
-        head_ '서버 사이: RDMA (GPU 서버끼리 학습할 때 NCCL 이 쓰는 길)'
+        head_ '서버 사이: RDMA (두 서버를 묶어 학습할 때 NCCL 이 쓰는 통신)'
         if command -v ib_write_bw >/dev/null && [ "$(field PERFTEST "$pf")" = 1 ]; then
             local common; common=$(comm -12 <(active_hcas | tr ' ' '\n' | grep . | sort) <(field HCAS "$pf" | tr ' ' '\n' | grep . | sort) | tr '\n' ' ')
             pair_rdma "$role" "$peth" "$common"
@@ -370,7 +370,7 @@ all_body() {
     local_dir=; for d in /app/inbox /app/workspace /app; do [ -d "$d" ] && [ -w "$d" ] && [ -O "$d" ] && { local_dir=$d; break; }; done
     if [ -n "$peer" ] && [ "$role" = B ]; then
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
-        echo "  NAS는 짝 서버($peer)가 다 잴 때까지 기다려요..."; wait_file "$R/$peer.nasdone" "$pf" 900 || warn '짝 서버가 15분 안에 끝내지 않아 기다리지 않고 넘어가요'
+        echo "  NAS는 상대 서버($peer)가 다 잴 때까지 기다려요..."; wait_file "$R/$peer.nasdone" "$pf" 900 || warn '상대 서버가 15분 안에 끝내지 않아서 기다리지 않고 넘어가요'
         head_ "NAS ($nas)"; disk_both NAS "$nas"
         : | put "$R/$ME.nasdone"
     else
@@ -383,10 +383,13 @@ all_body() {
     # InfiniBand 망: 카드마다 어떤 서버·장비가 보이나(같은 망인지)
     if [ "$(id -u)" = 0 ] && command -v ibhosts >/dev/null; then
         head_ 'InfiniBand 망에 보이는 장비 (카드별)'
+        local devs seen
         for hca in $(active_hcas); do
-            echo "  $(pad "$hca" 10) $(ibhosts -C "$hca" -P 1 2>/dev/null | grep -oP '"\K[^"]+' | awk '{print $1}' | sort -u | tr '\n' ' ')"
+            devs=$(ibhosts -C "$hca" -P 1 2>/dev/null | grep -oP '"\K[^"]+' | awk '{print $1}' | sort -u)
+            seen=; [ -n "$peer" ] && echo "$devs" | grep -qxF "$peer" && seen=', 상대 서버가 보여요(같은 망)'
+            echo "  $(pad "$hca" 10) 장비 $(echo "$devs" | grep -c .)대$seen"
+            echo "    장비: $(echo "$devs" | tr '\n' ' ')"
         done
-        [ -n "$peer" ] && echo "  위 목록에 짝 서버($peer)가 보이는 카드는 두 서버가 같은 망이에요."
     elif [ "$(id -u)" = 0 ]; then
         warn 'ibhosts(infiniband-diags)가 없어서 InfiniBand 망은 못 봐요. 필요하면 서버 관리 팀에 infiniband-diags 설치를 요청하세요'
     fi
@@ -403,14 +406,38 @@ report_dir() {
     fi
     if [ -O . ] && [ -w . ]; then echo "$PWD"; else echo "$HOME"; fi
 }
+# 공유용 사본: 서버 이름·IP·NAS 주소·계정·폴더 이름을 가려서 git 으로 올려도 되게 만든다.
+# $1 원본, $2 사본, 나머지는 "가릴말=바꿀말". IP 는 처음 나온 순서대로 IP-1, IP-2 … 로 바꿔 같은 IP 는 같은 번호가 된다
+share_copy() {
+    local src=$1 dst=$2; shift 2
+    perl -Mutf8 -CSDA -ne '
+        BEGIN { for (@ARGV) { my ($k, $v) = split /=/, $_, 2; $m{$k} //= $v if length($k) >= 2 }
+                @ARGV = (); $re = join "|", map { quotemeta } sort { length($b) <=> length($a) } keys %m; $n = 0 }
+        next if /^\s*장비: /;                                  # InfiniBand 망의 장비 이름(다른 팀 장비일 수 있음)
+        s/($re)/$m{$1}/g if length $re;                         # 한 번에 바꾼다(바꾼 말을 다시 바꾸지 않게)
+        s{\b[\w.-]+:/[\w./-]*}{NAS주소}g;
+        s{\b((?:\d{1,3}\.){3}\d{1,3})(?:/\d+)?\b}{ $ip{$1} //= "IP-" . ++$n }ge;
+        print;
+    ' "$@" < "$src" > "$dst"
+    chmod 644 "$dst" 2>/dev/null
+}
+LABEL="서버(…$(hostname -s | tail -c 3))"   # 공유용 사본에서 이 서버를 부르는 이름(이름 끝 두 글자만)
 cmd_all() {
     local dir; dir=$(report_dir)
     local out; out=$(mktemp "$dir/network_report_${ME}_$(date +%Y%m%d-%H%M)_XXXX.txt") || out=$(mktemp)
     all_body "$@" 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' > "$out")
     sleep 1
     chmod 644 "$out" 2>/dev/null   # 공용 계정(FileZilla)으로 내려받을 수 있게
-    echo; echo "보고서: $(readlink -f "$out")"
-    echo "  사내 정보(서버 이름·IP)가 들어 있어서 저장소에는 올리지 마세요. 숫자만 docs/4_네트워크.md 의 \"측정 결과\" 표에 옮겨 적어요."
+    # 공유용 사본: 이 서버와 상대 서버 이름을 가린다(상대 서버 이름은 NAS 의 상대 정보 파일에서)
+    local masks=("$(hostname -f 2>/dev/null)=$LABEL" "$ME=$LABEL") f h
+    for f in "$(nas_dir "${1:-}")"/.b200_net/*.info; do
+        h=$(field HOST "$f"); [[ "$h" =~ ^[A-Za-z0-9._-]{2,64}$ ]] && [ "$h" != "$ME" ] && masks+=("$h=상대서버(…${h: -2})")
+    done 2>/dev/null
+    local share="$dir/network_공유용_${LABEL//[^A-Za-z0-9]/}_$(date +%Y%m%d-%H%M).txt"
+    share_copy "$out" "$share" "${masks[@]}"
+    echo; echo "보고서(원본, 사내 정보 있음): $(readlink -f "$out")"
+    echo "보고서(공유용, git 으로 올려도 돼요): $share"
+    echo "  공유용만 내려받아 저장소의 reports 폴더에 넣고 올리세요(docs/4_네트워크.md 의 \"결과 가져오기\")."
 }
 
 case "${1:-}" in
