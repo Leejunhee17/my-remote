@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [B200 서버] 접근 PC에서 올린 datasets 폴더를 ~/shared/datasets 아래 푼다. root 없이 된다.
+# [B200 서버 · 관리자(root)] 접근 PC에서 올린 datasets 폴더를 /app/shared/datasets 아래 푼다(admin_setup.sh 다음).
 # 점검(체크섬) → 풀기 → 학습 코드가 찾는 라벨이 있는지 검사까지 한 번에 한다.
 #   bash /app/inbox/datasets/datasets_install.sh
 # 다시 실행해도 된다. 이미 푼 것은 건너뛴다.

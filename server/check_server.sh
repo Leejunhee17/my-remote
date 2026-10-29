@@ -55,15 +55,20 @@ if [ -d "$APP" ]; then
     rota=$(lsblk -ndo ROTA "$app_dev" 2>/dev/null || lsblk -no ROTA "$app_dev" 2>/dev/null | head -1)
     kind=$([ "$(echo $rota)" = 0 ] && echo SSD || { [ "$(echo $rota)" = 1 ] && echo HDD || echo 종류 모름; })
     echo "  $APP: $app_dev, $kind, 남음 ${app_gb} GB"
-    if [ -w "$APP" ]; then ok "$APP 에 쓸 수 있다"
-    else bad "$APP 에 쓸 수 없다" "$APP 쓰기 권한을 공용 계정 $(id -un) 에 주기"; fi
+    # /app 은 root 소유로 둔다(admin_setup.sh 가 잠근다). 팀원은 그 아래 /app/workspace 에 쓴다
+    owner=$(stat -c %U "$APP")
+    if [ "$owner" = root ]; then ok "$APP 주인 root (팀원은 $APP/workspace 에 쓴다)"
+    else warn "$APP 주인이 $owner 다. root 로 admin_setup.sh 를 실행하면 root 소유로 잠근다"; fi
+    if [ -d "$APP/workspace" ] && [ ! -w "$APP/workspace" ]; then
+        bad "$APP/workspace 에 쓸 수 없다" "root 로 bash /app/inbox/admin_setup.sh 다시 실행(공용 계정 소유로 맞춘다)"
+    fi
     if [ -e "$APP/shared" ]; then
         warn "$APP/shared 가 남아 있다(예전 설치). pack_install.sh 가 그대로 이어서 쓴다"
     fi
     [ -d "$APP/shared/datasets" ] && ok "예전 데이터셋이 남아 있다: $APP/shared/datasets (다시 올리지 않아도 된다)"
     [ -d "$APP/shared/models" ] && ok "예전 모델이 남아 있다: $APP/shared/models (다시 올리지 않아도 된다)"
 else
-    bad "$APP 가 없다" "2 TB SSD를 $APP 에 마운트하고 공용 계정 $(id -un) 에 쓰기 권한 주기"
+    bad "$APP 가 없다" "2 TB SSD를 $APP 에 마운트하기(주인은 root 그대로)"
 fi
 
 echo; echo "${c_c}== 시스템 라이브러리 (open3d 등이 쓴다) ==${c_0}"

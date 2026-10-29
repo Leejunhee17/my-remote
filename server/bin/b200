@@ -16,8 +16,8 @@ ACC=${B200_ACCOUNT:-shareduser}
 TEAM=$S/team.txt
 ALLOC=$S/gpu_alloc.txt
 NOTE=$ST/notice          # 알림: root(정기 점검)만 쓰는 곳
-SEEN=$ST/notice_seen
-USED=$ST/gpu_log/images_used.tsv   # 이미지를 마지막으로 쓴 날: root 만 쓰는 곳(공용 계정 폴더에 root 가 쓰면 링크로 시스템 파일을 덮을 수 있다)     # 팀원이 어디까지 봤는지: 공용 계정이 쓰는 곳. root 는 여기를 읽거나 쓰지 않는다
+SEEN=$ST/notice_seen     # 팀원이 어디까지 봤는지: 공용 계정이 쓰는 곳. root 는 여기를 읽거나 쓰지 않는다
+USED=$ST/gpu_log/images_used.tsv   # 이미지를 마지막으로 쓴 날: root 만 쓰는 곳(공용 계정 폴더에 root 가 쓰면 링크로 시스템 파일을 덮을 수 있다)
 ME=${B200_USER:-}
 # 관리자가 정하는 숫자(/app/shared/b200.conf 가 있으면 그 값). 모두 알림 기준이다
 MAX_GPUS=4; IDLE_HOURS=12; DISK_ALERT=85; IMAGE_NOTICE_DAYS=30
@@ -58,19 +58,26 @@ load_containers() {
     [ -n "$HAVE_DOCKER" ] || return 0
     local ids; ids=$("${DOCKER[@]}" ps -q 2>/dev/null); [ -n "$ids" ] || return 0
     # shellcheck disable=SC2086
-    CONTAINERS=$("${DOCKER[@]}" inspect -f '{{.State.Pid}}{{"\t"}}{{slice .Name 1}}{{"\t"}}{{index .Config.Labels "b200.USER"}}{{"\t"}}{{range .HostConfig.DeviceRequests}}{{if .DeviceIDs}}{{join .DeviceIDs ","}}{{else if eq .Count -1}}all{{else}}n{{.Count}}{{end}}{{end}}{{"\t"}}{{.Config.Image}}{{"\t"}}{{index .Config.Labels "b200.GPUS"}}' $ids 2>/dev/null |
+    CONTAINERS=$("${DOCKER[@]}" inspect -f '{{.State.Pid}}{{"\t"}}{{slice .Name 1}}{{"\t"}}{{printf "%q" (index .Config.Labels "b200.USER")}}{{"\t"}}{{range .HostConfig.DeviceRequests}}{{if .DeviceIDs}}{{join .DeviceIDs ","}}{{else if eq .Count -1}}all{{else}}n{{.Count}}{{end}}{{end}}{{"\t"}}{{printf "%q" .Config.Image}}{{"\t"}}{{printf "%q" (index .Config.Labels "b200.GPUS")}}' $ids 2>/dev/null |
+        # 이름표는 누구나 아무 글자(줄바꿈 포함)나 넣을 수 있다. %q 로 한 줄로 받고, 모양이 맞는 줄만 쓴다(root 가 읽는다)
         # GPU 요청 정보가 비어 있으면 이름표(b200.GPUS)로 본다
-        awk -F'\t' -v OFS='\t' '$4=="" && $6 ~ /^[0-9,]+$/ {$4=$6} {NF=5; print}')
+        awk -F'\t' -v OFS='\t' 'NF==6 && $1 ~ /^[0-9]+$/ {
+            gsub(/^"|"$/, "", $3); gsub(/^"|"$/, "", $5); gsub(/^"|"$/, "", $6)
+            if ($3 ~ /[\\"]/) $3="?"; if ($5 ~ /[\\"]/) $5="?"
+            if ($4=="" && $6 ~ /^[0-9,]+$/) $4=$6
+            NF=5; print}')
 }
 gpu_count() { "$NVSMI" -L 2>/dev/null | grep -c '^GPU'; }
 # 3,4 | all | n2 → GPU 번호들(줄마다 하나)
+# 값은 도커(공용 계정이 돌린다)에서 오므로 숫자 모양만 받는다. 계산식에 넣으면 그 안의 명령이 실행된다
 expand_gpus() {
     case "$1" in
         all) seq 0 $(( $(gpu_count) - 1 )) ;;
-        n*)  seq 0 $(( ${1#n} - 1 )) ;;
+        n*)  [[ "$1" =~ ^n[0-9]{1,2}$ ]] && seq 0 $(( 10#${1#n} - 1 )) ;;
         ''|-) ;;
-        *)   echo "$1" | tr ',' '\n' ;;
+        *)   echo "$1" | tr ',' '\n' | grep -xE '[0-9]{1,2}' ;;
     esac
+    return 0
 }
 
 # ------------------------------------------------------------------ GPU 프로세스 → 사람
@@ -298,7 +305,7 @@ cmd__check() {
 image_table() {
     [ -n "$HAVE_DOCKER" ] || return 0
     local led=() f
-    for f in "$ST/images/loaded.tsv" "$USED"; do [ -f "$f" ] && led+=("$f"); done   # loaded.tsv 는 docker 래퍼(공용 계정)가 쓴다. root 가 만들지 않는다
+    for f in "$ST/images/loaded.tsv" "$USED"; do [ -f "$f" ] && [ ! -L "$f" ] && led+=("$f"); done   # loaded.tsv 는 docker 래퍼(공용 계정)가 쓴다. root 가 만들지 않는다
     "${DOCKER[@]}" images --format '{{.Repository}}:{{.Tag}}{{"\t"}}{{.CreatedAt}}{{"\t"}}{{.Size}}' 2>/dev/null | grep -v '^<none>' |
     while IFS=$'\t' read -r ref created size; do
         awk -F'\t' -v r="$ref" -v c="${created:0:10}" -v sz="$size" '

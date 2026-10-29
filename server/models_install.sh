@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [B200 서버] 접근 PC에서 올린 models 폴더를 ~/shared/models/<만든 곳>/<모델> 아래 둔다. root 없이 된다.
+# [B200 서버 · 관리자(root)] 접근 PC에서 올린 models 폴더를 /app/shared/models/<만든 곳>/<모델> 아래 둔다(admin_setup.sh 다음).
 # 점검(체크섬) → 옮기기 → 가중치 파일을 열어 보는 검사까지 한 번에 한다.
 #   bash /app/inbox/models/models_install.sh
 # 다시 실행해도 된다. 이미 옮긴 것은 건너뛴다.

@@ -74,7 +74,7 @@ chown root:root /app/inbox && chmod 755 /app/inbox
 ok "$W : 팀원 작업 공간,  $ST : 기록·알림,  /app/inbox : 관리자만 올림(root)"
 # 홈에서도 보이게 링크(홈은 10 GB 라 실제 파일은 /app 에)
 for n in shared workspace; do
-    [ -e "$HOME_A/$n" ] || { ln -s "/app/$n" "$HOME_A/$n" && chown -h "$ACC:$ACC" "$HOME_A/$n"; }
+    [ -e "$HOME_A/$n" ] || [ -L "$HOME_A/$n" ] || runuser -u "$ACC" -- ln -sn "/app/$n" "$HOME_A/$n"   # 공용 계정 홈이라 그 권한으로
 done
 # 팀원 명단과 GPU 배분: 관리자가 고치고, b200 명령이 읽는다(엑셀 '팀원', 'GPU 배분' 시트와 같게)
 [ -f "$S/team.txt" ] || cat > "$S/team.txt" <<'EOF'
@@ -186,7 +186,7 @@ chmod 644 /etc/profile.d/b200.sh
 grep -q '# b200 admin_setup' /etc/bash.bashrc ||
     echo '[ -r /etc/profile.d/b200.sh ] && . /etc/profile.d/b200.sh  # b200 admin_setup' >> /etc/bash.bashrc
 # 예전 방식(~/.bashrc 의 PATH 줄)은 지운다. 이제 시스템 설정이 맡는다
-[ -f "$HOME_A/.bashrc" ] && sed -i '\#shared/tools/bin#d' "$HOME_A/.bashrc"
+[ -f "$HOME_A/.bashrc" ] && runuser -u "$ACC" -- sed -i '\#shared/tools/bin#d' "$HOME_A/.bashrc"
 ok '접속할 때 이름 고르기(번호), 이름별 캐시·명령 기록, 작업 폴더로 이동, 알림 보기'
 
 # ------------------------------------------------------------------ 5. GPU 서비스

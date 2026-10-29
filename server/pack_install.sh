@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# [B200 서버] b200-pack.tar 를 공용 폴더(~/shared) 아래 설치한다. root 없이 된다.
-# 점검 → 설치 → 검사까지 한 번에 한다. 실패하면 고친 뒤 다시 실행하면 된다.
-#   bash pack_install.sh               ~/shared 에 설치
-#   bash pack_install.sh /app/shared   큰 디스크에 설치하고 ~/shared 는 그곳으로 가는 링크로 만든다.
-#                                      개인 작업 폴더 /app/workspace 와 링크 ~/workspace 도 없으면 만든다
+# [B200 서버] b200-pack.tar 를 공용 폴더에 설치한다. 점검 → 설치 → 검사까지 한 번에 한다. 실패하면 고친 뒤 다시 실행하면 된다.
+#   bash pack_install.sh /app/shared   관리자(root). admin_setup.sh 다음에 실행한다(지금 방식)
+#   bash pack_install.sh               공용 계정으로 ~/shared 에 설치(예전 방식, 관리자 설정 전)
+#   공용 계정으로 경로를 주면 ~/shared 를 그곳으로 가는 링크로 만들고, 작업 폴더와 링크 ~/workspace 도 없으면 만든다
 set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행한다. 접근 PC에서는 .ps1 을 쓴다."; exit 1; fi
 cd "$(dirname "$0")"
@@ -13,10 +12,14 @@ if [ "$(id -u)" = 0 ] && [ -d /app ] && { [ "$(stat -c %U /app)" != root ] || [ 
     echo "멈춤: /app 이 아직 잠기지 않았다. 먼저 root 로 bash admin_setup.sh 를 실행한다."; exit 1
 fi
 
-# 공용 폴더를 큰 디스크에 두라고 했으면 ~/shared 를 그곳으로 가는 링크로 만든다.
+# (공용 계정으로 실행할 때) 큰 디스크 경로를 줬으면 ~/shared 를 그곳으로 가는 링크로 만든다.
 # 이후 모든 경로는 ~/shared 로 쓰므로 문서와 다른 스크립트를 그대로 쓸 수 있다.
 REAL=${1:-}
-if [ -n "$REAL" ]; then
+if [ "$(id -u)" = 0 ]; then
+    # 관리자 설치: root 홈에 링크를 만들지 않고 준 경로에 바로 설치한다
+    [ -n "$REAL" ] || { echo "멈춤: root 로 설치할 때는 경로를 준다: bash pack_install.sh /app/shared"; exit 1; }
+    mkdir -p "$REAL" || { echo "멈춤: $REAL 를 만들 수 없다."; exit 1; }
+elif [ -n "$REAL" ]; then
     REAL=$(realpath -m "$REAL")
     mkdir -p "$REAL" 2>/dev/null || { echo "멈춤: $REAL 를 만들 수 없다. 쓰기 권한을 확인한다."; exit 1; }
     if [ -L "$HOME/shared" ]; then
@@ -38,7 +41,7 @@ if [ -n "$REAL" ]; then
     if [ ! -e "$HOME/workspace" ] && mkdir -p "$W" 2>/dev/null; then ln -s "$W" "$HOME/workspace"; fi
 fi
 # 실제 경로로 적어야 venv·기초 프로그램에 박히는 경로가 누구에게나 맞다(예: /app/shared)
-S=$(realpath -m "$HOME/shared")
+if [ "$(id -u)" = 0 ]; then S=$(realpath -m "$REAL"); else S=$(realpath -m "$HOME/shared"); fi
 if [ -d "$S" ] && [ ! -w "$S" ]; then
     echo "멈춤: 공용 폴더($S)는 관리자(root)만 고칠 수 있다. 관리자 계정으로 bash pack_install.sh /app/shared 를 실행한다."; exit 1
 fi
@@ -228,7 +231,7 @@ echo
 if [ "$FAILS" -eq 0 ]; then
     echo "${c_g}############################ 완료 ############################${c_0}"
     echo " 모두 정상. 기초 프로그램 $S/tools, 공용 환경 $S/venv"
-    echo " 새 터미널을 열거나 source ~/.bashrc 하면 기초 프로그램을 쓸 수 있다."
+    echo " 새 터미널을 열면 기초 프로그램을 쓸 수 있다."
     echo " 내 Python 환경 만들기: docs/1_공용_휠_기초프로그램.md"
     echo " 정리: rm -rf $HERE/*"
     echo "${c_g}##############################################################${c_0}"
