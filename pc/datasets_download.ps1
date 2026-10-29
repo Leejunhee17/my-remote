@@ -641,8 +641,9 @@ Write-Host ' 접근 PC에서 할 일은 끝났어요. B200 서버에 올릴 폴�
 Write-Host "   $Dest  ($(Format-Size $total))"
 if ((Split-Path -Leaf $Dest) -ne 'datasets') { Write-Host '   폴더 이름이 datasets 가 아니면, 올리기 전에 datasets 로 바꾸세요(서버 명령이 이 이름만 받아요).' -ForegroundColor Yellow }
 Write-Host ''
-Write-Host " 지문(sha256): $(Get-Fingerprint @((Join-Path $Dest 'MANIFEST.sha256'), (Join-Path $Dest 'datasets_install.sh')))" -ForegroundColor Cyan
+Save-Fingerprint 'datasets 폴더' (Get-Fingerprint @((Join-Path $Dest 'MANIFEST.sha256'), (Join-Path $Dest 'datasets_install.sh')))
 Write-Host '   (MANIFEST.sha256과 datasets_install.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
+Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @('wildscenes/')
 Write-Host ''
 Write-Host ' 1) 공용 계정(shareduser)의 FileZilla로 B200 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green

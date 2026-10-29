@@ -256,6 +256,33 @@ function Get-File($url, $file, $md5, $tries, $sha256) {
     return $false
 }
 
+# 지문은 업로드가 끝난 뒤(몇 시간 뒤, 다른 날, NAS를 거친 서버 2)에 맞춰 보므로 화면에만 두지 않고 저장소 맨 위에 쌓아 둔다
+function Save-Fingerprint($what, $fp) {
+    $f = Join-Path $root '지문_기록.txt'
+    Add-Content -Encoding UTF8 -Path $f -Value ('{0}  {1}  {2}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm'), $what, $fp)
+    Write-Host " 지문(sha256): $fp" -ForegroundColor Cyan
+    Write-Host "   (이 값은 $f 에도 적어 뒀어요)"
+}
+
+# 올릴 폴더 안에서 B200 서버가 쓰지 않는 큰 파일(받다 만 파일, 목록에서 뺀 모델 등)을 알려 준다. HIWARE로 올리는 시간을 아낀다
+function Show-NotNeeded($dest, $manifest, [string[]]$keepPrefix) {
+    $base = (Resolve-Path $dest).Path.TrimEnd('\')
+    $keep = @{}
+    foreach ($l in (Get-Content $manifest)) { if ($l -match '^[0-9a-f]{64}  (.+)$') { $keep[$Matches[1]] = 1 } }
+    $extra = @(Get-ChildItem $base -Recurse -File | Where-Object {
+        $rel = $_.FullName.Substring($base.Length + 1) -replace '\\', '/'
+        $inPrefix = $false
+        foreach ($p in $keepPrefix) { if ($p -and $rel.StartsWith($p)) { $inPrefix = $true } }
+        $_.Length -ge 10MB -and -not $keep.ContainsKey($rel) -and -not $inPrefix
+    })
+    if (-not $extra.Count) { return }
+    $sum = ($extra | Measure-Object -Property Length -Sum).Sum
+    Write-Host " 이 폴더 안에서 B200 서버가 쓰지 않는 큰 파일이 $($extra.Count)개($(Format-Size $sum)) 있어요. 올릴 때 빼면 시간을 아껴요:" -ForegroundColor Yellow
+    $extra | Sort-Object Length -Descending | Select-Object -First 8 | ForEach-Object {
+        Write-Host "   $($_.FullName.Substring($base.Length + 1))  ($(Format-Size $_.Length))" }
+    if ($extra.Count -gt 8) { Write-Host "   ... 외 $($extra.Count - 8)개" }
+}
+
 # B200 서버에서 root 가 확인할 지문(sha256, 소문자).
 # 파일 하나면 그 파일의 sha256(서버: sha256sum 파일), 여러 개면 이어 붙인 내용의 sha256(서버: cat 파일들 | sha256sum)
 function Get-Fingerprint([string[]]$files) {

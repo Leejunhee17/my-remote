@@ -164,7 +164,7 @@ Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝났어요. B200 서버에 올릴 파일(하나):' -ForegroundColor Green
 Write-Host "   $tar  ($size)"
 Write-Host ''
-Write-Host " 지문(sha256): $(Get-Fingerprint @($tar))" -ForegroundColor Cyan
+Save-Fingerprint 'b200-pack.tar' (Get-Fingerprint @($tar))
 Write-Host ''
 Write-Host ' 1) 공용 계정(shareduser)의 FileZilla로 B200 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
