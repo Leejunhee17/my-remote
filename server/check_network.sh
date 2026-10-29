@@ -394,14 +394,24 @@ all_body() {
     head_ '요약'
     printf '  %s\n' "${SUM[@]}"
 }
+# 보고서 둘 곳: root 는 /app/inbox/reports(root 만 고치고 공용 계정 FileZilla로 내려받을 수 있음),
+# 그 밖에는 실행한 폴더(내 것일 때)나 홈. 남이 쓸 수 있는 폴더에는 쓰지 않는다(링크로 다른 파일을 덮게 만들 수 있다)
+report_dir() {
+    local ib=${B200_INBOX:-/app/inbox}   # 시험할 때만 바꾼다
+    if [ "$(id -u)" = 0 ] && [ -d "$ib" ] && [ ! -L "$ib" ] && [ "$(stat -c %U "$ib")" = root ]; then
+        mkdir -p "$ib/reports" && [ ! -L "$ib/reports" ] && chmod 755 "$ib/reports" && echo "$ib/reports" && return
+    fi
+    if [ -O . ] && [ -w . ]; then echo "$PWD"; else echo "$HOME"; fi
+}
 cmd_all() {
-    # 보고서는 내 폴더에만 쓴다(남이 쓸 수 있는 폴더면 같은 이름의 링크를 심어 root 가 다른 파일을 덮게 만들 수 있다)
-    local dir=.; [ -O . ] && [ -w . ] || dir=$HOME
+    local dir; dir=$(report_dir)
     local out; out=$(mktemp "$dir/network_report_${ME}_$(date +%Y%m%d-%H%M)_XXXX.txt") || out=$(mktemp)
     all_body "$@" 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' > "$out")
     sleep 1
     chmod 644 "$out" 2>/dev/null   # 공용 계정(FileZilla)으로 내려받을 수 있게
-    echo; echo "보고서: $(readlink -f "$out")"; echo "  공용 계정 FileZilla로 내려받아 docs/4_네트워크.md 의 \"원본 기록\"에 붙여 주세요."
+    echo; echo "보고서: $(readlink -f "$out")"
+    case "$out" in /app/*) echo "  공용 계정 FileZilla로 내려받아 docs/4_네트워크.md 의 \"원본 기록\"에 붙여 주세요." ;;
+                   *) echo "  이 폴더는 FileZilla로 못 받을 수 있어요. 화면 내용을 복사해 docs/4_네트워크.md 의 \"원본 기록\"에 붙여 주세요." ;; esac
 }
 
 case "${1:-}" in
