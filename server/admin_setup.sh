@@ -164,14 +164,15 @@ step '4. 접속 설정 (/etc/profile.d/b200.sh)'
 cat > /etc/profile.d/b200.sh <<EOF
 # B200 서버 공용 설정. admin_setup.sh 가 만든다. 관리자만 고칠 수 있다.
 [ -n "\${BASH_VERSION:-}" ] || return 0
-# 도우미(docker, nvidia-smi)가 진짜 명령보다 먼저 오게 맨 앞에, 기초 프로그램은 맨 뒤에
-case ":\$PATH:" in *":$S/bin:"*) ;; *) PATH="$S/bin:\$PATH:$S/tools/bin"; export PATH ;; esac
+# 우리 공용 계정에만 건다. 다른 계정(서버 2의 다른 팀, root)의 docker·nvidia-smi·PATH 는 건드리지 않는다
 if [ "\$(id -u)" = 0 ]; then
     # 관리자: 아직 안 본 알림(이름 없는 GPU 사용, 디스크, GPU 오류, 주간 보고서)
     case \$- in *i*) [ -n "\${B200_ADMIN_DONE:-}" ] || $S/bin/b200 _notices 관리자; B200_ADMIN_DONE=1 ;; esac
     return 0
 fi
 [ "\$(id -un)" = "$ACC" ] || return 0
+# 도우미(docker, nvidia-smi)가 진짜 명령보다 먼저 오게 맨 앞에, 기초 프로그램은 맨 뒤에
+case ":\$PATH:" in *":$S/bin:"*) ;; *) PATH="$S/bin:\$PATH:$S/tools/bin"; export PATH ;; esac
 [ -n "\${B200_PROFILE_DONE:-}" ] && return 0
 B200_PROFILE_DONE=1
 # 한글이 깨지지 않게 UTF-8 로 맞춘다(HIWARE 접속은 언어 설정이 비어 올 수 있다)
@@ -228,7 +229,9 @@ for svc in nvidia-persistenced nvidia-fabricmanager nvlsm; do
 done
 mapfile -t held < <(dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null |
     awk '$NF=="installed" && $1 ~ /^(nvidia-|libnvidia-|cuda-drivers|nvlsm|libnvsdm|datacenter-gpu-manager)/ {print $1}')
-if [ ${#held[@]} -gt 0 ]; then
+if grep -qE '^\s*[0-9]+\s+다른팀' "$S/gpu_alloc.txt" 2>/dev/null; then
+    warn '다른 팀과 같이 쓰는 서버라 드라이버 버전 고정(apt-mark hold)은 하지 않는다. 드라이버 업데이트는 서버 관리 팀·다른 팀과 정한다'
+elif [ ${#held[@]} -gt 0 ]; then
     apt-mark hold "${held[@]}" >/dev/null && ok "드라이버 관련 패키지 ${#held[@]}개 버전 고정(apt-mark hold)"
 else warn '고정할 NVIDIA 패키지를 찾지 못했다(드라이버를 패키지가 아닌 방식으로 깔았을 수 있다)'; fi
 

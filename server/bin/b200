@@ -106,12 +106,15 @@ owner_of_pid() {
 }
 # 한 줄에 "gpu pid 메모리MiB 사람 어디"
 gpu_procs() {
-    local map
+    local map oth; oth=" $(other_gpus | tr '\n' ' ')"
     map=$("$NVSMI" --query-gpu=index,uuid --format=csv,noheader 2>/dev/null)
     "$NVSMI" --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader,nounits 2>/dev/null |
         while IFS=', ' read -r uuid pid mem; do
             [ -n "$pid" ] || continue
-            echo "$(echo "$map" | awk -F', ' -v u="$uuid" '$2==u {print $1}') $pid $mem $(owner_of_pid "$pid")"
+            local g; g=$(echo "$map" | awk -F', ' -v u="$uuid" '$2==u {print $1}')
+            # 다른 팀 GPU 의 다른 계정 프로세스는 들여다보지 않는다(우리 공용 계정 것만 주인을 찾는다)
+            case "$oth" in *" $g "*) [ "$(stat -c %U "/proc/$pid" 2>/dev/null)" = "$ACC" ] || continue ;; esac
+            echo "$g $pid $mem $(owner_of_pid "$pid")"
         done
 }
 # GPU 마다 "gpu 사람 어디" (프로세스 + GPU를 잡은 컨테이너. 아직 GPU를 안 써도 잡은 것으로 본다)

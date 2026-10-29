@@ -65,14 +65,19 @@ NET=slirp4netns; command -v slirp4netns >/dev/null || NET=pasta
 ok "uidmap, 컨테이너 네트워크($NET) 준비됨"
 
 nv_have=$(dpkg-query -W -f='${Version}' nvidia-container-toolkit 2>/dev/null || true)
-if [ "$nv_have" = "$(info nvidia_toolkit)" ]; then ok "NVIDIA Container Toolkit $nv_have 이미 있음"
+# 이미 깔려 있으면 판이 달라도 그대로 쓴다(다른 팀이 같이 쓰는 서버에서 남의 도커 GPU 설정을 바꾸지 않게)
+if [ -n "$nv_have" ]; then ok "NVIDIA Container Toolkit $nv_have 이미 있음(그대로 씀)"
 else
     dpkg -i debs/nvidia/*.deb || stop 'NVIDIA Container Toolkit 설치 실패' '위 dpkg 오류를 본다.'
     ok "NVIDIA Container Toolkit $(info nvidia_toolkit) 설치함"
 fi
-# rootless 에서는 cgroup 을 직접 못 만지므로 GPU 연결 도구가 cgroup 을 건드리지 않게 한다
-nvidia-ctk config --set nvidia-container-cli.no-cgroups --in-place >/dev/null 2>&1 &&
-    ok 'GPU 연결 도구를 rootless 모드로 설정' || warn 'nvidia-ctk 설정 실패. /etc/nvidia-container-runtime/config.toml 에서 no-cgroups = true 로 바꾼다.'
+# rootless 에서는 cgroup 을 직접 못 만지므로 GPU 연결 도구가 cgroup 을 건드리지 않게 한다.
+# 서버 전체 설정(/etc/nvidia-container-runtime)은 그대로 두고, 우리 도커만 읽는 설정 파일을 따로 둔다(서비스의 XDG_CONFIG_HOME)
+mkdir -p "$CONF/nvidia-container-runtime"
+[ -f /etc/nvidia-container-runtime/config.toml ] && cp /etc/nvidia-container-runtime/config.toml "$CONF/nvidia-container-runtime/config.toml"
+nvidia-ctk config --set nvidia-container-cli.no-cgroups --in-place --config "$CONF/nvidia-container-runtime/config.toml" >/dev/null 2>&1 &&
+    ok "GPU 연결 도구를 rootless 모드로 설정($CONF/nvidia-container-runtime, 서버 전체 설정은 그대로)" ||
+    warn "nvidia-ctk 설정 실패. $CONF/nvidia-container-runtime/config.toml 에 [nvidia-container-cli] no-cgroups = true 를 적는다."
 
 # ------------------------------------------------------------------ 3. Docker 프로그램
 step 3 "Docker $(info docker) 설치 → $OPT"
@@ -85,10 +90,20 @@ if [ ! -x "$OPT/$V/dockerd" ]; then
     mv "$OPT/$V.tmp" "$OPT/$V"
 fi
 ln -sfn "$OPT/$V" "$OPT/current"
-mkdir -p /usr/local/lib/docker/cli-plugins
+# buildx·compose 는 우리 도커 폴더에 둔다. /usr/local/lib/docker/cli-plugins 에 두면 다른 계정의 docker 도 이것을 쓰게 된다
+mkdir -p "$OPT/cli-plugins"
 for p in docker-buildx docker-compose; do
-    [ -f "plugins/$p" ] && install -m 755 "plugins/$p" /usr/local/lib/docker/cli-plugins/$p && ok "$p 설치함"
+    [ -f "plugins/$p" ] && install -m 755 "plugins/$p" "$OPT/cli-plugins/$p" && ok "$p 설치함"
 done
+runuser -u "$ACC" -- mkdir -p "$(getent passwd "$ACC" | cut -d: -f6)/.docker"
+runuser -u "$ACC" -- python3 - "$(getent passwd "$ACC" | cut -d: -f6)/.docker/config.json" "$OPT/cli-plugins" <<'PY'
+import json, sys
+p, d = sys.argv[1], sys.argv[2]
+try: c = json.load(open(p))
+except Exception: c = {}
+c["cliPluginsExtraDirs"] = [d]
+json.dump(c, open(p, "w"), indent=2)
+PY
 ok "docker $("$OPT/current/docker" --version | sed 's/Docker version //')"
 
 # ------------------------------------------------------------------ 4. 공용 계정 설정
@@ -140,6 +155,7 @@ Requires=user@$UID_A.service
 [Service]
 User=$ACC
 Environment=XDG_RUNTIME_DIR=/run/user/$UID_A
+Environment=XDG_CONFIG_HOME=$CONF
 Environment=PATH=$OPT/current:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=$NET
 Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=builtin
@@ -155,12 +171,14 @@ KillMode=mixed
 [Install]
 WantedBy=multi-user.target
 EOF
-# 팀원 셸에서 docker 명령이 이 데몬을 쓰게 한다
+# 팀원 셸에서 docker 명령이 이 데몬을 쓰게 한다. 우리 공용 계정에만 건다(다른 계정의 docker 는 그대로)
 cat > /etc/profile.d/b200-docker.sh <<EOF
 # b200 docker_install.sh 가 만든 파일
 # 뒤에 붙인다. 앞에는 /app/shared/bin/docker(이름표를 붙이고 GPU 겹침을 경고하는 docker)가 온다
-case ":\$PATH:" in *":$OPT/current:"*) ;; *) PATH="\$PATH:$OPT/current" ;; esac
-if [ "\$(id -un)" = "$ACC" ]; then export DOCKER_HOST=unix:///run/user/$UID_A/docker.sock; fi
+if [ "\$(id -un)" = "$ACC" ]; then
+    case ":\$PATH:" in *":$OPT/current:"*) ;; *) PATH="\$PATH:$OPT/current" ;; esac
+    export DOCKER_HOST=unix:///run/user/$UID_A/docker.sock
+fi
 EOF
 ok 'b200-docker 서비스와 /etc/profile.d/b200-docker.sh 만듦'
 
