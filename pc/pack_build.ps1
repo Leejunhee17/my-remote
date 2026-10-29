@@ -1,5 +1,6 @@
 ﻿<#
-[접근 PC] 공용 휠 + 기초 프로그램 묶음(pack\b200-pack.tar)을 만든다.
+[접근 PC] 기초 프로그램과 서버 설치 스크립트 묶음(pack\b200-pack.tar)을 만든다.
+팀원은 패키지를 도커 이미지에 넣어 오므로 공용 휠은 만들지 않는다.
 점검 → 받기 → 묶기 → 검사까지 한 번에 한다. 끊기면 다시 실행하면 이어서 한다.
 
   powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1              # B200 서버 Ubuntu 22.04 이상 (glibc 2.35)
@@ -11,20 +12,14 @@ param(
     [int]$MaxTries = 20      # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 포기
 )
 $here = $PSScriptRoot
-$root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\b200). 결과 폴더와 uv.exe 는 여기
+$root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\b200). 결과 폴더와 micromamba.exe 는 여기
 . (Join-Path $here 'b200_common.ps1')
 $out   = Join-Path $root 'pack'
-$torch = 'https://download.pytorch.org/whl/cu130'
-$ml    = 'manylinux_' + ($Glibc -replace '\.', '_')   # 예: manylinux_2_34
-# pip download 는 낮은 manylinux 를 알아서 넣지 않으므로 서버 glibc 이하를 모두 적는다
-$plats = @()
-for ($m = [int]$Glibc.Split('.')[1]; $m -ge 5; $m--) { $plats += '--platform', "manylinux_2_${m}_x86_64" }
-$plats += '--platform', 'manylinux2014_x86_64', '--platform', 'manylinux2010_x86_64', '--platform', 'manylinux1_x86_64'
-$T = 6
+$T = 4
 New-Item -ItemType Directory -Force $out | Out-Null
 Start-Log (Join-Path $out 'build.log')
 Stop-Sleep
-Write-Host "[접근 PC] 공용 휠·기초 프로그램 묶음 만들기  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'), B200 서버 glibc $Glibc, CUDA $Cuda)"
+Write-Host "[접근 PC] 기초 프로그램 묶음 만들기  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'), B200 서버 glibc $Glibc, CUDA $Cuda)"
 
 # 줄 끝을 LF 로 써야 서버(리눅스)에서 문제가 없다
 function Write-Lf($path, $lines) {
@@ -33,31 +28,26 @@ function Write-Lf($path, $lines) {
 
 # ------------------------------------------------------------------ 1. 점검
 Write-Step 1 $T '점검'
-$uv = Find-Exe 'uv' $root
 $mm = Find-Exe 'micromamba' $root
-if ($uv) { Write-Ok "uv : $uv" } else { Write-Bad 'uv 가 없다' }
 if ($mm) { Write-Ok "micromamba : $mm" } else { Write-Bad 'micromamba 가 없다' }
 foreach ($e in 'curl.exe', 'tar.exe') {
     if (Get-Command $e -ErrorAction SilentlyContinue) { Write-Ok $e } else { Write-Bad "$e 가 없다(윈도우 10 1803 이후에 기본으로 있다)" }
 }
 if ($script:Fails) {
-    Stop-Run '필요한 프로그램이 없다' 'uv, micromamba 를 설치하고 PowerShell 창을 새로 연다. 또는 uv.exe, micromamba.exe 를 이 폴더에 넣는다.'
+    Stop-Run '필요한 프로그램이 없다' 'micromamba 를 설치하고 PowerShell 창을 새로 연다. 또는 micromamba.exe 를 이 폴더에 넣는다.'
 }
 $scripts = @('pack_install.sh', 'move_shared.sh', 'check_server.sh', 'check_network.sh', 'admin_setup.sh', 'bin/b200', 'bin/docker', 'bin/nvidia-smi')   # 묶음에 같이 넣는 서버 파일
-foreach ($f in @('lists\tools.txt', 'lists\wheels.txt') + @($scripts | ForEach-Object { 'server\' + ($_ -replace '/', '\') })) {
+foreach ($f in @('lists\tools.txt') + @($scripts | ForEach-Object { 'server\' + ($_ -replace '/', '\') })) {
     if (-not (Test-Path (Join-Path $root $f))) { Stop-Run "$f 가 없다" 'git pull 로 저장소를 최신으로 받는다.' }
 }
-Write-Ok '목록 파일(tools.txt, wheels.txt) 있음'
+Write-Ok '목록 파일(tools.txt) 있음'
 
 $free = Get-FreeGB $out
-if ($free -lt 30) { Stop-Run "남은 공간이 $free GB 다(30 GB 이상 필요)" '공간이 넉넉한 드라이브로 저장소를 옮겨 다시 실행한다.' }
+if ($free -lt 10) { Stop-Run "남은 공간이 $free GB 다(10 GB 이상 필요)" '공간이 넉넉한 드라이브로 저장소를 옮겨 다시 실행한다.' }
 Write-Ok "남은 공간 $free GB"
 
 $sites = [ordered]@{
     'conda-forge (기초 프로그램)' = 'https://conda.anaconda.org/conda-forge/noarch/repodata.json'
-    'PyPI (휠)'                   = 'https://pypi.org/simple/pip/'
-    'PyPI 파일 서버'              = 'https://files.pythonhosted.org/'
-    'PyTorch (CUDA 휠)'           = "$torch/torch/"
     'GitHub (서버용 micromamba)'  = 'https://github.com/'
 }
 foreach ($k in $sites.Keys) {
@@ -130,65 +120,14 @@ if (-not (Get-File 'https://github.com/mamba-org/micromamba-releases/releases/la
 }
 Write-Ok '서버용 micromamba 받음'
 
-# ------------------------------------------------------------------ 4. 휠 버전
-Write-Step 4 $T "공용 휠 버전 정하기 (Python 3.12, $ml)"
-$lock = Join-Path $out 'lock.txt'
-& $uv pip compile (Join-Path $root 'lists\wheels.txt') -o $lock --generate-hashes --no-header `
-    --python-version 3.12 --python-platform "x86_64-$ml" `
-    --extra-index-url $torch --index-strategy unsafe-best-match
-if ($LASTEXITCODE -ne 0) {
-    Stop-Run 'uv pip compile 실패' '위 빨간 메시지에 나온 패키지를 본다. 인터넷이 끊겼으면 다시 실행한다. 모르겠으면 build.log 를 담당자에게 보내 준다.'
+# 예전 판이 받아 둔 공용 휠은 이제 쓰지 않으니 지운다(공간 확보)
+foreach ($d in 'wheels', 'lock.txt') {
+    $pth = Join-Path $out $d
+    if (Test-Path $pth) { Remove-Item -Recurse -Force $pth; Write-Info "예전 공용 휠 파일 지움: $pth" }
 }
-$pins = @(Get-Content $lock | Where-Object { $_ -match '^[A-Za-z0-9].*==' })
-$torchPin = ($pins | Where-Object { $_ -match '^torch==' }) -replace ' .*', ''
-Write-Ok "휠 $($pins.Count)개로 정함 ($torchPin)"
 
-# ------------------------------------------------------------------ 5. 휠 받기
-Write-Step 5 $T "공용 휠 받기 ($($pins.Count)개, 수 GB)"
-$wdir = Join-Path $out 'wheels'
-New-Item -ItemType Directory -Force $wdir | Out-Null
-# 지난 실행(예: 레드햇용 glibc 2.34 기준)에서 남은, 이번 lock.txt 에 없는 휠은 지운다.
-# 잘못 지운 것이 있어도 바로 아래 pip download 가 다시 받는다
-$keep = @{}
-foreach ($p in $pins) {
-    $nv = ($p -replace ' .*', '') -split '=='
-    $keep["$($nv[0].ToLower() -replace '[-_.]+', '_')-$($nv[1].ToLower())"] = 1
-}
-$old = @(Get-ChildItem $wdir -File | Where-Object {
-    $n = [uri]::UnescapeDataString($_.Name).ToLower()
-    if ($n -like '*.whl') { $f = $n.Split('-'); $k = "$($f[0] -replace '[-_.]+', '_')-$($f[1])" }
-    else {
-        $b = $n -replace '\.(tar\.gz|zip)$', ''; $i = $b.LastIndexOf('-')
-        $k = if ($i -gt 0) { "$($b.Substring(0, $i) -replace '[-_.]+', '_')-$($b.Substring($i + 1))" } else { '' }
-    }
-    $k -and -not $keep.ContainsKey($k)
-})
-if ($old.Count) { $old | Remove-Item -Force; Write-Info "이번 목록에 없는 예전 휠 $($old.Count)개 지움" }
-$ok = $false
-$stall = 0
-while ($stall -lt $MaxTries) {
-    # 이미 받은 파일은 건너뛴다. 해시가 안 맞으면 다시 받는다.
-    $before = Get-Size $wdir
-    & $uv tool run --from pip pip download -r $lock --no-deps -d $wdir --progress-bar on `
-        @plats --python-version 3.12 --implementation cp `
-        --extra-index-url $torch --retries 10 --timeout 60
-    if ($LASTEXITCODE -eq 0) { $ok = $true; break }
-    $stall = Step-Retry $stall $before (Get-Size $wdir) $MaxTries 'pip download'
-}
-if (-not $ok) { Stop-Run '휠을 다 받지 못했다' '인터넷을 확인하고 다시 실행한다. 받은 것은 건너뛴다.' }
-$wcount = @(Get-ChildItem $wdir -File).Count
-if ($wcount -lt $pins.Count) { Stop-Run "휠이 $wcount 개뿐이다($($pins.Count)개 필요)" '다시 실행한다.' }
-$sdist = @(Get-ChildItem $wdir -File | Where-Object { $_.Name -notlike '*.whl' })
-if ($sdist.Count) {
-    # 휠(미리 만든 설치 파일)이 PyPI에 없어 소스 묶음으로 받은 것. 예: antlr4-python3-runtime(hydra-core, omegaconf 가 씀)
-    # 순수 Python 이면 B200 서버가 설치할 때 공용 휠의 setuptools 로 몇 초 만에 휠을 만들어 인터넷 없이 설치된다
-    Write-Info "휠 없이 소스로 받은 것 $($sdist.Count)개: $($sdist.Name -join ', ')"
-    Write-Info '    PyPI에 휠이 없는 패키지다. B200 서버가 설치할 때 직접 만들어 설치하니 그대로 두면 된다.'
-}
-Write-Ok "$wcount 개 받음, 해시 확인함"
-
-# ------------------------------------------------------------------ 6. 묶기 + 검사
-Write-Step 6 $T '묶기와 검사'
+# ------------------------------------------------------------------ 4. 묶기 + 검사
+Write-Step 4 $T '묶기와 검사'
 New-Item -ItemType Directory -Force (Join-Path $out 'bin') | Out-Null
 foreach ($f in $scripts) {
     $sh = [IO.File]::ReadAllText((Join-Path $root "server\$f")) -replace "`r", ''
@@ -196,12 +135,11 @@ foreach ($f in $scripts) {
 }
 Write-Lf (Join-Path $out 'pack_info.txt') @(
     "made=$(Get-Date -Format 'yyyy-MM-dd HH:mm')", "glibc=$Glibc", "cuda=$Cuda",
-    "tools=$($pkgs.Count)", "wheels=$($pins.Count)", "torch=$torchPin")
+    "tools=$($pkgs.Count)")
 
 Write-Info '체크섬 목록 만드는 중'
-$files = @('micromamba', 'explicit.txt', 'lock.txt', 'pack_info.txt') + $scripts +
-    @(Get-ChildItem $pdir -File | ForEach-Object { "pkgs/$($_.Name)" }) +
-    @(Get-ChildItem $wdir -File | ForEach-Object { "wheels/$($_.Name)" })
+$files = @('micromamba', 'explicit.txt', 'pack_info.txt') + $scripts +
+    @(Get-ChildItem $pdir -File | ForEach-Object { "pkgs/$($_.Name)" })
 Write-Lf (Join-Path $out 'MANIFEST.sha256') ($files | ForEach-Object {
     "$((Get-FileHash (Join-Path $out $_) -Algorithm SHA256).Hash.ToLower())  $_" })
 
@@ -209,7 +147,7 @@ Write-Info 'tar 로 묶는 중'
 $tar = Join-Path $out 'b200-pack.tar'
 Remove-Item -Force -ErrorAction SilentlyContinue $tar
 Push-Location $out
-& tar.exe -cf b200-pack.tar MANIFEST.sha256 micromamba explicit.txt lock.txt pack_info.txt @scripts pkgs wheels
+& tar.exe -cf b200-pack.tar MANIFEST.sha256 micromamba explicit.txt pack_info.txt @scripts pkgs
 $code = $LASTEXITCODE
 $listed = @(& tar.exe -tf b200-pack.tar | Where-Object { $_ -notmatch '/$' }).Count
 Pop-Location
@@ -221,12 +159,13 @@ $size = Format-Size (Get-Item $tar).Length
 Allow-Sleep
 Write-Host ''
 Write-Host '############################ 완료 ############################' -ForegroundColor Green
-Write-Host " 기초 프로그램 $($pkgs.Count)개, 휠 $($pins.Count)개 ($torchPin)"
+Write-Host " 기초 프로그램 $($pkgs.Count)개"
 Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝. B200 서버에 올릴 것 (이 파일 하나):' -ForegroundColor Green
 Write-Host "   $tar  ($size)"
 Write-Host ''
-Write-Host ' 회사 프로그램으로 B200 서버 /app/inbox 에 올린 뒤, B200 서버 터미널에서:' -ForegroundColor Green
-Write-Host '   cd /app/inbox && tar xf b200-pack.tar && bash pack_install.sh /app/shared'
+Write-Host ' root 계정의 FileZilla로 B200 서버 /app/inbox 에 올린 뒤, root 로:' -ForegroundColor Green
+Write-Host '   cd /app/inbox && tar xf b200-pack.tar && bash admin_setup.sh      # 처음 한 번, 맨 먼저'
+Write-Host '   cd /app/inbox && bash pack_install.sh /app/shared'
 Write-Host '##############################################################' -ForegroundColor Green
 Stop-Transcript | Out-Null

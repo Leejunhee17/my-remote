@@ -71,12 +71,6 @@ else
     bad "$APP 가 없다" "2 TB SSD를 $APP 에 마운트하기(주인은 root 그대로)"
 fi
 
-echo; echo "${c_c}== 시스템 라이브러리 (open3d 등이 쓴다) ==${c_0}"
-for lib in libGL.so.1 libEGL.so.1 libgomp.so.1 libX11.so.6; do
-    if ldconfig -p 2>/dev/null | grep -q "$lib"; then ok "$lib"
-    else bad "$lib 가 없다" "apt 패키지 libgl1 libegl1 libgomp1 libx11-6 설치"; fi
-done
-
 echo; echo "${c_c}== 기본 명령 ==${c_0}"
 miss=()
 for b in bash tar sha256sum awk sed grep df du realpath sort; do command -v "$b" >/dev/null || miss+=("$b"); done

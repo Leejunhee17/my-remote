@@ -156,7 +156,7 @@ cmd_who() {
         fi
         echo "$(pad "$i" 4)$(pad "$grp" 15)$col$(pad "${who:--}" 16)$c_0$(pad "$ut%" 7)$(pad "$((mu / 1024))/$((mt / 1024))" 10)${where:--}"
     done
-    echo "  빈 GPU를 골라 docker run --gpus '\"device=번호\"' 나 CUDA_VISIBLE_DEVICES=번호 로 쓰세요. 내 그룹·공용 먼저."
+    echo "  빈 GPU를 골라 docker run --gpus '\"device=번호\"' 로 쓰세요. 내 그룹·공용 먼저."
     local oth; oth=$(other_gpus | tr '\n' ',' | sed 's/,$//')
     [ -z "$oth" ] || echo "  ${c_y}GPU ${oth}번은 다른 팀 GPU예요. 우리 팀은 쓰지 않아요.${c_0}"
 }
@@ -371,8 +371,6 @@ cmd__report() {
 # ------------------------------------------------------------------ 관리자 점검
 cmd_doctor() {
     echo "== GPU"; "$NVSMI" -L 2>&1 | head -8
-    echo "== 공용 Python 환경"
-    CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0} "$S/venv/bin/python" -c 'import torch; n=torch.cuda.device_count(); [ (torch.randn(64,64,device=f"cuda:{i}")@torch.randn(64,64,device=f"cuda:{i}")).sum().item() for i in range(n)]; print("PyTorch", torch.__version__, "GPU", n, "장 계산 확인")' 2>&1 | tail -1
     echo "== 도커"
     [ -n "$HAVE_DOCKER" ] || { echo '  도커 데몬에 연결하지 못했어요(systemctl status b200-docker)'; return; }
     "${DOCKER[@]}" info --format '  Docker {{.ServerVersion}}, {{.DockerRootDir}}, {{.SecurityOptions}}' 2>&1 | tail -1

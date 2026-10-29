@@ -61,7 +61,7 @@ ok "남은 공간 ${free} GB (필요 약 ${need} GB)"
 
 # ------------------------------------------------------------------ 2. 옮기기
 step 2 "옮기기 → $D/<만든 곳>/<모델>"
-PY="$SH/venv/bin/python"; [ -x "$PY" ] || PY=python3
+PY="$SH/tools/bin/python"; [ -x "$PY" ] || PY=python3   # 표준 라이브러리만 쓴다
 mapfile -t dirs < <(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' MANIFEST.sha256 | sort -u)
 for d in "${dirs[@]}"; do
     repo=${d/__//}

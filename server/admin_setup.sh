@@ -4,7 +4,7 @@
 #   bash admin_setup.sh --undo   되돌리기(공용 폴더 잠금 풀기, 시스템 설정 지우기)
 # 하는 일 (팀원에게 새 명령을 외우게 하지 않고, 막기보다 알린다)
 #   - 공용 계정(shareduser)에 관리자 권한(sudo, docker 그룹)이 없는지 확인한다(있으면 알려만 준다)
-#   - /app/shared(휠·기초 프로그램·데이터셋·모델)와 /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
+#   - /app/shared(기초 프로그램·데이터셋·모델)와 /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
 #   - 접속할 때 이름을 고르게 하고, 이름별 작업 폴더·캐시·명령 기록을 나눈다(/etc/profile.d/b200.sh)
 #   - docker, nvidia-smi 도우미를 /app/shared/bin 에 깐다(이름표, GPU 겹침 경고, "누가 쓰나" 표)
 #   - GPU 서비스(Fabric Manager, persistenced)를 켜고 드라이버 버전을 고정한다
@@ -250,7 +250,7 @@ echo "${c_g}############################ 완료 ############################${c_
 echo " 남은 일"
 echo "  1) $S/team.txt 에 팀원 '이름 그룹' 을 적고 이 스크립트를 한 번 더 실행(작업 폴더 생성)"
 echo "  2) GPU 배분이 바뀌면 $S/gpu_alloc.txt, 알림 기준은 $S/b200.conf 를 고친다(엑셀·규칙 문서와 같게)"
-echo "  3) 공용 휠·데이터셋·모델 설치는 이제 root 로: bash pack_install.sh /app/shared 등"
+echo "  3) 기초 프로그램·도커·데이터셋·모델 설치도 root 로: bash pack_install.sh /app/shared 등"
 echo "  4) 도커: bash docker_install.sh (b200-docker.tar)"
 echo " 확인: 공용 계정으로 다시 접속하면 GPU 현황과 이름 목록이 나온다. nvidia-smi 아래에 '누가 쓰나' 표가 붙는다."
 echo "${c_g}##############################################################${c_0}"
