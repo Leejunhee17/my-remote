@@ -164,7 +164,10 @@ Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝. B200 서버에 올릴 것 (이 파일 하나):' -ForegroundColor Green
 Write-Host "   $tar  ($size)"
 Write-Host ''
-Write-Host ' root 계정의 FileZilla로 B200 서버 /app/inbox 에 올린 뒤, root 로:' -ForegroundColor Green
+Write-Host " 지문(sha256): $(Get-Fingerprint @($tar))" -ForegroundColor Cyan
+Write-Host ''
+Write-Host ' FileZilla(공용 계정)로 B200 서버 /app/upload 에 올린 뒤, root 로 옮겨 지문이 같은지 보고 실행:' -ForegroundColor Green
+Write-Host '   cp /app/upload/b200-pack.tar /app/inbox/ && sha256sum /app/inbox/b200-pack.tar'
 Write-Host '   cd /app/inbox && tar xf b200-pack.tar && bash admin_setup.sh      # 처음 한 번, 맨 먼저'
 Write-Host '   cd /app/inbox && bash pack_install.sh /app/shared'
 Write-Host '##############################################################' -ForegroundColor Green

@@ -256,6 +256,17 @@ function Get-File($url, $file, $md5, $tries, $sha256) {
     return $false
 }
 
+# B200 서버에서 root 가 확인할 지문(sha256, 소문자).
+# 파일 하나면 그 파일의 sha256(서버: sha256sum 파일), 여러 개면 이어 붙인 내용의 sha256(서버: cat 파일들 | sha256sum)
+function Get-Fingerprint([string[]]$files) {
+    if ($files.Count -eq 1) { return (Get-FileHash $files[0] -Algorithm SHA256).Hash.ToLower() }
+    $ms = New-Object IO.MemoryStream
+    foreach ($f in $files) { $b = [IO.File]::ReadAllBytes($f); $ms.Write($b, 0, $b.Length) }
+    $ms.Position = 0
+    $h = [Security.Cryptography.SHA256]::Create().ComputeHash($ms)
+    return (($h | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+
 # 실행 중 접근 PC 절전 막기(끝나면 원래대로)
 Add-Type -Namespace B200 -Name Power -MemberDefinition `
     '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);' -ErrorAction SilentlyContinue

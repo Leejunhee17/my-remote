@@ -16,9 +16,9 @@
 | 대수 | | 2대. 서버 1(server1)은 GPU 8장, 서버 2(server2)는 다른 팀과 같이 써서 4장(4~7번) |
 | 운영체제 | 윈도우 | Ubuntu 22.04 이상(버전 확정 전) |
 | 인터넷 | 돼요. 여기서 내려받아요 | 안 돼요 |
-| 접속 | | HIWARE 를 거쳐요(PuTTY, FileZilla). 팀원은 모두 공용 계정 `shareduser`, 관리자는 root |
+| 접속 | | HIWARE 를 거쳐요. 팀원은 모두 공용 계정 `shareduser`(PuTTY, FileZilla). 관리자는 root(PuTTY만 돼요). 파일은 공용 계정 FileZilla로 올려요 |
 | 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD, NAS `/data` |
-| 주요 위치 | `D:\b200` | 공용 `/app/shared`(root 만 고침), 작업 `/app/workspace/<이름>`, 기록·알림 `/app/state`, 관리자 설치 파일 `/app/inbox`(root 만 올림), 도커 `/app/docker` |
+| 주요 위치 | `D:\b200` | 공용 `/app/shared`(root 만 고침), 작업 `/app/workspace/<이름>`, 기록·알림 `/app/state`, 설치 파일 올리는 곳 `/app/upload`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
 
 ## 문서 지도
 

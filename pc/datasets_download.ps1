@@ -627,7 +627,12 @@ Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝. B200 서버에 올릴 것 (폴더 통째로):' -ForegroundColor Green
 Write-Host "   $Dest  ($(Format-Size $total))"
 Write-Host ''
-Write-Host ' 회사 프로그램으로 B200 서버 /app/inbox/datasets 에 올린 뒤, B200 서버 터미널에서:' -ForegroundColor Green
+Write-Host " 지문(sha256): $(Get-Fingerprint @((Join-Path $Dest 'MANIFEST.sha256'), (Join-Path $Dest 'datasets_install.sh')))" -ForegroundColor Cyan
+Write-Host '   (MANIFEST.sha256 과 datasets_install.sh 를 이어 붙인 지문. 나머지 파일은 설치 스크립트가 MANIFEST 로 확인한다)'
+Write-Host ''
+Write-Host ' FileZilla(공용 계정)로 B200 서버 /app/upload 에 폴더째 올린 뒤, root 로 새로 복사해 지문이 같은지 보고 실행:' -ForegroundColor Green
+Write-Host '   rm -rf /app/inbox/datasets && cp -r /app/upload/datasets /app/inbox/'
+Write-Host '   cat /app/inbox/datasets/MANIFEST.sha256 /app/inbox/datasets/datasets_install.sh | sha256sum'
 Write-Host '   bash /app/inbox/datasets/datasets_install.sh'
 Write-Host '##############################################################'
 Stop-Transcript | Out-Null

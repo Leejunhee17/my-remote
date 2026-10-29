@@ -61,7 +61,7 @@ if [ -n "$others" ] && [ "$(stat -c '%U %a' /app)" != "root 755" ]; then
     else stop '/app 을 다른 계정도 쓴다' '터미널에서 직접 실행해 확인하고 진행한다.'; fi
 fi
 chown root:root /app && chmod 755 /app
-for d in "$S" "$W" "$ST" /app/inbox /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen}; do
+for d in "$S" "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen}; do
     [ -L "$d" ] && stop "$d 가 링크다(누가 만들었는지 모른다)" "ls -l $d 로 확인하고, 이상하면 링크를 지운 뒤 다시 실행한다."
 done
 mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen} /app/inbox
@@ -79,7 +79,9 @@ runuser -u "$ACC" -- touch "$ST/images/loaded.tsv"   # docker 래퍼(공용 계�
 # root 가 실행할 설치 파일을 두는 곳. 공용 계정이 고칠 수 있으면 누구든 root 로 원하는 명령을 실행시킬 수 있다
 chown root:root /app/inbox && chmod 755 /app/inbox
 [ -d /app/inbox/images ] && rmdir /app/inbox/images/* /app/inbox/images 2>/dev/null
-ok "$W : 팀원 작업 공간,  $ST : 기록·알림,  /app/inbox : 관리자만 올림(root)"
+# root 는 FileZilla 를 못 쓰므로 설치 파일은 공용 계정이 여기에 올린다. root 는 /app/inbox 로 새로 복사하고 지문을 확인한 뒤 실행한다
+mkdir -p /app/upload && chown "$ACC:$ACC" /app/upload && chmod 755 /app/upload
+ok "$W : 팀원 작업 공간,  $ST : 기록·알림,  /app/upload : 설치 파일 올리는 곳(공용 계정),  /app/inbox : root 가 확인한 설치 파일"
 # 홈에서도 보이게 링크(홈은 10 GB 라 실제 파일은 /app 에)
 for n in shared workspace; do
     [ -e "$HOME_A/$n" ] || [ -L "$HOME_A/$n" ] || runuser -u "$ACC" -- ln -sn "/app/$n" "$HOME_A/$n"   # 공용 계정 홈이라 그 권한으로
