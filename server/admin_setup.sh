@@ -52,6 +52,14 @@ step '2. 폴더와 잠금'
 [ -L /app ] && stop '/app 이 링크다' 'ls -l /app 으로 확인하고 서버 관리 팀과 실제 디스크로 연결한다.'
 # /app 은 root 만 고칠 수 있게 한다. 공용 계정이 /app 에 쓸 수 있으면 shared·state 같은 이름으로 시스템 폴더 링크를 심어 두고,
 # 아래 chown·chmod(링크를 따라간다)를 시스템 폴더에 하게 만들 수 있다. 잠근 뒤에 링크가 있는지 본다
+# 서버 2처럼 다른 팀과 같이 쓰는 서버에서 다른 계정이 /app 에 폴더를 두고 있으면, 잠그면 그 계정이 /app 에 새 폴더를 못 만든다
+others=$(find /app -mindepth 1 -maxdepth 1 ! -user root ! -user "$ACC" -printf '%u %p\n' 2>/dev/null)
+if [ -n "$others" ] && [ "$(stat -c '%U %a' /app)" != "root 755" ]; then
+    echo "$others" | sed 's/^/    다른 계정 것: /'
+    warn "/app 을 다른 계정도 쓰는 것 같다. 잠그면(root 소유, 755) 그 계정은 /app 바로 아래에 새 폴더를 못 만든다(있는 폴더는 그대로)"
+    if [ -t 0 ]; then read -r -p "  서버 관리 팀·다른 팀과 이야기했으면 y, 아니면 Enter(멈춤): " a; [ "$a" = y ] || stop '/app 잠금 보류' '다른 팀과 /app 사용을 정한 뒤 다시 실행한다.'
+    else stop '/app 을 다른 계정도 쓴다' '터미널에서 직접 실행해 확인하고 진행한다.'; fi
+fi
 chown root:root /app && chmod 755 /app
 for d in "$S" "$W" "$ST" /app/inbox /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen}; do
     [ -L "$d" ] && stop "$d 가 링크다(누가 만들었는지 모른다)" "ls -l $d 로 확인하고, 이상하면 링크를 지운 뒤 다시 실행한다."
@@ -82,9 +90,25 @@ done
 # 형식: 이름  그룹   (그룹은 gpu_alloc.txt 의 그룹 이름)
 # 예:  홍길동  인지
 EOF
-[ -f "$S/gpu_alloc.txt" ] || cat > "$S/gpu_alloc.txt" <<'EOF'
-# GPU 배분. 관리자만 고친다. 엑셀 'GPU 배분' 시트와 같게 맞춘다.
-# 형식: GPU번호  그룹      (공용 = 누구나 선착순)
+# GPU 배분은 서버마다 다르다. 서버 2(이름이 p2 로 끝남)는 다른 팀과 같이 써서 0~3번이 다른 팀 것이다
+if [ ! -f "$S/gpu_alloc.txt" ]; then case "$(hostname -s)" in
+*p2) cat > "$S/gpu_alloc.txt" <<'EOF'
+# GPU 배분(서버 2). 관리자만 고친다. 엑셀 'GPU 배분' 시트와 같게 맞춘다.
+# 형식: GPU번호  그룹      (공용 = 누구나 선착순, 다른팀 = 다른 팀 GPU라 우리 팀은 쓰지 않는다)
+# 서버 2는 다른 팀과 같이 써서 우리 팀은 4~7번만 쓴다. 그룹 배분은 임시
+0  다른팀
+1  다른팀
+2  다른팀
+3  다른팀
+4  인지
+5  판단
+6  공용
+7  공용
+EOF
+;;
+*) cat > "$S/gpu_alloc.txt" <<'EOF'
+# GPU 배분(서버 1). 관리자만 고친다. 엑셀 'GPU 배분' 시트와 같게 맞춘다.
+# 형식: GPU번호  그룹      (공용 = 누구나 선착순, 다른팀 = 다른 팀 GPU라 우리 팀은 쓰지 않는다)
 0  자율주행매니저
 1  인지
 2  인지
@@ -94,7 +118,10 @@ EOF
 6  공용
 7  공용
 EOF
+;;
+esac; fi
 chmod 644 "$S/team.txt" "$S/gpu_alloc.txt"
+ok "GPU 배분: $(awk '!/^\s*#/ && NF>=2 {g[$2] = g[$2] (g[$2] ? "," : "") $1} END {for (k in g) printf "%s %s  ", k, g[k]}' "$S/gpu_alloc.txt")($S/gpu_alloc.txt)"
 n_team=$(grep -cvE '^\s*(#|$)' "$S/team.txt")
 [ "$n_team" -gt 0 ] && ok "팀원 $n_team 명 등록됨 ($S/team.txt)" ||
     warn "팀원 명단이 비어 있다. $S/team.txt 에 '이름 그룹' 을 적는다(비어 있으면 번호 목록 없이 아무 이름이나 받는다)"
