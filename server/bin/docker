@@ -36,7 +36,7 @@ case "${pre[0]:-}:$sub" in
             # GPU-<uuid> 로 골랐으면 번호로 바꿔 같은 경고·기록을 받게 한다
             if [[ "$v" =~ device=([0-9A-Za-z,-]*GPU-[0-9A-Za-z,-]+) ]]; then
                 spec=$(echo "${BASH_REMATCH[1]}" | tr ',' '\n' | while read -r t; do
-                    case "$t" in GPU-*) /usr/bin/nvidia-smi --query-gpu=index,uuid --format=csv,noheader 2>/dev/null | awk -F', ' -v u="$t" '$2==u {print $1}' ;;
+                    case "$t" in GPU-*) "${B200_NVSMI:-/usr/bin/nvidia-smi}" --query-gpu=index,uuid --format=csv,noheader 2>/dev/null | awk -F', ' -v u="$t" '$2==u {print $1}' ;;
                                  *) echo "$t" ;; esac; done | grep -xE '[0-9]{1,2}' | paste -sd,)
             elif [[ "$v" =~ device=([0-9,]+) ]]; then spec=${BASH_REMATCH[1]}
             elif [ "$v" = all ]; then spec=all

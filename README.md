@@ -62,5 +62,19 @@
 | `lists/` | 받을 목록(기초 프로그램, 모델) |
 | `reports/` | 서버 점검 결과 중 사내 정보를 가린 공유용만 올리는 곳 |
 | `.githooks/` | 커밋 전에 사내 정보가 들어가지 않았는지 보는 검사(`git config core.hooksPath .githooks`) |
+| `tests/` | 자동 시험(`bash tests/run.sh`). 가짜 `/app`·docker·nvidia-smi 로 스크립트를 실제로 돌려 봐요 |
+| `.github/workflows/` | 푸시할 때마다 GitHub 에서 자동 시험을 돌리는 설정 |
+
+## 고친 뒤 확인
+
+스크립트나 문서를 고치면 푸시할 때 GitHub 가 `tests/run.sh` 를 자동으로 돌려요. 저장소 페이지의 **Actions** 탭에서 초록 체크면 통과, 빨간 X 면 어느 시험이 실패했는지 눌러 볼 수 있어요. 서버에는 손대지 않고 GitHub 의 버리는 가상 머신에서 돌아요.
+
+- 문법: bash·Python·PowerShell 문법, shellcheck, `.ps1` BOM·줄 끝, 올리면 안 되는 파일, 사설 IP
+- 문서: 코드 블록 짝, 문서에 나온 스크립트·문서·절 이름이 실제로 있는지, 문제 해결 표의 메시지가 스크립트에 있는지
+- 설치: 데이터셋·모델 설치를 정상·깨진 파일·빈 목록·끼워 넣은 파일로 돌려 봐요
+- 서버 도우미: 정기 점검, GPU 현황, 주간 보고서, docker 래퍼 경고, `b200 fetch`, 공유용 보고서 가리기, 커밋 검사
+- 관리자 설정: `admin_setup.sh` 를 진짜 `/app` 에 돌리고, 공용 계정으로 접속해 이름 고르기까지 해 봐요
+
+시험하지 못하는 것: 실제 GPU·도커, HIWARE, 접근 PC에서의 받기(인터넷), NAS. 이건 서버에서 문서 순서대로 따라 하며 확인해요.
 
 받은 결과는 저장소 맨 위의 `pack\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요(git에는 올라가지 않아요).

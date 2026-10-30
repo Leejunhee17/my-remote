@@ -12,11 +12,12 @@ if [ "$(id -u)" = 0 ] && [ -n "$(find "$SRC" -type l -print -quit)" ]; then
     echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/models 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/shared/bin/b200 fetch models"; exit 1
 fi
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
-if [ "$(id -u)" = 0 ] && [ -d /app ] && { [ "$(stat -c %U /app)" != root ] || [ -L /app/shared ] || [ -L /app/workspace ]; }; then
+APP=${B200_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
+if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/shared" ] || [ -L "$APP/workspace" ]; }; then
     echo "멈춤: /app이 아직 잠기지 않았어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
 fi
 # 공용 폴더 실제 위치. 관리자 설정(admin_setup.sh) 뒤에는 /app/shared 이고 root 만 고칠 수 있다
-SH=$(realpath -m "$HOME/shared"); [ -d /app/shared ] && SH=/app/shared
+SH=$(realpath -m "$HOME/shared"); [ -d "$APP/shared" ] && SH=$APP/shared
 if [ -d "$SH" ] && [ ! -w "$SH" ]; then
     echo "멈춤: 공용 폴더($SH)는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/models_install.sh"; exit 1
 fi
