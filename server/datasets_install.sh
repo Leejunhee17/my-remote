@@ -53,14 +53,18 @@ command -v unzip >/dev/null || [ -x "$SH/tools/bin/unzip" ] ||
     stop "unzip 명령이 없어요" "기초 프로그램을 먼저 설치하세요: cd /app/inbox && bash pack_install.sh /app/shared"
 export PATH="$PATH:$SH/tools/bin"
 
-n=$(grep -c . MANIFEST.sha256 || true)
-echo "  압축 파일 ${n}개의 체크섬을 확인하고 있어요(100 GB면 10분 안팎)"
-bad_files=$(sha256sum -c --quiet MANIFEST.sha256 2>/dev/null | sed 's/: .*//')
+# 체크섬 목록에는 압축 파일과 wildscenes 파일(하나하나)이 들어 있다. wildscenes 를 이미 옮겨서 이번에 안 올렸으면 그 줄은 뺀다
+SUMS=$(mktemp); trap 'rm -f "$SUMS"' EXIT
+if [ ! -d wildscenes ] && [ -f "$D/wildscenes/.b200_done" ]; then grep -v '^[0-9a-f]\{64\}  wildscenes/' MANIFEST.sha256 > "$SUMS"
+else cat MANIFEST.sha256 > "$SUMS"; fi
+n=$(grep -c . "$SUMS" || true); nw=$(grep -c '^[0-9a-f]\{64\}  wildscenes/' "$SUMS" || true)
+echo "  파일 ${n}개(그중 wildscenes ${nw}개)의 체크섬을 확인하고 있어요(100 GB면 10분 안팎)"
+bad_files=$(sha256sum -c --quiet "$SUMS" 2>/dev/null | sed 's/: .*//')
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | sed 's/^/    깨졌거나 없는 파일: /'
     stop "올리는 중에 깨졌거나 빠진 파일이 있어요" "위 파일만 접근 PC에서 /app/upload/datasets 의 같은 자리에 다시 올리고, root로 /app/inbox/datasets 의 같은 자리에 복사하세요(예: cp /app/upload/datasets/goose/파일 $SRC/goose/). 체크섬은 이 스크립트가 다시 확인해요."
 fi
-ok "압축 파일 ${n}개의 체크섬이 맞아요"
+ok "파일 ${n}개의 체크섬이 맞아요"
 
 if [ -f wildscenes.ok ]; then
     want_f=$(sed -n 's/.*files=\([0-9]*\).*/\1/p' wildscenes.ok)
@@ -71,6 +75,8 @@ if [ -f wildscenes.ok ]; then
     else
         have_f=0
     fi
+    # 예전 접근 PC 스크립트로 만든 목록에는 wildscenes 체크섬이 없다. 올리는 중에 바뀌어도 모르므로 목록을 새로 만들게 한다
+    [ -d wildscenes ] && [ "$nw" = 0 ] && stop "체크섬 목록에 wildscenes 파일이 없어요" "접근 PC에서 git pull 뒤 datasets_download.ps1 을 다시 실행하세요(새로 받지 않고 체크섬 목록만 만들어요). 그다음 datasets 폴더를 다시 올려 들여오세요."
     [ "$have_f" = "$want_f" ] || stop "wildscenes 파일이 ${have_f}개예요(${want_f}개여야 해요)" "접근 PC의 datasets\\wildscenes 폴더를 /app/upload/datasets 에 다시 올리고 /app/inbox/datasets 로 복사하세요."
     ok "wildscenes 파일 ${want_f}개가 모두 있어요"
 fi
@@ -82,7 +88,7 @@ ok "남은 공간 ${free} GB (필요한 공간 약 ${need} GB)"
 
 # ------------------------------------------------------------------ 2. 풀기
 step 2 '풀기'
-mapfile -t files < <(sed -n 's/^[0-9a-f]\{64\}  //p' MANIFEST.sha256)
+mapfile -t files < <(sed -n 's/^[0-9a-f]\{64\}  //p' MANIFEST.sha256 | grep -v '^wildscenes/')   # wildscenes 는 아래에서 따로 옮긴다
 i=0
 for f in "${files[@]}"; do
     i=$((i + 1))
@@ -103,7 +109,11 @@ done
 if [ -d wildscenes ] && [ ! -f "$D/wildscenes/.b200_done" ]; then
     echo "  wildscenes 옮기는 중이에요"
     mkdir -p "$D/wildscenes"
-    cp -a wildscenes/. "$D/wildscenes/" && touch "$D/wildscenes/.b200_done" || bad "wildscenes를 옮기지 못했어요(남은 공간과 권한을 확인하세요)"
+    # 체크섬을 확인한 파일만 옮긴다(목록에 없는 파일이 끼어 있어도 공용 데이터셋에 들어가지 않게)
+    sed -n 's|^[0-9a-f]\{64\}  wildscenes/||p' "$SUMS" > "$SUMS.w"
+    (cd wildscenes && tar -cf - --no-recursion -T "$SUMS.w") | tar -xf - -C "$D/wildscenes" --no-same-owner &&
+        touch "$D/wildscenes/.b200_done" || bad "wildscenes를 옮기지 못했어요(남은 공간과 권한을 확인하세요)"
+    rm -f "$SUMS.w"
 fi
 ok "다 풀었어요"
 

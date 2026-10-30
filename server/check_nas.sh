@@ -118,7 +118,7 @@ body() {
     if [ -n "$IS_ROOT" ] && id "$ACC" >/dev/null 2>&1; then
         for d in "$NAS" "$NAS/tmp" ${TEAM_DIR:+"$TEAM_DIR"}; do
             [ -d "$d" ] || continue
-            runuser -u "$ACC" -- test -w "$d" && echo "  $d: 쓸 수 있어요" || echo "  $d: 쓸 수 없어요"
+            setsid -w runuser -u "$ACC" -- test -w "$d" && echo "  $d: 쓸 수 있어요" || echo "  $d: 쓸 수 없어요"
         done
     else
         for d in "$NAS" "$NAS/tmp" ${TEAM_DIR:+"$TEAM_DIR"}; do [ -d "$d" ] && { [ -w "$d" ] && echo "  $d: 지금 계정은 쓸 수 있어요" || echo "  $d: 지금 계정은 쓸 수 없어요"; }; done

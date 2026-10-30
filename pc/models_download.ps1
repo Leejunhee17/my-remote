@@ -19,7 +19,7 @@ $fetch = Join-Path $here 'hf_fetch.py'
 $T = 4
 
 # lists\models.txt : "그룹  저장소  [gated]  [code=GitHub 주소]" 한 줄에 하나. # 뒤는 무시
-$listLines = Get-Content (Join-Path $root 'lists\models.txt')
+$listLines = Get-Content -Encoding UTF8 (Join-Path $root 'lists\models.txt')
 $AllModels = @($listLines | ForEach-Object {
     $l = ($_ -replace '#.*', '').Trim()
     if ($l) {
@@ -181,7 +181,7 @@ foreach ($d in @(Get-ChildItem $Dest -Directory | Where-Object { $_.Name -like '
 }
 $lines = @(Get-ChildItem $Dest -Directory | Where-Object { $active -contains $_.Name } | ForEach-Object {
     $s = Join-Path $_.FullName '.b200_sha256'
-    if ((Test-Path $s) -and (Test-Path (Join-Path $_.FullName 'b200_model.json'))) { (Get-Content $s) }
+    if ((Test-Path $s) -and (Test-Path (Join-Path $_.FullName 'b200_model.json'))) { (Get-Content -Encoding UTF8 $s) }
 } | Where-Object { $_ })
 [IO.File]::WriteAllText((Join-Path $Dest 'MANIFEST.sha256'), (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
 $sh = [IO.File]::ReadAllText((Join-Path $root 'server\models_install.sh')) -replace "`r", ''

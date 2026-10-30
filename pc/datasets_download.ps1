@@ -111,7 +111,15 @@ function Get-Url($url, $file) {
         }
         $r = Test-Archive $file
         if ($r -eq 0) { return $file }
-        if ($r -eq 2) { Write-Warn 'zip·tar 파일이 아니라서 검사를 건너뛰었어요'; return $file }
+        if ($r -eq 2) {
+            # 여기서 받는 파일은 모두 zip 이다. 다른 것이 왔으면 차단·안내 페이지라서 다시 받아도 같다
+            $kind = Get-ArchiveExt $file
+            if ($kind -eq '.html') { Write-Bad "파일 대신 웹 페이지가 왔어요(회사 보안 장비의 차단 페이지나 사이트 안내 페이지일 수 있어요): $(Split-Path -Leaf $file)" }
+            else { Write-Bad "zip 파일이 아닌 것이 왔어요($kind): $(Split-Path -Leaf $file)" }
+            Write-Info "    브라우저로 이 주소를 열어 무엇이 뜨는지 보세요: $url"
+            Remove-Item -Force $file
+            return $null
+        }
         Write-Warn '압축 파일이 깨졌어요. 처음부터 다시 받아요'
         Remove-Item -Force $file
         $stall++
@@ -415,8 +423,9 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
         Stop-Run '링크 목록에 WildScenes2d 파일이 없어요' "포털($WsPortal)의 Download → Get a list of file download links 에서 받은 .txt 파일인지 확인하세요."
     }
     Write-Ok "WildScenes 링크 목록: 2D 파일 $($script:WsLinks.Count)개"
+    $f0 = $script:Fails   # 앞의 Google Drive 진단 실패는 세지 않는다(CSIRO 접속만 본다)
     Test-Site 'CSIRO S3 저장소' "https://$(([uri]$script:WsLinks[0].Url).Host)/" | Out-Null
-    if ($script:Fails) { Stop-Run 'CSIRO S3 저장소에 접속되지 않아요' '위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면 아래 기록 파일을 담당자에게 보내 주세요.' }
+    if ($script:Fails -gt $f0) { Stop-Run 'CSIRO S3 저장소에 접속되지 않아요' '위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면 아래 기록 파일을 담당자에게 보내 주세요.' }
 } elseif ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
     Write-Host ''
     Write-Host '  WildScenes 접속 정보를 입력하세요. 접속 정보는 약 48시간만 유효하니 지금 새로 받으세요.' -ForegroundColor Cyan
@@ -436,8 +445,9 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     if (-not $wsDir.EndsWith('/')) { $wsDir += '/' }
     $script:WsEndpoint = if ($server -match '://') { $server } else { "https://$server" }
 
+    $f0 = $script:Fails
     Test-Site 'CSIRO S3 저장소' $script:WsEndpoint | Out-Null
-    if ($script:Fails) {
+    if ($script:Fails -gt $f0) {
         Stop-Run 'CSIRO S3 저장소에 접속되지 않아요' ('위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면(401, AccessDenied 같은 오류가 떠도 열린 거예요) ' +
             'docs\6_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요.')
     }
@@ -566,6 +576,7 @@ if ($doWild) {
         if ($done) {
             $m = Get-ChildItem $wdir -Recurse -File | Measure-Object -Property Length -Sum
             [IO.File]::WriteAllText("$wdir.ok", "files=$($m.Count) bytes=$($m.Sum)`n", (New-Object Text.UTF8Encoding $false))
+            Remove-Item -Force -ErrorAction SilentlyContinue "$wdir.sha256"   # 3단계에서 새로 만든다
             Write-Ok "wildscenes를 받았어요(파일 $($m.Count)개)"; $result['wildscenes'] = '받음'
         } else { $result['wildscenes'] = '실패' }
     }
@@ -605,11 +616,27 @@ foreach ($set in $Manual) {
 # ------------------------------------------------------------------ 3. B200 서버에 올릴 목록
 Write-Step 3 $T 'B200 서버에서 확인할 체크섬 목록 만들기'
 $oks = @(Get-ChildItem $Dest -Recurse -Filter '*.ok' -File | Where-Object { $_.Name -ne 'wildscenes.ok' })
-$lines = @($oks | ForEach-Object { (Get-Content -Raw $_.FullName).Trim() })
+$lines = @($oks | ForEach-Object { (Get-Content -Raw -Encoding UTF8 $_.FullName).Trim() })
+# WildScenes 는 압축이 아니라 파일 수만 개라, 파일마다 체크섬을 따로 적어 두고 목록에 넣는다(서버가 하나하나 확인)
+$wok = Join-Path $Dest 'wildscenes.ok'
+$wsum = Join-Path $Dest 'wildscenes.sha256'
+if ((Test-Path $wok) -and -not (Test-Path $wsum)) {
+    $wfiles = @(Get-ChildItem (Join-Path $Dest 'wildscenes') -Recurse -File)
+    Write-Info "wildscenes 파일 $($wfiles.Count)개의 체크섬을 계산하는 중이에요(약 47 GB, 10분 안팎)"
+    $i = 0
+    $wl = foreach ($f in $wfiles) {
+        $i++; if ($i % 200 -eq 1) { Write-Progress -Activity 'wildscenes 체크섬' -Status "$i/$($wfiles.Count)" -PercentComplete (100 * $i / $wfiles.Count) }
+        "$((Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower())  $($f.FullName.Substring($Dest.Length + 1) -replace '\\', '/')"
+    }
+    Write-Progress -Activity 'wildscenes 체크섬' -Completed
+    [IO.File]::WriteAllText("$wsum.part", ((@($wl) -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+    Move-Item -Force "$wsum.part" $wsum
+}
+if (Test-Path $wsum) { $lines += @([IO.File]::ReadAllLines($wsum) | Where-Object { $_ }) }
 [IO.File]::WriteAllText((Join-Path $Dest 'MANIFEST.sha256'), (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
 $sh = [IO.File]::ReadAllText((Join-Path $root 'server\datasets_install.sh')) -replace "`r", ''
 [IO.File]::WriteAllText((Join-Path $Dest 'datasets_install.sh'), $sh, (New-Object Text.UTF8Encoding $false))
-Write-Ok "압축 파일 $($lines.Count)개를 체크섬 목록에 적고 datasets_install.sh를 넣었어요"
+Write-Ok "파일 $($lines.Count)개를 체크섬 목록에 적고 datasets_install.sh를 넣었어요"
 
 # ------------------------------------------------------------------ 4. 결과
 Write-Step 4 $T '결과'

@@ -7,6 +7,16 @@ if echo "$files" | grep -E '_report_'; then
     echo "[멈춤] 원본 보고서(_report_)는 올리지 마세요. 공유용(_공유용_)만 올려요."; bad=1
 fi
 added=$(git diff --cached -U0 --diff-filter=ACM -- . ':(exclude)*.xlsx' | grep '^+' | grep -v '^+++')
+# 엑셀은 압축(zip) 안의 xml 이라 글자를 꺼내서 같이 본다(perl 은 Git for Windows 에도 들어 있다)
+while IFS= read -r -d '' f; do
+    case "$f" in *.xlsx|*.XLSX) ;; *) continue ;; esac
+    added+=$'\n'$(git show ":$f" | perl -MIO::Uncompress::Unzip -MEncode -e '
+        binmode STDOUT, ":utf8"; my $z = IO::Uncompress::Unzip->new(\*STDIN) or exit 0; my $st = 1;
+        while ($st > 0) { my $n = $z->getHeaderInfo->{Name}; my $d = join "", <$z>;
+            if ($n =~ /\.xml$/) { $d = decode("UTF-8", $d); $d =~ s/<[^>]+>/\n/g;
+                $d =~ s/&#x([0-9a-f]+);/chr hex $1/gei; $d =~ s/&#(\d+);/chr $1/ge; print "$d\n" }
+            $st = $z->nextStream }' | grep . | sed "s|^|$f: |")
+done < <(git -c core.quotepath=false diff --cached --name-only -z --diff-filter=ACM)
 if echo "$added" | grep -nE '(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)'; then
     echo "[멈춤] 사내 IP처럼 보이는 줄이 있어요."; bad=1
 fi

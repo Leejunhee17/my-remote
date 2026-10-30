@@ -66,9 +66,22 @@ chown root:root /app && chmod 755 /app
 for d in "$S" "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty}; do
     [ -L "$d" ] && stop "링크가 있어요(누가 만들었는지 몰라요): $d" "ls -l $d 로 어디를 가리키는지 보고, 직접 만든 게 아니면 rm $d 로 링크만 지운 뒤 다시 실행하세요."
 done
+# 잠그기 전(예전 설치)에 공용 계정이 만든 /app/shared 는 안을 믿지 않는다. 설정(b200.conf)이나 프로그램(tools, mamba)을
+# 미리 바꿔 두면 root(설치 스크립트)가 그것을 실행하게 된다. 데이터(데이터셋·모델)와 읽기만 하는 설정 파일만 새 폴더로 옮기고
+# 프로그램(tools, mamba, bin 등)은 치운다. 설정 파일은 b200 이 실행하지 않고 값만 꺼내 확인한다.
+# root 가 잠근 폴더에는 표시 파일(.b200_root)을 남긴다. 공용 계정은 root 소유 파일을 만들 수 없다
+if [ -d "$S" ] && ! { [ "$(stat -c %U "$S")" = root ] && [ "$(stat -c %U "$S/.b200_root" 2>/dev/null)" = root ]; }; then
+    old="/app/.shared_old_$(date +%Y%m%d_%H%M%S)"
+    mv "$S" "$old" && chown root:root "$old" && chmod 700 "$old" && mkdir -p "$S" || stop "예전 $S 를 치우지 못했어요" "ls -la /app 으로 상태를 확인하세요."
+    for n in datasets models; do [ -d "$old/$n" ] && [ ! -L "$old/$n" ] && mv "$old/$n" "$S/$n"; done
+    for n in team.txt gpu_alloc.txt b200.conf; do [ -f "$old/$n" ] && [ ! -L "$old/$n" ] && mv "$old/$n" "$S/$n"; done
+    chown -R root:root "$S" && find "$S" -type l -delete   # 링크는 누가 심었는지 모른다(root 가 나중에 그 너머에 쓰게 된다)
+    warn "예전 $S 는 공용 계정이 만든 것이라 그대로 믿지 않아요. 데이터셋·모델과 명단·배분·알림 설정만 옮기고, 나머지(기초 프로그램 등)는 $old 로 치웠어요(root만 볼 수 있어요)"
+    echo "    기초 프로그램은 다시 설치하세요(마지막 '남은 일' 3번). 치운 폴더는 확인한 뒤 지워도 돼요: rm -rf $old"
+fi
 mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty} /app/inbox
 # 공용: root 만 쓰고 모두 읽는다
-chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S"
+chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S" && touch "$S/.b200_root"
 ok "$S: root만 고치고 팀원은 읽기만 해요"
 # 작업 공간과 기록: 공용 계정이 쓴다(보고서만 root)
 chown "$ACC:$ACC" "$W" && chmod 755 "$W"
@@ -77,7 +90,7 @@ chown "$ACC:$ACC" "$W" && chmod 755 "$W"
 chown root:root "$ST" && chmod 755 "$ST"   # root 소유라야 공용 계정이 아래 root 폴더를 바꿔치기하지 못한다
 for d in history images notice_seen tty; do chown -R "$ACC:$ACC" "$ST/$d"; done
 for d in reports gpu_log notice; do chown -R root:root "$ST/$d" && chmod 755 "$ST/$d"; done
-runuser -u "$ACC" -- touch "$ST/images/loaded.tsv"   # docker 래퍼(공용 계정)가 이미지를 들여온 사람을 적는다
+setsid -w runuser -u "$ACC" -- touch "$ST/images/loaded.tsv"   # docker 래퍼(공용 계정)가 이미지를 들여온 사람을 적는다
 # root 가 실행할 설치 파일을 두는 곳. 공용 계정이 고칠 수 있으면 누구든 root 로 원하는 명령을 실행시킬 수 있다
 chown root:root /app/inbox && chmod 755 /app/inbox
 [ -d /app/inbox/images ] && rmdir /app/inbox/images/* /app/inbox/images 2>/dev/null
@@ -86,7 +99,7 @@ mkdir -p /app/upload && chown "$ACC:$ACC" /app/upload && chmod 755 /app/upload
 ok "$W: 팀원 작업 공간,  $ST: 기록·알림,  /app/upload: 설치 파일 올리는 곳(공용 계정),  /app/inbox: root가 지문을 확인한 설치 파일"
 # 홈에서도 보이게 링크(홈은 10 GB 라 실제 파일은 /app 에)
 for n in shared workspace; do
-    [ -e "$HOME_A/$n" ] || [ -L "$HOME_A/$n" ] || runuser -u "$ACC" -- ln -sn "/app/$n" "$HOME_A/$n"   # 공용 계정 홈이라 그 권한으로
+    [ -e "$HOME_A/$n" ] || [ -L "$HOME_A/$n" ] || setsid -w runuser -u "$ACC" -- ln -sn "/app/$n" "$HOME_A/$n"   # 공용 계정 홈이라 그 권한으로
 done
 # 팀원 명단과 GPU 배분: 관리자가 고치고, b200 명령이 읽는다(엑셀 '팀원', 'GPU 배분' 시트와 같게)
 [ -f "$S/team.txt" ] || cat > "$S/team.txt" <<'EOF'
@@ -94,9 +107,19 @@ done
 # 형식: 이름  그룹   (그룹은 gpu_alloc.txt 의 그룹 이름)
 # 예:  홍길동  인지
 EOF
-# GPU 배분은 서버마다 다르다. 서버 2(이름이 p2 로 끝남)는 다른 팀과 같이 써서 0~3번이 다른 팀 것이다
-if [ ! -f "$S/gpu_alloc.txt" ]; then case "$(hostname -s)" in
-*p2) cat > "$S/gpu_alloc.txt" <<'EOF'
+# GPU 배분은 서버마다 다르다. 서버 2는 다른 팀과 같이 써서 0~3번이 다른 팀 것이다.
+# 서버 이름만으로 정하면 이름이 예상과 다를 때 서버 1 배분이 들어가고(다른 팀 GPU 경고가 빠지고 드라이버까지 고정된다),
+# 처음 만들 때는 관리자에게 묻는다. 이름 끝이 p2 면 2를 기본값으로 보여 준다
+if [ ! -f "$S/gpu_alloc.txt" ]; then
+    guess=1; case "$(hostname -s)" in *p2) guess=2 ;; esac
+    [ -t 0 ] || stop 'GPU 배분 파일을 처음 만들려면 서버 번호를 답해야 해요' 'PuTTY 화면에서 직접 실행하세요: bash admin_setup.sh'
+    echo "  GPU 배분 파일을 처음 만들어요. 이 서버는 몇 번인가요?"
+    echo "    1 = 우리 팀만 쓰는 서버,  2 = 다른 팀과 같이 쓰는 서버(0~3번이 다른 팀)"
+    read -r -p "  서버 번호 [Enter = $guess]: " srv; srv=${srv:-$guess}
+    case "$srv" in 1|2) ;; *) stop "서버 번호는 1이나 2예요(입력: $srv)" '다시 실행해 1이나 2를 입력하세요: bash admin_setup.sh' ;; esac
+fi
+if [ ! -f "$S/gpu_alloc.txt" ]; then case "$srv" in
+2) cat > "$S/gpu_alloc.txt" <<'EOF'
 # GPU 배분(서버 2). 관리자만 고친다. 엑셀 'GPU 배분' 시트와 같게 맞춘다.
 # 형식: GPU번호  그룹      (공용 = 누구나 선착순, 다른팀 = 다른 팀 GPU라 우리 팀은 쓰지 않는다)
 # 서버 2는 다른 팀과 같이 써서 우리 팀은 4~7번만 쓴다. 그룹 배분은 임시
@@ -133,7 +156,7 @@ grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name grp _; do
     case "$name" in *-*|*/*|.*) warn "쓸 수 없는 이름이라 건너뛰어요: $name ('-', '/'를 빼고 다시 적으세요)"; continue ;; esac
     [ -n "$grp" ] && grep -qE "^\s*[0-9]+\s+$grp\s*$" "$S/gpu_alloc.txt" ||
         warn "$name: gpu_alloc.txt에 없는 그룹이에요(${grp:-그룹 칸 비어 있음}). team.txt의 그룹 이름을 gpu_alloc.txt와 글자까지 같게 적으세요"
-    [ -d "$W/$name" ] || { runuser -u "$ACC" -- mkdir -p "$W/$name/images" && echo "    작업 폴더를 만들었어요: $W/$name"; }
+    [ -d "$W/$name" ] || { setsid -w runuser -u "$ACC" -- mkdir -p "$W/$name/images" && echo "    작업 폴더를 만들었어요: $W/$name"; }
 done
 # 알림 기준 숫자. 바꾸면 규칙 문서(team/)의 숫자도 같이 바꾼다. 예전 설정(자동 종료 등)이 있으면 새로 쓴다
 grep -q '^IDLE_HOURS=' "$S/b200.conf" 2>/dev/null || cat > "$S/b200.conf" <<'EOF'
@@ -150,10 +173,10 @@ chmod 644 "$S/b200.conf"
 # NAS 팀 폴더를 정했으면(NAS_DIR) 팀원별 backup·images 폴더도 공용 계정 권한으로 만든다(root 는 NAS에 쓰지 않는다)
 NAS_DIR=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$S/b200.conf" | tail -1)
 if [ -n "$NAS_DIR" ]; then
-    if runuser -u "$ACC" -- test -d "$NAS_DIR" -a -w "$NAS_DIR"; then
+    if setsid -w runuser -u "$ACC" -- test -d "$NAS_DIR" -a -w "$NAS_DIR"; then
         grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
             case "$name" in *-*|*/*|.*) continue ;; esac
-            runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/images/$name" "$NAS_DIR/transfer"
+            setsid -w runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/images/$name" "$NAS_DIR/transfer"
         done
         ok "NAS 팀 폴더($NAS_DIR)에 팀원별 backup·images 폴더를 맞췄어요"
     else warn "NAS 팀 폴더($NAS_DIR)가 없거나 공용 계정이 쓸 수 없어요(docs/9_NAS.md 의 '처음 만들기')"; fi
@@ -168,8 +191,8 @@ done
 rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"   # 예전 버전의 파일
 ok "$S/bin 에 설치했어요: docker(이름표·GPU 겹침 경고), nvidia-smi(GPU별 사용자 표), b200(접속 인사·정기 점검)"
 # docker ps 에 사람(USER)과 GPU 열을 보이게 한다(공용 계정의 docker 설정). 공용 계정 홈이라 공용 계정 권한으로 쓴다
-runuser -u "$ACC" -- mkdir -p "$HOME_A/.docker"
-runuser -u "$ACC" -- python3 - "$HOME_A/.docker/config.json" <<'PY'
+setsid -w runuser -u "$ACC" -- mkdir -p "$HOME_A/.docker"
+setsid -w runuser -u "$ACC" -- python3 -I - "$HOME_A/.docker/config.json" <<'PY'
 import json, os, sys
 p = sys.argv[1]
 try: c = json.load(open(p))
@@ -240,7 +263,7 @@ chmod 644 /etc/profile.d/b200.sh
 grep -q '# b200 admin_setup' /etc/bash.bashrc ||
     echo '[ -r /etc/profile.d/b200.sh ] && . /etc/profile.d/b200.sh  # b200 admin_setup' >> /etc/bash.bashrc
 # 예전 방식(~/.bashrc 의 PATH 줄)은 지운다. 이제 시스템 설정이 맡는다
-[ -f "$HOME_A/.bashrc" ] && runuser -u "$ACC" -- sed -i '\#shared/tools/bin#d' "$HOME_A/.bashrc"
+[ -f "$HOME_A/.bashrc" ] && setsid -w runuser -u "$ACC" -- sed -i '\#shared/tools/bin#d' "$HOME_A/.bashrc"
 ok '접속 설정: 이름 고르기(번호), 이름별 캐시·명령 기록, 작업 폴더로 이동, 알림 보기'
 
 # ------------------------------------------------------------------ 5. GPU 서비스

@@ -90,7 +90,7 @@ for d in "${dirs[@]}"; do
     # GitHub 코드 묶음은 code/ 폴더로 푼다(맨 위 폴더 한 단계는 뺀다)
     if [ -f "$dest/code.zip" ]; then
         rm -rf "$dest/code"
-        "$PY" - "$dest/code.zip" "$dest/code" <<'EOF' && rm -f "$dest/code.zip" && echo "    코드를 풀었어요: $dest/code" || bad "$repo: 코드 묶음(code.zip)을 풀지 못했어요"
+        "$PY" -I - "$dest/code.zip" "$dest/code" <<'EOF' && rm -f "$dest/code.zip" && echo "    코드를 풀었어요: $dest/code" || bad "$repo: 코드 묶음(code.zip)을 풀지 못했어요"
 import os, sys, zipfile
 src, out = sys.argv[1], sys.argv[2]
 with zipfile.ZipFile(src) as z:
@@ -114,7 +114,7 @@ ok "다 옮겼어요"
 step 3 '검사 (설정 파일과 가중치 파일을 열어 봐요)'
 for d in "${dirs[@]}"; do
     repo=${d/__//}
-    "$PY" - "$D/$repo" "$repo" <<'EOF' || FAILS=$((FAILS + 1))
+    "$PY" -I - "$D/$repo" "$repo" <<'EOF' || FAILS=$((FAILS + 1))
 import glob, json, os, struct, sys
 d, repo = sys.argv[1], sys.argv[2]
 meta = json.load(open(os.path.join(d, "b200_model.json"), encoding="utf-8"))

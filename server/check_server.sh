@@ -68,8 +68,8 @@ if [ -d "$APP" ]; then
     if [ -d "$APP/workspace" ] && [ ! -w "$APP/workspace" ]; then
         mine "$APP/workspace 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
     fi
-    if [ -e "$APP/shared" ]; then
-        warn "$APP/shared 가 남아 있어요(예전 설치). pack_install.sh 가 그대로 이어서 써요(처음부터 설치하는 순서는 docs/1_처음_설치.md 2단계)"
+    if [ -e "$APP/shared" ] && [ "$(stat -c %U "$APP/shared/.b200_root" 2>/dev/null)" != root ]; then
+        warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 데이터셋·모델과 설정 파일만 남기고 기초 프로그램 등은 치워요(2단계에서 다시 설치)"
     fi
     [ -d "$APP/shared/datasets" ] && ok "예전 데이터셋이 남아 있어요: $APP/shared/datasets (다시 올리지 않아도 돼요)"
     [ -d "$APP/shared/models" ] && ok "예전 모델이 남아 있어요: $APP/shared/models (다시 올리지 않아도 돼요)"

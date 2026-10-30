@@ -63,7 +63,7 @@ if ($script:Fails) {
 Write-Step 2 $T '기초 프로그램 버전 정하기 (B200 서버 linux-64 기준)'
 $env:CONDA_OVERRIDE_GLIBC = $Glibc
 $env:CONDA_OVERRIDE_CUDA  = $Cuda
-$tools = (Get-Content (Join-Path $root 'lists\tools.txt')) -split '\s+' | Where-Object { $_ }
+$tools = (Get-Content -Encoding UTF8 (Join-Path $root 'lists\tools.txt')) -split '\s+' | Where-Object { $_ }
 Write-Info "conda-forge에서 목록 $($tools.Count)개와 함께 필요한 패키지의 버전을 정하는 중이에요(1~3분)"
 # 지난 실행에서 망 문제로 잘못 받은 목록 캐시를 쓰지 않도록 매번 지운다
 $mmroot = Join-Path $out 'mmroot'

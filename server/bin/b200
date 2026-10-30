@@ -21,8 +21,13 @@ SEEN=$ST/notice_seen     # 팀원이 어디까지 봤는지: 공용 계정이 �
 USED=$ST/gpu_log/images_used.tsv   # 이미지를 마지막으로 쓴 날: root 만 쓰는 곳(공용 계정 폴더에 root 가 쓰면 링크로 시스템 파일을 덮을 수 있다)
 ME=${B200_USER:-}
 # 관리자가 정하는 숫자(/app/shared/b200.conf 가 있으면 그 값). 모두 알림 기준이다
-MAX_GPUS=4; IDLE_HOURS=12; DISK_ALERT=85; IMAGE_NOTICE_DAYS=30
-[ -r "$S/b200.conf" ] && . "$S/b200.conf"
+# root(정기 점검)도 읽으므로 실행(source)하지 않고 정해진 이름의 값만 꺼내 모양을 확인한다
+conf() { local v; v=$(sed -n "s/^$1=\([^ #]*\).*/\1/p" "$S/b200.conf" 2>/dev/null | tail -1); [[ "$v" =~ $2 ]] && printf '%s' "$v"; }
+MAX_GPUS=$(conf MAX_GPUS '^[0-9]{1,3}$');            MAX_GPUS=${MAX_GPUS:-4}
+IDLE_HOURS=$(conf IDLE_HOURS '^[0-9]{1,4}$');        IDLE_HOURS=${IDLE_HOURS:-12}
+DISK_ALERT=$(conf DISK_ALERT '^[0-9]{1,3}$');        DISK_ALERT=${DISK_ALERT:-85}
+IMAGE_NOTICE_DAYS=$(conf IMAGE_NOTICE_DAYS '^[0-9]{1,4}$'); IMAGE_NOTICE_DAYS=${IMAGE_NOTICE_DAYS:-30}
+NAS_DIR=$(conf NAS_DIR '^/[A-Za-z0-9._/-]+$')
 NVSMI=${B200_NVSMI:-/usr/bin/nvidia-smi}
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_b=$'\e[1m'; c_0=$'\e[0m'
 is_root() { [ "$(id -u)" = 0 ]; }
@@ -336,8 +341,10 @@ cmd__check() {
     fi
     # 6. 이미지: 쓰는 날 기록, 오래 안 쓴 이미지는 들여온 사람에게 주 한 번
     if have_docker; then
-        echo "$CONTAINERS" | cut -f5 | grep . | sort -u | while read -r ref; do printf '%s\t%s\n' "$ref" "$day"; done |
-            cat - "$USED" 2>/dev/null | sort -t$'\t' -k1,1 -k2,2r | sort -t$'\t' -u -k1,1 > "$USED.new" &&
+        # 처음에는 $USED 가 없다. 없어도 새로 만들게 cat 실패가 pipefail 로 번지지 않게 묶는다
+        { echo "$CONTAINERS" | cut -f5 | grep . | sort -u | while read -r ref; do printf '%s\t%s\n' "$ref" "$day"; done
+          [ -f "$USED" ] && [ ! -L "$USED" ] && cat "$USED"; true; } |
+            sort -t$'\t' -k1,1 -k2,2r | sort -t$'\t' -u -k1,1 > "$USED.new" &&
             mv "$USED.new" "$USED"
         local old; old=$(date -d "$IMAGE_NOTICE_DAYS days ago" +%F)
         image_table | while IFS=$'\t' read -r ref who last _; do
@@ -391,7 +398,7 @@ cmd__report() {
     fi
     # NAS 우리 팀 폴더(b200.conf 의 NAS_DIR). root squash 에서도 읽히고 링크를 심어도 root 가 따라가지 않게 공용 계정으로 본다
     if [ -n "${NAS_DIR:-}" ] && [ -d "$NAS_DIR" ] && [ ! -L "$NAS_DIR" ]; then
-        local as=(); is_root && as=(runuser -u "$ACC" --)
+        local as=(); is_root && as=(setsid -w runuser -u "$ACC" --)
         echo
         echo "== NAS ($NAS_DIR)"
         "${as[@]}" df -hP "$NAS_DIR" 2>/dev/null | awk 'NR==2 {print "  전체 "$2", 쓴 것 "$3", 남은 것 "$4" ("$5")  (할당량이 있으면 할당량 기준)"}'

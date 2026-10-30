@@ -4,3 +4,5 @@ datasets/
 models/
 지문_기록.txt
 *_report_*.txt
+__pycache__/
+*.pyc

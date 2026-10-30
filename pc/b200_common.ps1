@@ -268,7 +268,7 @@ function Save-Fingerprint($what, $fp) {
 function Show-NotNeeded($dest, $manifest, [string[]]$keepPrefix) {
     $base = (Resolve-Path $dest).Path.TrimEnd('\')
     $keep = @{}
-    foreach ($l in (Get-Content $manifest)) { if ($l -match '^[0-9a-f]{64}  (.+)$') { $keep[$Matches[1]] = 1 } }
+    foreach ($l in (Get-Content -Encoding UTF8 $manifest)) { if ($l -match '^[0-9a-f]{64}  (.+)$') { $keep[$Matches[1]] = 1 } }
     $extra = @(Get-ChildItem $base -Recurse -File | Where-Object {
         $rel = $_.FullName.Substring($base.Length + 1) -replace '\\', '/'
         $inPrefix = $false

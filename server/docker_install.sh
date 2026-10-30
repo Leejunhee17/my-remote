@@ -95,8 +95,8 @@ mkdir -p "$OPT/cli-plugins"
 for p in docker-buildx docker-compose; do
     [ -f "plugins/$p" ] && install -m 755 "plugins/$p" "$OPT/cli-plugins/$p" && ok "설치했어요: $p"
 done
-runuser -u "$ACC" -- mkdir -p "$(getent passwd "$ACC" | cut -d: -f6)/.docker"
-runuser -u "$ACC" -- python3 - "$(getent passwd "$ACC" | cut -d: -f6)/.docker/config.json" "$OPT/cli-plugins" <<'PY'
+setsid -w runuser -u "$ACC" -- mkdir -p "$(getent passwd "$ACC" | cut -d: -f6)/.docker"
+setsid -w runuser -u "$ACC" -- python3 -I - "$(getent passwd "$ACC" | cut -d: -f6)/.docker/config.json" "$OPT/cli-plugins" <<'PY'
 import json, sys
 p, d = sys.argv[1], sys.argv[2]
 try: c = json.load(open(p))

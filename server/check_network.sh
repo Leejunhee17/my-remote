@@ -157,13 +157,13 @@ print(f"  동시 연결 {streams}개로 {tot/1e9:.1f} GB를 {secs:.0f}초 동안
 '
 cmd_listen() {
     if command -v iperf3 >/dev/null; then echo "  iperf3로 받을 준비를 했어요(한 번 측정하면 끝나요)"; exec iperf3 -s -1 -p "$PORT"; fi
-    python3 -c "$PY_LISTEN" "$PORT" "$STREAMS" 120
+    python3 -I -c "$PY_LISTEN" "$PORT" "$STREAMS" 120
 }
 cmd_send() {
     local to=${1:?받는 쪽 IP 를 적으세요: bash check_network.sh send 10.0.0.2}
     echo "  쓰는 네트워크 카드: $(route_to "$to"),  동시 연결 ${STREAMS}개, ${SECS}초"
     if command -v iperf3 >/dev/null; then exec iperf3 -c "$to" -p "$PORT" -P "$STREAMS" -t "$SECS"; fi
-    python3 -c "$PY_SEND" "$to" "$PORT" "$STREAMS" "$SECS"
+    python3 -I -c "$PY_SEND" "$to" "$PORT" "$STREAMS" "$SECS"
     echo "  (python으로 잰 값이라 100 Gbps 이상 카드에서는 실제보다 낮게 나올 수 있어요)"
 }
 
@@ -251,10 +251,10 @@ wait_file() {   # $1 파일이 $2 파일보다 새것으로 생길 때까지 $3 
 
 pair_tcp() {   # $1 이름 $2 내 포트 $3 짝 IP $4 짝 포트
     local tmp; tmp=$(mktemp)
-    python3 -c "$PY_LISTEN" "$2" "$STREAMS" 90 > "$tmp" 2>&1 &
+    python3 -I -c "$PY_LISTEN" "$2" "$STREAMS" 90 > "$tmp" 2>&1 &
     local lp=$!
     sleep 2
-    local sent; sent=$(python3 -c "$PY_SEND" "$3" "$4" "$STREAMS" "$SECS" 60 2>&1)
+    local sent; sent=$(python3 -I -c "$PY_SEND" "$3" "$4" "$STREAMS" "$SECS" 60 2>&1)
     wait "$lp"
     local got; got=$(grep -v '기다려요' "$tmp"); rm -f "$tmp"
     echo "  보내기 → $3: $(echo "$sent" | gbs || echo '실패(연결하지 못했어요)')"
@@ -334,6 +334,8 @@ all_body() {
             [ $((i % 60)) = 0 ] && echo "  ...기다리는 중이에요($((i / 60))분)"
             sleep 1
         done
+        # 공유용 사본에서 상대 서버 이름을 가리려면 이름이 필요하다. 상대가 먼저 끝나면 NAS 의 정보 파일이 지워지므로 따로 적어 둔다
+        [ -n "$peer" ] && [ -n "${PEER_NOTE:-}" ] && echo "$peer" > "$PEER_NOTE"
         if [ -n "$peer" ]; then local pibs; pibs=$(field IB "$pf"); ok "상대 서버: $peer (이더넷 $(field ETH "$pf"), InfiniBand ${pibs:-없음})"
         else warn '상대 서버를 찾지 못해서 이 서버만 측정해요'; fi
     else
@@ -425,16 +427,19 @@ LABEL="서버(…$(hostname -s | tail -c 3))"   # 공유용 사본에서 이 서
 cmd_all() {
     local dir; dir=$(report_dir)
     local out; out=$(mktemp "$dir/network_report_${ME}_$(date +%Y%m%d-%H%M)_XXXX.txt") || out=$(mktemp)
+    PEER_NOTE=$(mktemp)
     all_body "$@" 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' > "$out")
     sleep 1
     chmod 644 "$out" 2>/dev/null   # 공용 계정(FileZilla)으로 내려받을 수 있게
     # 공유용 사본: 이 서버와 상대 서버 이름을 가린다(상대 서버 이름은 NAS 의 상대 정보 파일에서)
     local masks=("$(hostname -f 2>/dev/null)=$LABEL" "$ME=$LABEL") f h
-    for f in "$(nas_dir "${1:-}")"/.b200_net/*.info; do
+    for f in "$PEER_NOTE" "$(nas_dir "${1:-}")"/.b200_net/*.info; do
+        [ "$f" = "$PEER_NOTE" ] && { h=$(head -1 "$f"); [[ "$h" =~ ^[A-Za-z0-9._-]{2,64}$ ]] && masks+=("$h=상대서버(…${h: -2})"); continue; }
         h=$(field HOST "$f"); [[ "$h" =~ ^[A-Za-z0-9._-]{2,64}$ ]] && [ "$h" != "$ME" ] && masks+=("$h=상대서버(…${h: -2})")
     done 2>/dev/null
     local share="$dir/network_공유용_${LABEL//[^A-Za-z0-9]/}_$(date +%Y%m%d-%H%M).txt"
     share_copy "$out" "$share" "${masks[@]}"
+    rm -f "$PEER_NOTE"
     echo; echo "보고서(원본, 사내 정보 있음): $(readlink -f "$out")"
     echo "보고서(공유용, git 으로 올려도 돼요): $share"
     echo "  공유용만 내려받아 저장소의 reports 폴더에 넣고 올리세요(docs/4_네트워크.md 의 \"결과 가져오기\")."

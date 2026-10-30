@@ -95,8 +95,10 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 ```bash
 # [서버 1] root
 A=$(cat /etc/b200/account); T=/data/<팀 폴더>/archive
-runuser -u "$A" -- mkdir -p $T/packs
-runuser -u "$A" -- cp /app/inbox/b200-pack.tar /app/inbox/b200-docker.tar $T/packs/
+P=$T/packs/$(date +%F)                                 # 묶음은 만든 날짜 폴더마다 따로 둬요
+runuser -u "$A" -- mkdir -p $P
+runuser -u "$A" -- cp /app/inbox/b200-pack.tar /app/inbox/b200-docker.tar $P/
+runuser -u "$A" -- ls $T/packs                        # 날짜 폴더가 4개 이상이면 가장 오래된 것을 지워요(최근 3판만)
 runuser -u "$A" -- cp -r /app/inbox/datasets /app/inbox/models $T/
 ```
 
@@ -107,9 +109,10 @@ runuser -u "$A" -- cp -r /app/inbox/datasets /app/inbox/models $T/
 ```bash
 # [서버 2] root. 0단계(/etc/b200/account, /app/inbox·upload 만들기)는 먼저 해 둬요
 A=$(cat /etc/b200/account); T=/data/<팀 폴더>/archive
-runuser -u "$A" -- cp $T/packs/b200-pack.tar $T/packs/b200-docker.tar /app/upload/
+runuser -u "$A" -- ls $T/packs                        # 날짜 폴더 목록. 가장 최근 날짜를 아래 <날짜> 에 적어요
+P=$T/packs/<날짜>
+runuser -u "$A" -- cp $P/b200-pack.tar $P/b200-docker.tar /app/upload/
 runuser -u "$A" -- cp -r $T/datasets $T/models /app/upload/
-
 ```
 
 그다음은 **지문을 보는 줄과 실행하는 줄을 나눠서** 해요. 지문이 `지문_기록.txt` 와 같을 때만 다음 줄을 실행해요.
