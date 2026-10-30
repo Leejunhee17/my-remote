@@ -34,7 +34,11 @@ step 1 '점검'
 id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" "/etc/b200/account 의 계정 이름을 확인하세요: cat /etc/b200/account"
 UID_A=$(id -u "$ACC")
 for f in MANIFEST_docker.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf b200-docker.tar"; done
-bad=$(grep -v '  docker_install\.sh$' MANIFEST_docker.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
+# 목록이 비었거나 모양이 다른 줄이 있으면 sha256sum 은 그 줄을 건너뛰고 "맞음"이 될 수 있어 따로 본다
+[ "$(grep -c . MANIFEST_docker.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST_docker.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
+    stop "체크섬 목록(MANIFEST_docker.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 docker_pack.ps1 을 다시 실행해 새 묶음을 올리세요."
+bad=$(grep -v '  docker_install\.sh$' MANIFEST_docker.sha256 | sha256sum -c --quiet --strict - 2>/dev/null | sed 's/: .*//'); rc=$?
+[ "$rc" = 0 ] || [ -n "$bad" ] || stop '체크섬을 확인하지 못했어요' "묶음이나 폴더를 /app/upload 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
 [ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨진 파일: /'; stop '올리는 중에 파일이 깨졌어요' '접근 PC의 pack_docker\b200-docker.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요.'; }
 ok "파일 체크섬이 맞아요 (Docker $(info docker), NVIDIA Container Toolkit $(info nvidia_toolkit))"
 CODE=$(. /etc/os-release && echo "${VERSION_CODENAME:-}")

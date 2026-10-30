@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # [B200 서버 · 관리자(root) 전용] 공용 계정으로 여럿이 쓰는 서버의 기본 규칙을 시스템에 건다. 여러 번 실행해도 된다.
 #   bash admin_setup.sh          적용
-#   bash admin_setup.sh --undo   되돌리기(공용 폴더 잠금 풀기, 시스템 설정 지우기)
+#   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. 공용 폴더 잠금·b200 명령·기록·드라이버 고정은 그대로 둔다)
 # 하는 일 (팀원에게 새 명령을 외우게 하지 않고, 막기보다 알린다)
-#   - 공용 계정(/etc/b200/account)에 관리자 권한(sudo, docker 그룹)이 없는지 확인한다(있으면 알려만 준다)
+#   - 공용 계정(/etc/b200/account)에 관리자 권한(sudo, docker·disk·lxd 등 그룹)이 없는지 확인한다(있으면 알려만 준다)
 #   - /app/shared(기초 프로그램·데이터셋·모델)와 /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
 #   - 접속할 때 이름을 고르게 하고, 이름별 작업 폴더·캐시·명령 기록을 나눈다(/etc/profile.d/b200.sh)
 #   - docker, nvidia-smi 도우미를 /app/shared/bin 에 설치한다(이름표, GPU 겹침 경고, "GPU별 사용자" 표)
@@ -43,8 +43,9 @@ echo "[B200 서버] 관리자 기본 설정  ($(date '+%Y-%m-%d %H:%M'), 공용 
 # 공용 계정이 sudo 나 docker 그룹을 가지면 누구든 root 가 될 수 있어, 아래 잠금이 모두 무의미해진다.
 # 지금은 없다고 들었지만 서버 관리 팀이 나중에 넣을 수도 있어 실행할 때마다 확인만 한다(바꾸지는 않는다)
 step '1. 공용 계정 권한 확인'
-bad=$(id -nG "$ACC" | tr ' ' '\n' | grep -xE 'sudo|admin|wheel|docker' | tr '\n' ' ')
-[ -z "$bad" ] && ok "공용 계정($ACC)은 sudo·docker 그룹에 없어요" ||
+# disk(디스크 장치 직접 읽고 쓰기), lxd·incus-admin(컨테이너로 root), libvirt(가상 머신)도 root 와 다름없다
+bad=$(id -nG "$ACC" | tr ' ' '\n' | grep -xE 'sudo|admin|wheel|docker|disk|lxd|incus-admin|libvirt' | tr '\n' ' ')
+[ -z "$bad" ] && ok "공용 계정($ACC)은 관리자 권한 그룹(sudo·docker·disk·lxd 등)에 없어요" ||
     warn "공용 계정($ACC)이 관리자 그룹에 있어요: $bad. 팀원 누구나 root가 될 수 있으니 서버 관리 팀과 확인하세요(빼는 명령: gpasswd -d $ACC 그룹이름)"
 sudo -l -U "$ACC" 2>/dev/null | grep -q 'may run' && warn "공용 계정($ACC)이 sudo를 쓸 수 있어요. 설정 위치: grep -rn $ACC /etc/sudoers /etc/sudoers.d/" || ok "공용 계정($ACC)은 sudo를 못 써요"
 
@@ -148,12 +149,13 @@ EOF
 ;;
 esac; fi
 chmod 644 "$S/team.txt" "$S/gpu_alloc.txt"
-ok "GPU 배분: $(awk '!/^\s*#/ && NF>=2 {g[$2] = g[$2] (g[$2] ? "," : "") $1} END {for (k in g) printf "%s %s  ", k, g[k]}' "$S/gpu_alloc.txt")($S/gpu_alloc.txt)"
+ok "GPU 배분: $(awk '!/^[ \t]*#/ && NF>=2 {g[$2] = g[$2] (g[$2] ? "," : "") $1} END {for (k in g) printf "%s %s  ", k, g[k]}' "$S/gpu_alloc.txt")($S/gpu_alloc.txt)"
 n_team=$(grep -cvE '^\s*(#|$)' "$S/team.txt")
 [ "$n_team" -gt 0 ] && ok "팀원 ${n_team}명 등록돼 있어요($S/team.txt)" ||
     warn "팀원 명단이 비어 있어요. $S/team.txt 에 한 줄에 '이름 그룹'으로 적고 다시 실행하세요(비어 있는 동안은 접속할 때 번호 목록 없이 아무 이름이나 받아요)"
 grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name grp _; do
     case "$name" in *-*|*/*|.*) warn "쓸 수 없는 이름이라 건너뛰어요: $name ('-', '/'를 빼고 다시 적으세요)"; continue ;; esac
+    case "$name" in 관리자|다른팀|이름없음|'?') warn "알림·표시에 쓰는 이름이라 팀원 이름으로 쓸 수 없어요: $name"; continue ;; esac
     [ -n "$grp" ] && grep -qE "^\s*[0-9]+\s+$grp\s*$" "$S/gpu_alloc.txt" ||
         warn "$name: gpu_alloc.txt에 없는 그룹이에요(${grp:-그룹 칸 비어 있음}). team.txt의 그룹 이름을 gpu_alloc.txt와 글자까지 같게 적으세요"
     [ -d "$W/$name" ] || { setsid -w runuser -u "$ACC" -- mkdir -p "$W/$name/images" && echo "    작업 폴더를 만들었어요: $W/$name"; }

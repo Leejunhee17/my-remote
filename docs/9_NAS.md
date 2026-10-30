@@ -84,7 +84,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
    ```
 
 3. 만들 수 없으면 아래 "서버 관리 팀에 요청할 것" 으로 요청해요.
-4. `/app/shared/b200.conf` 에 `NAS_DIR=/data/<팀 폴더>` 을 적으면 주간 보고서에 폴더별 사용량과 오래된 `transfer/` 파일이 나와요.
+4. `/app/shared/b200.conf` 에 `NAS_DIR=/data/<팀 폴더>` 를 적고 `cd /app/inbox && bash admin_setup.sh` 를 다시 실행해요. 팀원별 `backup/<이름>`, `images/<이름>` 폴더가 생기고, 주간 보고서에 폴더별 사용량과 오래된 `transfer/` 파일이 나와요. 나중에 팀원을 명단에 더하면 그때도 다시 실행해요.
 
 ## 쓰는 법
 
@@ -136,7 +136,7 @@ bash /app/inbox/models/models_install.sh
 | 할 일 | 명령 |
 |---|---|
 | 실험 결과 보관 | `rsync -a /app/workspace/<이름>/runs/exp1 /data/<팀 폴더>/backup/<이름>/` |
-| 도커 이미지 보관·다른 서버에서 쓰기 | `docker save -o /data/<팀 폴더>/images/<이름>/myseg_v1.tar myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
+| 도커 이미지 보관·다른 서버에서 쓰기 | `docker save -o /data/<팀 폴더>/images/<이름>/myseg_v1.tar <이름>/myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
 | 서버 사이 큰 파일 전달 | `transfer/` 에 두고 다른 서버에서 가져간 뒤 지워요 |
 
 - NAS에 지문 파일을 같이 두지 않아요. 누구나 고칠 수 있어서 맞춰 봐도 의미가 없어요.

@@ -49,9 +49,13 @@ echo "두는 곳: $D"
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
 [ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 파일이 없어요" "접근 PC의 models 폴더를 통째로 /app/upload 에 올리고 /app/inbox 로 복사했는지 확인하세요(docs/7_모델.md)."
+# 목록이 비었거나 모양이 다른 줄이 있으면 sha256sum 은 그 줄을 건너뛰고 "맞음"이 될 수 있어 따로 본다
+[ "$(grep -c . MANIFEST.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
+    stop "체크섬 목록(MANIFEST.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 models_download.ps1 을 다시 실행해 목록을 새로 만든 뒤 models 폴더를 다시 올려 들여오세요."
 n=$(grep -c . MANIFEST.sha256 || true)
 echo "  파일 ${n}개의 체크섬을 확인하고 있어요(100 GB면 10분 안팎)"
-bad_files=$(sha256sum -c --quiet MANIFEST.sha256 2>/dev/null | sed 's/: .*//')
+bad_files=$(sha256sum -c --quiet --strict MANIFEST.sha256 2>/dev/null | sed 's/: .*//'); rc=$?
+[ "$rc" = 0 ] || [ -n "$bad_files" ] || stop "체크섬을 확인하지 못했어요" "묶음이나 폴더를 /app/upload 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | head -20 | sed 's/^/    깨졌거나 없는 파일: /'
     stop "올리는 중에 깨졌거나 빠진 파일이 있어요" "위 파일이 든 모델 폴더만 접근 PC에서 /app/upload/models 의 같은 자리에 다시 올리고, root로 /app/inbox/models 의 같은 자리에 복사하세요. 체크섬은 이 스크립트가 다시 확인해요."
@@ -96,9 +100,13 @@ src, out = sys.argv[1], sys.argv[2]
 with zipfile.ZipFile(src) as z:
     for i in z.infolist():
         rel = i.filename.split("/", 1)[1] if "/" in i.filename else ""
-        if not rel or ".." in rel.split("/"):
+        parts = [p for p in rel.replace("\\", "/").split("/") if p not in ("", ".")]
+        if not parts or ".." in parts or ":" in parts[0]:
             continue
-        t = os.path.join(out, rel)
+        # 이름이 top//etc/... 처럼 / 로 시작해도 out 밖으로 나가지 않게 조각을 다시 붙이고, 마지막에 한 번 더 확인한다
+        t = os.path.join(out, *parts)
+        if os.path.commonpath([os.path.realpath(out), os.path.realpath(t)]) != os.path.realpath(out):
+            continue
         if i.is_dir():
             os.makedirs(t, exist_ok=True)
             continue

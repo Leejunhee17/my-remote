@@ -82,7 +82,11 @@ echo "  묶음 정보: $(info made)에 만든 묶음, glibc $(info glibc) 기준
 
 echo "  파일 체크섬을 확인하고 있어요(1~3분)"
 # 설치 스크립트 자신은 고친 버전을 따로 올려 덮어쓸 수 있도록 검사에서 뺀다
-bad_files=$(grep -vE '  ((pack_install|move_shared|check_server|check_network|check_nas|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256 | sha256sum -c --quiet - 2>/dev/null | sed 's/: .*//')
+# 목록이 비었거나 모양이 다른 줄이 있으면 sha256sum 은 그 줄을 건너뛰고 "맞음"이 될 수 있어 따로 본다
+[ "$(grep -c . MANIFEST.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
+    stop "체크섬 목록(MANIFEST.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 pack_build.ps1 을 다시 실행해 새 묶음을 올리세요."
+bad_files=$(grep -vE '  ((pack_install|move_shared|check_server|check_network|check_nas|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256 | sha256sum -c --quiet --strict - 2>/dev/null | sed 's/: .*//'); rc=$?
+[ "$rc" = 0 ] || [ -n "$bad_files" ] || stop "체크섬을 확인하지 못했어요" "묶음이나 폴더를 /app/upload 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | head -20 | sed 's/^/    깨진 파일: /'
     stop "올리는 중에 파일이 깨졌어요($(echo "$bad_files" | wc -l)개)" \

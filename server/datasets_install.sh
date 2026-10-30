@@ -53,13 +53,18 @@ command -v unzip >/dev/null || [ -x "$SH/tools/bin/unzip" ] ||
     stop "unzip 명령이 없어요" "기초 프로그램을 먼저 설치하세요: cd /app/inbox && bash pack_install.sh /app/shared"
 export PATH="$PATH:$SH/tools/bin"
 
+# 목록이 비었거나 모양이 다른 줄이 있으면 sha256sum 은 그 줄을 건너뛰고 "맞음"이 될 수 있어 따로 본다
+[ "$(grep -c . MANIFEST.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
+    stop "체크섬 목록(MANIFEST.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 datasets_download.ps1 을 다시 실행해 목록을 새로 만든 뒤 datasets 폴더를 다시 올려 들여오세요."
 # 체크섬 목록에는 압축 파일과 wildscenes 파일(하나하나)이 들어 있다. wildscenes 를 이미 옮겨서 이번에 안 올렸으면 그 줄은 뺀다
 SUMS=$(mktemp); trap 'rm -f "$SUMS"' EXIT
 if [ ! -d wildscenes ] && [ -f "$D/wildscenes/.b200_done" ]; then grep -v '^[0-9a-f]\{64\}  wildscenes/' MANIFEST.sha256 > "$SUMS"
 else cat MANIFEST.sha256 > "$SUMS"; fi
 n=$(grep -c . "$SUMS" || true); nw=$(grep -c '^[0-9a-f]\{64\}  wildscenes/' "$SUMS" || true)
 echo "  파일 ${n}개(그중 wildscenes ${nw}개)의 체크섬을 확인하고 있어요(100 GB면 10분 안팎)"
-bad_files=$(sha256sum -c --quiet "$SUMS" 2>/dev/null | sed 's/: .*//')
+bad_files=; rc=0
+[ "$n" -gt 0 ] && { bad_files=$(sha256sum -c --quiet --strict "$SUMS" 2>/dev/null | sed 's/: .*//'); rc=$?; }
+[ "$rc" = 0 ] || [ -n "$bad_files" ] || stop "체크섬을 확인하지 못했어요" "묶음이나 폴더를 /app/upload 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | sed 's/^/    깨졌거나 없는 파일: /'
     stop "올리는 중에 깨졌거나 빠진 파일이 있어요" "위 파일만 접근 PC에서 /app/upload/datasets 의 같은 자리에 다시 올리고, root로 /app/inbox/datasets 의 같은 자리에 복사하세요(예: cp /app/upload/datasets/goose/파일 $SRC/goose/). 체크섬은 이 스크립트가 다시 확인해요."
@@ -100,7 +105,7 @@ for f in "${files[@]}"; do
     mkdir -p "$dest"
     case "$f" in
         *.zip)            unzip -q -o "$f" -d "$dest" ;;
-        *.tar|*.tar.gz|*.tgz|*.tar.xz) tar xf "$f" -C "$dest" ;;
+        *.tar|*.tar.gz|*.tgz|*.tar.xz) tar xf "$f" -C "$dest" --no-same-owner ;;   # root 로 풀 때 압축 안의 주인을 따르지 않게
         *)  warn "$f: zip·tar가 아니라서 $dest 에 그대로 복사했어요. 직접 풀어야 할 수 있어요."
             cp "$f" "$dest/" ;;
     esac
