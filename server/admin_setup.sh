@@ -178,7 +178,7 @@ if [ -n "$NAS_DIR" ]; then
     if setsid -w runuser -u "$ACC" -- test -d "$NAS_DIR" -a -w "$NAS_DIR"; then
         grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
             case "$name" in *-*|*/*|.*) continue ;; esac
-            setsid -w runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/docker_images/$name" "$NAS_DIR/transfer"
+            setsid -w runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/docker_images/$name" "$NAS_DIR/tmp_transfer"
         done
         ok "NAS 팀 폴더($NAS_DIR)에 팀원별 backup·docker_images 폴더를 맞췄어요"
     else warn "NAS 팀 폴더($NAS_DIR)가 없거나 공용 계정이 쓸 수 없어요(docs/9_NAS.md 의 '처음 만들기')"; fi
