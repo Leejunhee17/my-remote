@@ -412,7 +412,7 @@ cmd__report() {
         echo
         echo "== NAS ($NAS_DIR)"
         "${as[@]}" df -hP "$NAS_DIR" 2>/dev/null | awk 'NR==2 {print "  전체 "$2", 쓴 것 "$3", 남은 것 "$4" ("$5")  (할당량이 있으면 할당량 기준)"}'
-        "${as[@]}" timeout 1800 du -sh "$NAS_DIR"/archive "$NAS_DIR"/images/* "$NAS_DIR"/backup/* "$NAS_DIR"/transfer 2>/dev/null |
+        "${as[@]}" timeout 1800 du -sh "$NAS_DIR"/originals "$NAS_DIR"/docker_images/* "$NAS_DIR"/backup/* "$NAS_DIR"/transfer 2>/dev/null |
             sed "s#$NAS_DIR/##; s/\t/  /; s/[[:cntrl:]]//g; s/^/  /"
         local old; old=$("${as[@]}" find "$NAS_DIR/transfer" -mindepth 1 -maxdepth 1 -mtime +14 -printf '  %TY-%Tm-%Td  %f\n' 2>/dev/null | sed 's/[[:cntrl:]]//g' | sort | head -20)
         [ -z "$old" ] || { echo "  transfer/ 에서 14일 넘은 것(옮겼으면 지워 주세요):"; echo "$old"; }

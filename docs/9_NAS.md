@@ -36,11 +36,11 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
 ```text
 /data/<팀 폴더>/                     주인 공용 계정, 750 (다른 팀은 못 봐요)
-├── archive/                      반입 원본. 지울 일이 거의 없어요
+├── originals/                    반입 원본. 지울 일이 거의 없어요
 │   ├── datasets/                 접근 PC의 datasets 폴더 그대로(MANIFEST.sha256 포함)
 │   ├── models/                   접근 PC의 models 폴더 그대로
 │   └── packs/<날짜>/              b200-pack.tar, b200-docker.tar
-├── images/<이름>/                 팀원이 만든 도커 이미지 .tar
+├── docker_images/<이름>/          팀원이 만든 도커 이미지 .tar
 ├── backup/<이름>/                 실험 결과·체크포인트
 └── transfer/                     서버 사이 임시 전달. 14일 지나면 지워요
 ```
@@ -48,8 +48,8 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 | 폴더 | 누가 써요 | 왜 이렇게 |
 |---|---|---|
 | 팀 폴더 | 공용 계정(팀원 모두) | 다른 팀이 못 보게 750. GO 같은 비상업 라이선스 데이터셋이 있어요 |
-| `archive/` | 관리자(공용 계정 권한으로) | 공용 계정이라 팀원도 고칠 수는 있어요. 그래서 꺼내 쓸 때 지문을 확인해요 |
-| `images/<이름>`, `backup/<이름>` | 그 팀원 | 이름별로 나눠 누가 얼마나 쓰는지 주간 보고서로 봐요 |
+| `originals/` | 관리자(공용 계정 권한으로) | 공용 계정이라 팀원도 고칠 수는 있어요. 그래서 꺼내 쓸 때 지문을 확인해요 |
+| `docker_images/<이름>`, `backup/<이름>` | 그 팀원 | 이름별로 나눠 누가 얼마나 쓰는지 주간 보고서로 봐요 |
 | `transfer/` | 누구나 | 옮긴 뒤 지우는 임시 공간이에요 |
 
 - 계정 하나를 같이 쓰니 사람별 권한은 나눌 수 없어요. 서버와 같이 "이름별 폴더 + 사용량 보고" 로 관리해요.
@@ -61,10 +61,10 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
 | 폴더 | 크기 | 근거 |
 |---|---|---|
-| `archive/datasets` | 약 112 GB | 데이터셋 7개(`docs/6_데이터셋.md`) |
-| `archive/models` | 약 132 GB | 기본 모델(`docs/7_모델.md`). 선택 모델을 받으면 늘어요 |
-| `archive/packs` | 버전마다 몇 GB | 접근 PC의 `pack\b200-pack.tar` 크기. 최근 3판만 둬요 |
-| `images/` | N × 약 40 GB | PyTorch 기반 이미지 하나 15~25 GB × 사람마다 2개 |
+| `originals/datasets` | 약 112 GB | 데이터셋 7개(`docs/6_데이터셋.md`) |
+| `originals/models` | 약 132 GB | 기본 모델(`docs/7_모델.md`). 선택 모델을 받으면 늘어요 |
+| `originals/packs` | 버전마다 몇 GB | 접근 PC의 `pack\b200-pack.tar` 크기. 최근 3판만 둬요 |
+| `docker_images/` | N × 약 40 GB | PyTorch 기반 이미지 하나 15~25 GB × 사람마다 2개 |
 | `backup/` | N × B | 체크포인트가 가장 커요. 예: ViT-L 체크포인트 하나 1~3 GB |
 | `transfer/` | 약 250 GB | 데이터셋과 모델을 한 번에 옮길 때 |
 
@@ -78,13 +78,13 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
    ```bash
    # [서버 1] root. 공용 계정 권한으로 만들어요(원칙 3)
    T=/data/<팀 폴더>
-   runuser -u "$(cat /etc/b200/account)" -- mkdir -p $T/archive/datasets $T/archive/models $T/archive/packs $T/images $T/backup $T/transfer
+   runuser -u "$(cat /etc/b200/account)" -- mkdir -p $T/originals/datasets $T/originals/models $T/originals/packs $T/docker_images $T/backup $T/transfer
    runuser -u "$(cat /etc/b200/account)" -- chmod 750 $T
    bash /app/inbox/check_nas.sh $T                  # 주인·권한·용량 확인
    ```
 
 3. 만들 수 없으면 아래 "서버 관리 팀에 요청할 것" 으로 요청해요.
-4. `/app/shared/b200.conf` 에 `NAS_DIR=/data/<팀 폴더>` 를 적고 `cd /app/inbox && bash admin_setup.sh` 를 다시 실행해요. 팀원별 `backup/<이름>`, `images/<이름>` 폴더가 생기고, 주간 보고서에 폴더별 사용량과 오래된 `transfer/` 파일이 나와요. 나중에 팀원을 명단에 더하면 그때도 다시 실행해요.
+4. `/app/shared/b200.conf` 에 `NAS_DIR=/data/<팀 폴더>` 를 적고 `cd /app/inbox && bash admin_setup.sh` 를 다시 실행해요. 팀원별 `backup/<이름>`, `docker_images/<이름>` 폴더가 생기고, 주간 보고서에 폴더별 사용량과 오래된 `transfer/` 파일이 나와요. 나중에 팀원을 명단에 더하면 그때도 다시 실행해요.
 
 ## 쓰는 법
 
@@ -94,7 +94,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
 ```bash
 # [서버 1] root
-A=$(cat /etc/b200/account); T=/data/<팀 폴더>/archive
+A=$(cat /etc/b200/account); T=/data/<팀 폴더>/originals
 P=$T/packs/$(date +%F)                                 # 묶음은 만든 날짜 폴더마다 따로 둬요
 runuser -u "$A" -- mkdir -p $P
 runuser -u "$A" -- cp /app/inbox/b200-pack.tar /app/inbox/b200-docker.tar $P/
@@ -108,7 +108,7 @@ runuser -u "$A" -- cp -r /app/inbox/datasets /app/inbox/models $T/
 
 ```bash
 # [서버 2] root. 0단계(/etc/b200/account, /app/inbox·upload 만들기)는 먼저 해 둬요
-A=$(cat /etc/b200/account); T=/data/<팀 폴더>/archive
+A=$(cat /etc/b200/account); T=/data/<팀 폴더>/originals
 runuser -u "$A" -- ls $T/packs                        # 날짜 폴더 목록. 가장 최근 날짜를 아래 <날짜> 에 적어요
 P=$T/packs/<날짜>
 runuser -u "$A" -- cp $P/b200-pack.tar $P/b200-docker.tar /app/upload/
@@ -136,7 +136,7 @@ bash /app/inbox/models/models_install.sh
 | 할 일 | 명령 |
 |---|---|
 | 실험 결과 보관 | `rsync -a /app/workspace/<이름>/runs/exp1 /data/<팀 폴더>/backup/<이름>/` |
-| 도커 이미지 보관·다른 서버에서 쓰기 | `docker save -o /data/<팀 폴더>/images/<이름>/myseg_v1.tar <이름>/myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
+| 도커 이미지 보관·다른 서버에서 쓰기 | `docker save -o /data/<팀 폴더>/docker_images/<이름>/myseg_v1.tar <이름>/myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
 | 서버 사이 큰 파일 전달 | `transfer/` 에 두고 다른 서버에서 가져간 뒤 지워요 |
 
 - NAS에 지문 파일을 같이 두지 않아요. 누구나 고칠 수 있어서 맞춰 봐도 의미가 없어요.

@@ -172,15 +172,15 @@ EOF
 grep -q '^NAS_DIR=' "$S/b200.conf" ||   # 예전 버전으로 만든 설정에는 없다
     echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)' >> "$S/b200.conf"
 chmod 644 "$S/b200.conf"
-# NAS 팀 폴더를 정했으면(NAS_DIR) 팀원별 backup·images 폴더도 공용 계정 권한으로 만든다(root 는 NAS에 쓰지 않는다)
+# NAS 팀 폴더를 정했으면(NAS_DIR) 팀원별 backup·docker_images 폴더도 공용 계정 권한으로 만든다(root 는 NAS에 쓰지 않는다)
 NAS_DIR=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$S/b200.conf" | tail -1)
 if [ -n "$NAS_DIR" ]; then
     if setsid -w runuser -u "$ACC" -- test -d "$NAS_DIR" -a -w "$NAS_DIR"; then
         grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
             case "$name" in *-*|*/*|.*) continue ;; esac
-            setsid -w runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/images/$name" "$NAS_DIR/transfer"
+            setsid -w runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/docker_images/$name" "$NAS_DIR/transfer"
         done
-        ok "NAS 팀 폴더($NAS_DIR)에 팀원별 backup·images 폴더를 맞췄어요"
+        ok "NAS 팀 폴더($NAS_DIR)에 팀원별 backup·docker_images 폴더를 맞췄어요"
     else warn "NAS 팀 폴더($NAS_DIR)가 없거나 공용 계정이 쓸 수 없어요(docs/9_NAS.md 의 '처음 만들기')"; fi
 fi
 
