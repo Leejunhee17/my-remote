@@ -68,7 +68,7 @@ Test-Site 'PyPI (받기 도구)' 'https://pypi.org/simple/pip/' | Out-Null
 if (@($Models | Where-Object { $_.Code }).Count) { Test-Site 'GitHub (모델 코드)' 'https://github.com/' | Out-Null }
 if ($script:Fails) {
     Stop-Run '접속되지 않는 사이트가 있어요' ('위 [문제] 줄 아래의 curl 오류와 설명을 보세요. 브라우저에서는 열린다면 ' +
-        '사내 IT에 프록시 주소를 물어 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 입력하고 다시 실행하세요.')
+        '사내 IT에 프록시 주소를 물어 .env 에 HTTPS_PROXY=http://프록시주소:포트 를 적고 다시 실행하세요.')
 }
 # 큰 파일은 이 주소들에서 내려온다. 막혀 있으면 받다가 실패한다
 foreach ($h in 'https://cas-bridge.xethub.hf.co/', 'https://cdn-lfs.hf.co/') {
@@ -92,6 +92,7 @@ if ($gated.Count -and -not $env:HF_TOKEN) {
     if ($open -notmatch '^[nN]') { $pages | ForEach-Object { Start-Process $_ } }
     Write-Host '  약관에 동의한 계정의 토큰을 붙여 넣으세요.'
     Write-Host '  비워 두고 Enter를 누르면 이 모델들은 건너뛰어요. 토큰은 화면과 기록 파일에 남지 않아요.'
+    Write-Host '  (.env 의 HF_TOKEN 에 적어 두면 다음부터는 묻지 않아요)'
     $s = Read-Host '  HF 토큰' -AsSecureString
     $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)
     try { $tok = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }

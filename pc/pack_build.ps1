@@ -55,7 +55,7 @@ foreach ($k in $sites.Keys) {
 }
 if ($script:Fails) {
     Stop-Run '접속되지 않는 사이트가 있어요' ('위 [문제] 줄 아래의 curl 오류와 설명을 보세요. 브라우저에서는 열린다면 ' +
-        '사내 IT에 프록시 주소를 물어 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 입력하고 다시 실행하세요. ' +
+        '사내 IT에 프록시 주소를 물어 .env 에 HTTPS_PROXY=http://프록시주소:포트 를 적고 다시 실행하세요. ' +
         '그래도 안 되면 아래 기록 파일을 담당자에게 보내 주세요.')
 }
 
@@ -82,7 +82,7 @@ if ($LASTEXITCODE -ne 0) {
         else { Write-Info "    curl로도 목록 주소에 접속되지 않아요: 오류 $($r.Code) $($r.Msg)" }
         Write-Info "    micromamba 버전: $(& $mm --version)"
         Stop-Run 'micromamba가 conda-forge 목록을 받지 못했어요' ('위 [문제] 아래 줄과 이 창의 빨간·노란 경고(Could not, SSL, proxy 등)를 ' +
-            '담당자에게 보내 주세요. 회사 프록시 망이면 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 입력하고 다시 실행하세요.')
+            '담당자에게 보내 주세요. 회사 프록시 망이면 .env 에 HTTPS_PROXY=http://프록시주소:포트 를 적고 다시 실행하세요.')
     }
     Stop-Run 'micromamba가 패키지 버전을 정하지 못했어요' '위 메시지에 나온 패키지 이름이 conda-forge에 있는지 확인하세요(lists\tools.txt). 인터넷이 끊겼다면 다시 실행하세요.'
 }

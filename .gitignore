@@ -6,3 +6,7 @@ models/
 *_report_*.txt
 __pycache__/
 *.pyc
+# 접근 PC 설정(토큰·키). 예시 .env.example 만 올린다
+.env
+.env.*
+!.env.example

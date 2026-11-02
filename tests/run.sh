@@ -79,8 +79,18 @@ t_static() {
     [ -z "$bad" ] && ok '.ps1 은 모두 UTF-8 BOM' || no ".ps1 BOM 없음:$bad"
     bad=$(git ls-files --eol -- '*.ps1' '*.sh' 'server/bin/*' | awk '($NF ~ /\.ps1$/ && $0 !~ /eol=crlf/) || ($NF !~ /\.ps1$/ && $0 !~ /eol=lf/) || $1 != "i/lf"')
     [ -z "$bad" ] && ok '줄 끝 설정(.ps1 CRLF, .sh LF, 저장소 안은 LF)' || no '줄 끝 설정' "$bad"
-    bad=$(git ls-files | grep -E '_report_|__pycache__|\.pyc$|(^|/)지문_기록\.txt$')
-    [ -z "$bad" ] && ok '올리면 안 되는 파일이 없어요(원본 보고서, pyc, 지문 기록)' || no '올리면 안 되는 파일' "$bad"
+    bad=$(git ls-files | grep -E '_report_|__pycache__|\.pyc$|(^|/)지문_기록\.txt$|(^|/)\.env(\.[^/]*)?$' | grep -vE '(^|/)\.env\.example$')
+    [ -z "$bad" ] && ok '올리면 안 되는 파일이 없어요(원본 보고서, pyc, 지문 기록, .env)' || no '올리면 안 되는 파일' "$bad"
+    bad=$(grep -nE '^[A-Za-z_][A-Za-z0-9_]*=.+' .env.example | grep -vE '^[0-9]+:B200_RUN=')
+    [ -z "$bad" ] && ok '.env.example 에는 값이 비어 있어요(B200_RUN 만 기본값)' || no '.env.example 에 값이 들어 있어요' "$bad"
+    if command -v pwsh >/dev/null; then
+        # .env 읽기: 주석·빈 값·따옴표·뒤 # 설명·export·이상한 줄, 그리고 이미 정한 환경 변수가 이긴다
+        printf '# 설명\r\nB200_T1=a b\r\nexport B200_T2 = "x # y"\r\nB200_T3=v # 설명\r\nB200_T4=\r\n이상한 줄\r\nB200_T5=env\r\n' > "$T/dotenv"
+        out=$(B200_T5=mine pwsh -NoProfile -Command ". ./pc/b200_common.ps1; Import-DotEnv '$T/dotenv'; '[{0}][{1}][{2}][{3}][{4}]' -f \$env:B200_T1, \$env:B200_T2, \$env:B200_T3, \$env:B200_T4, \$env:B200_T5" 2>&1)
+        case "$out" in *'[a b][x # y][v][][mine]'*) ok '.env 읽기(pwsh)' ;; *) no '.env 읽기(pwsh)' "$out" ;; esac
+        case "$out" in *'6번째 줄을 읽지 못했어요'*) ok '.env 의 이상한 줄은 몇 번째인지 알려 줘요' ;; *) no '.env 의 이상한 줄 알림' "$out" ;; esac
+        if grep -qx '  .env 에서 읽은 설정: B200_T1, B200_T2, B200_T3' <<< "$out"; then ok '.env 는 이름만 보여 주고 값은 안 보여 줘요'; else no '.env 이름만 보여 주기' "$out"; fi
+    else skip '.env 읽기: pwsh 가 없어요(GitHub Actions 에서는 돌아요)'; fi
     # 사내 IP(사설 대역)는 저장소에 없어야 한다. 이 시험 파일의 예시 IP 는 실행할 때 만든다
     bad=$(git grep -nIE '(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' -- . ':!*.xlsx' | grep -v 'check_network.sh send 10\.0\.0\.2')
     [ -z "$bad" ] && ok '사설 IP가 없어요' || no '사설 IP가 있어요' "$bad"
@@ -281,6 +291,11 @@ t_hook() {
     echo x > "$g/network_report_a.txt"; t '원본 보고서(_report_)는 막아요' blocked; rm -f "$g/network_report_a.txt"; git -C "$g" reset -q
     mk_xlsx "$g/d.xlsx" "자율팀 규칙"; t '엑셀 안의 가릴 낱말(한글)도 막아요' blocked; rm -f "$g/d.xlsx"; git -C "$g" reset -q
     mk_xlsx "$g/e.xlsx" "주소 $ip"; t '엑셀 안의 사설 IP도 막아요' blocked; rm -f "$g/e.xlsx"; git -C "$g" reset -q
+    echo 'HF_TOKEN=x' > "$g/.env"; t '.env 는 막아요' blocked; rm -f "$g/.env"; git -C "$g" reset -q
+    echo 'HF_TOKEN=x' > "$g/.env.local"; t '.env.local 도 막아요' blocked; rm -f "$g/.env.local"; git -C "$g" reset -q
+    echo "HF_TOKEN=hf_$(printf 'a%.0s' {1..34})" > "$g/f.txt"; t 'HF 토큰처럼 보이는 값은 막아요' blocked; rm -f "$g/f.txt"; git -C "$g" reset -q
+    echo "key AKIA$(printf 'A%.0s' {1..16})" > "$g/k.txt"; t 'AWS 키처럼 보이는 값은 막아요' blocked; rm -f "$g/k.txt"; git -C "$g" reset -q
+    cp .env.example "$g/"; t '값 없는 .env.example 은 커밋돼요' cm
     cp team/서버_사용_규칙.xlsx "$g/"; echo zzzz > "$g/.git/info/b200-blocklist.txt"; t '저장소의 규칙 엑셀은 통과해요' cm
 }
 

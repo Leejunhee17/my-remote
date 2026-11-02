@@ -89,7 +89,7 @@ $sites = [ordered]@{
 foreach ($k in $sites.Keys) { Test-Site $k $sites[$k] | Out-Null }
 if ($script:Fails) {
     Stop-Run '필요한 프로그램·파일이 없거나 접속되지 않는 사이트가 있어요' ('위 [문제] 줄과 그 아래 설명대로 고친 뒤 다시 실행하세요. ' +
-        '브라우저에서는 열린다면 사내 IT에 프록시 주소를 물어 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 입력하고 다시 실행하세요.')
+        '브라우저에서는 열린다면 사내 IT에 프록시 주소를 물어 .env 에 HTTPS_PROXY=http://프록시주소:포트 를 적고 다시 실행하세요.')
 }
 $free = Get-FreeGB $out
 if ($free -lt 3) { Stop-Run "남은 공간이 $free GB예요(3 GB 이상 필요해요)" '공간을 비우고 다시 실행하세요.' }

@@ -9,6 +9,8 @@
                                                                      # WildScenes 를 포털의 링크 목록 파일로 받는다(AWS CLI 가 안 될 때)
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only goose,RUGD
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
+.env 에 WildScenes 접속 정보(WILDSCENES_S3_*, WILDSCENES_*_KEY)나 링크 목록(WILDSCENES_LINKS)을 적어 두면
+-WildScenes 를 붙이지 않아도 WildScenes 까지 받고, 접속 정보를 묻지 않는다.
 #>
 param(
     [string]$Dest = (Join-Path (Split-Path $PSScriptRoot -Parent) 'datasets'),
@@ -22,6 +24,10 @@ $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\b200). 결과 폴더와 uv.exe 는 여기
 . (Join-Path $here 'b200_common.ps1')
 $Only   = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+# .env 의 WildScenes 설정. 명령에 붙인 값이 먼저다
+if (-not $WildScenesLinks -and $env:WILDSCENES_LINKS) { $WildScenesLinks = [Environment]::ExpandEnvironmentVariables($env:WILDSCENES_LINKS) }
+$wsEnv = [bool]($env:WILDSCENES_S3_SERVER -and $env:WILDSCENES_S3_DIR -and $env:WILDSCENES_ACCESS_KEY -and $env:WILDSCENES_SECRET_KEY)
+if ($wsEnv) { $WildScenes = $true }
 $check  = Join-Path $here 'check_archive.py'
 $T = 4
 
@@ -385,7 +391,7 @@ if ($Items | Where-Object { $_.Set -eq 'RUGD' })     { $sites['rugd.vision'] = '
 foreach ($k in $sites.Keys) { Test-Site $k $sites[$k] | Out-Null }
 if ($script:Fails) {
     Stop-Run '접속되지 않는 사이트가 있어요' ('위 [문제] 줄 아래의 curl 오류와 설명을 보세요. 브라우저에서는 열린다면 ' +
-        '사내 IT에 프록시 주소를 물어 $env:HTTPS_PROXY = "http://프록시주소:포트" 를 입력하고 다시 실행하세요. ' +
+        '사내 IT에 프록시 주소를 물어 .env 에 HTTPS_PROXY=http://프록시주소:포트 를 적고 다시 실행하세요. ' +
         '한 사이트만 막혔다면 -Only로 나머지만 먼저 받으세요(예: -Only goose,gooseEx).')
 }
 
@@ -415,7 +421,7 @@ if ($LASTEXITCODE -ne 0) { Stop-Run 'uv가 Python 3.12를 받지 못했어요' '
 Write-Ok 'Python 3.12를 준비했어요'
 
 if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
-    if (-not (Test-Path $WildScenesLinks)) { Stop-Run "링크 목록 파일을 찾지 못했어요: $WildScenesLinks" '-WildScenesLinks 뒤에 포털에서 받은 .txt 파일의 전체 경로를 적어 다시 실행하세요.' }
+    if (-not (Test-Path $WildScenesLinks)) { Stop-Run "링크 목록 파일을 찾지 못했어요: $WildScenesLinks" '-WildScenesLinks 뒤(또는 .env 의 WILDSCENES_LINKS)에 포털에서 받은 .txt 파일의 전체 경로를 적어 다시 실행하세요.' }
     $script:WsLinks = Get-WsLinks $WildScenesLinks
     if (-not $script:WsLinks.Count) {
         Write-Info "    목록 파일의 주소 줄: $($script:WsLinkCount)개"
@@ -427,18 +433,26 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     Test-Site 'CSIRO S3 저장소' "https://$(([uri]$script:WsLinks[0].Url).Host)/" | Out-Null
     if ($script:Fails -gt $f0) { Stop-Run 'CSIRO S3 저장소에 접속되지 않아요' '위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면 아래 기록 파일을 담당자에게 보내 주세요.' }
 } elseif ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
-    Write-Host ''
-    Write-Host '  WildScenes 접속 정보를 입력하세요. 접속 정보는 약 48시간만 유효하니 지금 새로 받으세요.' -ForegroundColor Cyan
-    Write-Host "  포털: $WsPortal"
-    Write-Host '  포털에서 Download → Download files via S3 Client 를 고르고, 화면에 나온 네 값을 차례로 복사해 붙여 넣으세요.'
-    Write-Host '  두 키는 입력해도 화면과 기록 파일에 남지 않아요.'
-    Write-Host '  (자세한 설명: docs\6_데이터셋.md 의 "WildScenes 접속 정보 받기")'
-    $open = Read-Host '  포털 페이지를 브라우저로 열까요? [Y/n]'
-    if ($open -notmatch '^[nN]') { Start-Process $WsPortal }
-    $server = (Read-Host '  Server (예: s3.data.csiro.au)').Trim()
-    $wsDir  = (Read-Host '  Remote Directory (예: dapprd/000012345v001/)').Trim().TrimStart('/')
-    $env:AWS_ACCESS_KEY_ID     = (Read-Plain '  Access Key').Trim()
-    $env:AWS_SECRET_ACCESS_KEY = (Read-Plain '  Secret Access Key').Trim()
+    if ($wsEnv) {
+        Write-Ok 'WildScenes 접속 정보는 .env 에서 읽었어요(약 48시간만 유효해요. 거절되면 포털에서 새로 받아 .env 를 고치세요)'
+        $server = $env:WILDSCENES_S3_SERVER.Trim()
+        $wsDir  = $env:WILDSCENES_S3_DIR.Trim().TrimStart('/')
+        $env:AWS_ACCESS_KEY_ID     = $env:WILDSCENES_ACCESS_KEY.Trim()
+        $env:AWS_SECRET_ACCESS_KEY = $env:WILDSCENES_SECRET_KEY.Trim()
+    } else {
+        Write-Host ''
+        Write-Host '  WildScenes 접속 정보를 입력하세요. 접속 정보는 약 48시간만 유효하니 지금 새로 받으세요.' -ForegroundColor Cyan
+        Write-Host "  포털: $WsPortal"
+        Write-Host '  포털에서 Download → Download files via S3 Client 를 고르고, 화면에 나온 네 값을 차례로 복사해 붙여 넣으세요.'
+        Write-Host '  두 키는 입력해도 화면과 기록 파일에 남지 않아요. .env 에 적어 두면 묻지 않아요.'
+        Write-Host '  (자세한 설명: docs\6_데이터셋.md 의 "WildScenes 접속 정보 받기")'
+        $open = Read-Host '  포털 페이지를 브라우저로 열까요? [Y/n]'
+        if ($open -notmatch '^[nN]') { Start-Process $WsPortal }
+        $server = (Read-Host '  Server (예: s3.data.csiro.au)').Trim()
+        $wsDir  = (Read-Host '  Remote Directory (예: dapprd/000012345v001/)').Trim().TrimStart('/')
+        $env:AWS_ACCESS_KEY_ID     = (Read-Plain '  Access Key').Trim()
+        $env:AWS_SECRET_ACCESS_KEY = (Read-Plain '  Secret Access Key').Trim()
+    }
     $env:AWS_DEFAULT_REGION    = 'us-east-1'   # S3 호환 저장소라 지역은 아무 값이나 된다
     $env:AWS_RETRY_MODE        = 'standard'
     $env:AWS_MAX_ATTEMPTS      = '10'

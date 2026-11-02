@@ -17,6 +17,31 @@ function Write-Warn($msg) { Write-Host "  [주의] $msg" -ForegroundColor Yellow
 function Write-Bad($msg)  { Write-Host "  [문제] $msg" -ForegroundColor Red; $script:Fails++ }
 function Write-Info($msg) { Write-Host "  $msg" }
 
+# 저장소 맨 위의 .env(접근 PC 설정, 예시는 .env.example)를 읽어 이 창의 환경 변수로 둔다.
+# 이미 정해 둔 환경 변수가 이긴다. 값은 화면과 기록 파일에 남기지 않고 이름만 알려 준다.
+function Import-DotEnv($path) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return }
+    $read = @(); $n = 0
+    foreach ($line in [IO.File]::ReadAllLines($path)) {
+        $n++
+        $l = $line.Trim()
+        if (-not $l -or $l.StartsWith('#')) { continue }
+        if (-not ($l -match '^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$')) {
+            Write-Warn ".env $n번째 줄을 읽지 못했어요(이름=값 모양이 아니에요). 이 줄은 건너뛰어요"
+            continue
+        }
+        $k = $Matches[1]; $v = $Matches[2]
+        if ($v -match '^"([^"]*)"' -or $v -match "^'([^']*)'") { $v = $Matches[1] }   # 따옴표 안은 그대로(# 도 값)
+        else { $v = ($v -replace '\s+#.*$', '').Trim() }                                # 따옴표 없으면 뒤의 # 설명은 뺀다
+        if (-not $v -or [Environment]::GetEnvironmentVariable($k)) { continue }
+        [Environment]::SetEnvironmentVariable($k, $v)   # 이 창(프로세스)에서만. 윈도우 설정에는 남지 않는다
+        $read += $k
+    }
+    if ($env:HTTPS_PROXY -and -not $env:HTTP_PROXY) { $env:HTTP_PROXY = $env:HTTPS_PROXY }   # http:// 주소(rugd.vision)도 같은 프록시로
+    if ($read.Count) { Write-Info ".env 에서 읽은 설정: $($read -join ', ')" }
+}
+Import-DotEnv (Join-Path (Split-Path $PSScriptRoot -Parent) '.env')
+
 function Start-Log($path) {
     $script:LogPath = $path
     New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null

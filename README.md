@@ -50,18 +50,21 @@
 | 5. 사전학습 모델 | `pc\models_download.ps1` | `models_install.sh` |
 | 6. 팀원 입장에서 확인 | | 공용 계정으로 접속 |
 
+접근 PC의 토큰·프록시 같은 설정은 `.env` 하나에 적어 두고(`copy .env.example .env`), 1·3·4·5단계의 받기는 `pc\run_all.ps1` 하나로 한 번에 할 수 있어요(`docs/1_처음_설치.md` 의 "접근 PC 설정(.env)").
+
 ## 폴더 구성
 
 | 폴더 | 내용 |
 |---|---|
 | `docs/` | 관리자 문서(위 문서 지도) |
 | `team/` | 팀원에게 줄 규칙과 사용법 |
-| `pc/` | 접근 PC에서 실행하는 받기·묶기 스크립트 |
+| `pc/` | 접근 PC에서 실행하는 받기·묶기 스크립트(`run_all.ps1` 은 한 번에) |
+| `.env.example` | 접근 PC 설정 예시. 복사해 `.env` 를 만들고 토큰·프록시를 적어요(`.env` 는 git에 올라가지 않아요) |
 | `server/` | B200 서버에서 root 로 실행하는 점검·설치 스크립트 |
 | `server/bin/` | 팀원이 쓰는 `docker`, `nvidia-smi` 뒤에서 이름표·경고·"GPU별 사용자" 표를 붙이는 도우미와 정기 점검(`b200`). `admin_setup.sh` 가 `/app/shared/bin` 에 설치해요 |
 | `lists/` | 받을 목록(기초 프로그램, 모델) |
 | `reports/` | 서버 점검 결과 중 사내 정보를 가린 공유용만 올리는 곳 |
-| `.githooks/` | 커밋 전에 사내 정보가 들어가지 않았는지 보는 검사(`git config core.hooksPath .githooks`) |
+| `.githooks/` | 커밋 전에 사내 정보·`.env`·토큰이 들어가지 않았는지 보는 검사(`git config core.hooksPath .githooks`) |
 | `tests/` | 자동 시험(`bash tests/run.sh`). 가짜 `/app`·docker·nvidia-smi 로 스크립트를 실제로 돌려 봐요 |
 | `.github/workflows/` | 푸시할 때마다 GitHub 에서 자동 시험을 돌리는 설정 |
 
