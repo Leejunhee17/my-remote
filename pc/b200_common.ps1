@@ -27,7 +27,7 @@ function Import-DotEnv($path) {
         $l = $line.Trim()
         if (-not $l -or $l.StartsWith('#')) { continue }
         if (-not ($l -match '^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$')) {
-            Write-Warn ".env $n번째 줄을 읽지 못했어요(이름=값 모양이 아니에요). 이 줄은 건너뛰어요"
+            Write-Warn ".env $($n)번째 줄을 읽지 못했어요(이름=값 모양이 아니에요). 이 줄은 건너뛰어요"
             continue
         }
         $k = $Matches[1]; $v = $Matches[2]

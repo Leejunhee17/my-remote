@@ -77,6 +77,9 @@ t_static() {
     # .ps1: Windows PowerShell 5.1 이 한글을 읽으려면 BOM 이 있어야 한다. 줄 끝은 받을 때 CRLF(.gitattributes)
     bad=; for f in pc/*.ps1; do [ "$(head -c3 "$f" | od -An -tx1 | tr -d ' ')" = efbbbf ] || bad+=" $f"; done
     [ -z "$bad" ] && ok '.ps1 은 모두 UTF-8 BOM' || no ".ps1 BOM 없음:$bad"
+    # PowerShell 은 한글도 변수 이름으로 읽는다: "$n번째" 는 $n 이 아니라 $n번째. "$($n)번째" 로 써야 한다
+    bad=$(grep -nP '(?<!`)\$[A-Za-z_][A-Za-z0-9_]*[가-힣]' pc/*.ps1)
+    [ -z "$bad" ] && ok '.ps1 에 한글이 붙은 변수가 없어요("$($n)번째" 처럼 써요)' || no '.ps1 에 한글이 붙은 변수' "$bad"
     bad=$(git ls-files --eol -- '*.ps1' '*.sh' 'server/bin/*' | awk '($NF ~ /\.ps1$/ && $0 !~ /eol=crlf/) || ($NF !~ /\.ps1$/ && $0 !~ /eol=lf/) || $1 != "i/lf"')
     [ -z "$bad" ] && ok '줄 끝 설정(.ps1 CRLF, .sh LF, 저장소 안은 LF)' || no '줄 끝 설정' "$bad"
     bad=$(git ls-files | grep -E '_report_|__pycache__|\.pyc$|(^|/)지문_기록\.txt$|(^|/)\.env(\.[^/]*)?$' | grep -vE '(^|/)\.env\.example$')
