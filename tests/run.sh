@@ -258,8 +258,20 @@ t_reports() {
     head_ '점검 보고서 공유용 사본'
     is_root || { skip 'root 가 아니라서 건너뛰어요(보고서는 root 로 /app/inbox/reports 에 남겨요)'; return; }
     local ib=$T/rep/inbox host; host=$(hostname -s); mkdir -p "$ib"
+    # 공유용 사본을 만드는 함수는 세 점검 스크립트에 똑같이 들어 있어야 한다(0단계에서 파일 하나씩 따로 올려서 나눠 두지 않았다)
+    local fn f bad=
+    for fn in report_dir share_copy; do for f in server/check_network.sh server/check_nas.sh; do
+        diff -q <(sed -n "/^$fn() {/,/^}/p" server/check_server.sh) <(sed -n "/^$fn() {/,/^}/p" "$f") >/dev/null || bad+=" $f:$fn"
+    done; done
+    [ -z "$bad" ] && ok '세 점검 스크립트의 보고서 함수가 같아요' || no '점검 스크립트마다 보고서 함수가 달라요' "$bad"
+    B200_INBOX=$ib B200_ACCOUNT=nobody timeout 60 bash server/check_server.sh > "$LOG" 2>&1 < /dev/null
+    local share; share=$(ls "$ib"/reports/server_공유용_*.txt 2>/dev/null | head -1)
+    if [ -n "$share" ] && ls "$ib"/reports/server_report_*.txt >/dev/null 2>&1; then
+        ok '서버 점검: 원본과 공유용 사본을 만들어요'
+        t '서버 점검: 공유용 사본에 서버·계정 이름이 없어요' bash -c "! sed 's/(…[^)]*)//g' '$share' | grep -qwE -- '$host|nobody'"
+    else no '서버 점검: 보고서가 없어요' "$(tail -5 "$LOG")"; fi
     B200_INBOX=$ib timeout 120 bash server/check_network.sh all > "$LOG" 2>&1 < /dev/null
-    local share; share=$(ls "$ib"/reports/network_공유용_*.txt 2>/dev/null | head -1)
+    share=$(ls "$ib"/reports/network_공유용_*.txt 2>/dev/null | head -1)
     if [ -n "$share" ]; then
         ok '네트워크 점검: 공유용 사본을 만들어요'
         # 공유용 이름 "서버(…끝 두 글자)" 는 일부러 남긴다. 그 밖에 서버 이름이 있으면 안 된다

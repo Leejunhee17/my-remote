@@ -2,6 +2,7 @@
 # [B200 서버] OS를 새로 설치한 직후, 반입 전에 서버 상태를 점검한다. root 없이 되고 아무것도 바꾸지 않는다.
 #   bash check_server.sh
 # 결과의 [문제] 줄은 서버 관리 팀에 요청할 내용이다.
+# 결과는 /app/inbox/reports/server_report_<서버>_<시각>.txt(원본)와 사내 정보를 가린 server_공유용_….txt 에도 남긴다(root 일 때).
 set -uo pipefail
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 ok()   { echo "  ${c_g}[정상]${c_0} $*"; }
@@ -13,7 +14,9 @@ ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이�
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 GLIBC_NEED=2.35   # 접근 PC pack_build.ps1 의 -Glibc 기본값과 같게 둔다
 APP=${APP:-/app}
+ME=$(hostname -s)
 
+body() {
 echo "${c_c}[B200 서버] 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))${c_0}"
 
 echo; echo "${c_c}== 운영체제 ==${c_0}"
@@ -98,3 +101,44 @@ else
     fi
     echo " 고친 뒤 다시 점검하세요: bash /app/inbox/check_server.sh"
 fi
+}
+
+# 보고서 둘 곳: root 는 /app/inbox/reports(root 만 고치고 공용 계정 FileZilla로 내려받을 수 있음),
+# 그 밖에는 실행한 폴더(내 것일 때)나 홈. 남이 쓸 수 있는 폴더에는 쓰지 않는다(링크로 다른 파일을 덮게 만들 수 있다)
+report_dir() {
+    local ib=${B200_INBOX:-/app/inbox}   # 시험할 때만 바꾼다
+    if [ "$(id -u)" = 0 ] && [ -d "$ib" ] && [ ! -L "$ib" ] && [ "$(stat -c %U "$ib")" = root ]; then
+        mkdir -p "$ib/reports" && [ ! -L "$ib/reports" ] && chmod 755 "$ib/reports" && echo "$ib/reports" && return
+    fi
+    if [ -O . ] && [ -w . ]; then echo "$PWD"; else echo "$HOME"; fi
+}
+# 공유용 사본(check_network.sh, check_nas.sh 와 같음): 서버 이름·IP·NAS 주소·계정·폴더 이름을 가려서 git 으로 올려도 되게 만든다.
+# $1 원본, $2 사본, 나머지는 "가릴말=바꿀말". IP 는 처음 나온 순서대로 IP-1, IP-2 … 로 바꿔 같은 IP 는 같은 번호가 된다
+share_copy() {
+    local src=$1 dst=$2; shift 2
+    perl -Mutf8 -CSDA -ne '
+        BEGIN { for (@ARGV) { my ($k, $v) = split /=/, $_, 2; $m{$k} //= $v if length($k) >= 2 }
+                @ARGV = (); $re = join "|", map { quotemeta } sort { length($b) <=> length($a) } keys %m; $n = 0 }
+        next if /^\s*장비: /;                                  # InfiniBand 망의 장비 이름(다른 팀 장비일 수 있음)
+        s/($re)/$m{$1}/g if length $re;                         # 한 번에 바꾼다(바꾼 말을 다시 바꾸지 않게)
+        s{\b[\w.-]+:/[\w./-]*}{NAS주소}g;
+        s{\b((?:\d{1,3}\.){3}\d{1,3})(?:/\d+)?\b}{ $ip{$1} //= "IP-" . ++$n }ge;
+        print;
+    ' "$@" < "$src" > "$dst"
+    chmod 644 "$dst" 2>/dev/null
+}
+LABEL="서버(…$(hostname -s | tail -c 3))"   # 공유용 사본에서 이 서버를 부르는 이름(이름 끝 두 글자만)
+RDIR=$(report_dir)
+out=$(mktemp "$RDIR/server_report_${ME}_$(date +%Y%m%d-%H%M)_XXXX.txt" 2>/dev/null) || out=$(mktemp)
+body 2>&1 | tee >(sed 's/\x1b\[[0-9;]*m//g' > "$out")
+sleep 1
+chmod 644 "$out" 2>/dev/null   # 공용 계정(FileZilla)으로 내려받을 수 있게
+# 공유용 사본: 서버 이름, 공용 계정과 사람 계정 이름(실행한 계정, 홈 경로에 나와요)을 가린다
+masks=("$(hostname -f 2>/dev/null)=$LABEL" "$(hostname 2>/dev/null)=$LABEL" "$ME=$LABEL")
+[ -n "$ACC" ] && masks+=("$ACC=공용계정")
+i=0; while IFS=: read -r n _ u _; do [ "$u" -ge 1000 ] && [ "$u" -lt 60000 ] && [ "$n" != "$ACC" ] && { i=$((i + 1)); masks+=("$n=계정$i"); }; done < <(getent passwd)
+share="$RDIR/server_공유용_${LABEL//[^A-Za-z0-9]/}_$(date +%Y%m%d-%H%M).txt"
+share_copy "$out" "$share" "${masks[@]}"
+echo; echo "보고서(원본, 사내 정보 있음): $(readlink -f "$out")"
+echo "보고서(공유용, git 으로 올려도 돼요): $share"
+echo "  공유용만 내려받아 저장소의 reports 폴더에 넣고 올리세요(docs/4_네트워크.md 의 \"결과 가져오기\")."
