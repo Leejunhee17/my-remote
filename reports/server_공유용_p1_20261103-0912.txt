@@ -1,0 +1,29 @@
+[B200 서버] 점검  (2026-11-03 09:12, 서버(…p1), root)
+
+== 운영체제 ==
+  Red Hat Enterprise Linux 9.8 (Plow), 커널 5.14.0-687.41.1.el9_8.x86_64, glibc 2.34
+  [주의] Ubuntu가 아니에요(Red Hat Enterprise Linux 9.8 (Plow)). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)
+  [문제] 공용 계정 이름을 알 수 없어요
+  [문제] glibc 2.34: 묶음 기준(2.35)보다 낮아요
+
+== GPU ==
+  NVIDIA H200 NVL × 8, 드라이버 595.58.03
+  [정상] 드라이버 595.58.03 (CUDA 13 이미지도 돌아가요)
+  [정상] GPU 8장이 보여요
+  [주의] NVLink Fabric 상태를 읽지 못했어요(HGX 보드가 아니면 상관없어요)
+  [주의] nvidia-fabricmanager 서비스: inactive. 서버 관리 팀에 확인하세요
+  [주의] Persistence mode: Disabled. nvidia-persistenced를 켜 두면 GPU를 처음 쓸 때 기다리지 않아요
+
+== 저장 공간 ==
+  홈 /root: 전체 199 GB, 남은 공간 167 GB
+  /app: /dev/mapper/appvg-lv_app, SSD, 남은 공간 1775 GB
+  [정상] /app 주인이 root예요(팀원은 /app/workspace 에 써요)
+
+== 기본 명령 ==
+  [정상] 설치 스크립트에 필요한 명령이 모두 있어요
+
+############## 고칠 것 2개 ##############
+ 관리자가 직접 할 것
+  - 서버에 한 번 적어 두기: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account
+  - 접근 PC에서 묶음을 다시 만들기: pack_build.ps1 -Glibc 2.34
+ 고친 뒤 다시 점검하세요: bash /app/inbox/check_server.sh
