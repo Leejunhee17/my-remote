@@ -1,5 +1,5 @@
 ﻿<#
-[접근 PC · 관리자 전용] GPU 서버에 설치할 rootless Docker 묶음(pack_docker\b200-docker.tar)을 만든다.
+[접근 PC · 관리자 전용] GPU 서버에 설치할 rootless Docker 묶음(pack_docker\gpu-docker.tar)을 만든다.
 점검 → 받기 → 검사 → 묶기까지 한 번에 한다. 끊기면 다시 실행하면 이어서 한다.
 Ubuntu 버전이 정해지지 않아도 된다(22.04, 24.04 용 패키지를 모두 넣는다).
 
@@ -10,7 +10,7 @@ param(
 )
 $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent
-. (Join-Path $here 'b200_common.ps1')
+. (Join-Path $here 'gpu_common.ps1')
 $out = Join-Path $root 'pack_docker'
 $T = 5
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -198,10 +198,10 @@ Write-Lf (Join-Path $out 'docker_info.txt') @("made=$(Get-Date -Format 'yyyy-MM-
 $all = @($files) + 'docker_info.txt'
 Write-Lf (Join-Path $out 'MANIFEST_docker.sha256') ($all | ForEach-Object {
     "$((Get-FileHash (Join-Path $out $_) -Algorithm SHA256).Hash.ToLower())  $_" })
-$tar = Join-Path $out 'b200-docker.tar'
+$tar = Join-Path $out 'gpu-docker.tar'
 Remove-Item -Force -ErrorAction SilentlyContinue $tar
 Push-Location $out
-& tar.exe -cf b200-docker.tar MANIFEST_docker.sha256 docker_install.sh docker_info.txt @files
+& tar.exe -cf gpu-docker.tar MANIFEST_docker.sha256 docker_install.sh docker_info.txt @files
 $code = $LASTEXITCODE
 Pop-Location
 if ($code -ne 0) { Stop-Run 'tar로 묶지 못했어요' '남은 공간을 확인하고 다시 실행하세요.' }
@@ -215,13 +215,13 @@ Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 파일(하나):' -ForegroundColor Green
 Write-Host "   $tar"
 Write-Host ''
-Save-Fingerprint 'b200-docker.tar' (Get-Fingerprint @($tar))
+Save-Fingerprint 'gpu-docker.tar' (Get-Fingerprint @($tar))
 Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
-Write-Host '   /app/shared/bin/b200 fetch b200-docker.tar'
+Write-Host '   /app/shared/bin/gpu fetch gpu-docker.tar'
 Write-Host ' 3) 같으면 풀어서 실행하세요. admin_setup.sh 를 먼저 실행해 둬야 해요.' -ForegroundColor Green
-Write-Host '   cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh'
+Write-Host '   cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh'
 Write-Host ' 자세한 순서: docs\1_처음_설치.md 의 3단계'
 Write-Host '##############################################################' -ForegroundColor Green
 Stop-Transcript | Out-Null

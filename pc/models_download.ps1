@@ -12,8 +12,8 @@ param(
     [int]$MaxTries = 30               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 모델은 포기(약 2시간)
 )
 $here = $PSScriptRoot
-$root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\b200). 결과 폴더와 uv.exe 는 여기
-. (Join-Path $here 'b200_common.ps1')
+$root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\gpu). 결과 폴더와 uv.exe 는 여기
+. (Join-Path $here 'gpu_common.ps1')
 $Only  = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $fetch = Join-Path $here 'hf_fetch.py'
 $T = 4
@@ -81,7 +81,7 @@ Write-Info '받기 도구(huggingface_hub)를 준비하는 중이에요(처음 �
 if ($LASTEXITCODE -ne 0) { Stop-Run 'uv가 Python 3.12를 받지 못했어요' '인터넷(github.com) 접속을 확인하고 다시 실행하세요.' }
 
 # 승인이 필요한 모델(gated)이 있으면 토큰을 받는다
-$gated = @($Models | Where-Object { $_.Gated -and -not (Test-Path (Join-Path (Get-Dir $_.Repo) 'b200_model.json')) })
+$gated = @($Models | Where-Object { $_.Gated -and -not (Test-Path (Join-Path (Get-Dir $_.Repo) 'gpu_model.json')) })
 if ($gated.Count -and -not $env:HF_TOKEN) {
     Write-Host ''
     Write-Host "  승인이 필요한 모델이 $($gated.Count)개 있어요. 아래 모델 페이지에 로그인해 약관에 동의하세요:" -ForegroundColor Cyan
@@ -103,7 +103,7 @@ Write-Info '받을 크기를 계산하는 중이에요'
 $need = [int64]0
 foreach ($m in $Models) {
     if ($m.Gated -and -not $env:HF_TOKEN) { continue }
-    if (Test-Path (Join-Path (Get-Dir $m.Repo) 'b200_model.json')) { continue }
+    if (Test-Path (Join-Path (Get-Dir $m.Repo) 'gpu_model.json')) { continue }
     $out = @(Invoke-Fetch plan $m.Repo (Get-Dir $m.Repo))
     if ($LASTEXITCODE -eq 0) { $need += [int64]($out[-1]) }
     else { Write-Warn "$($m.Repo): $($out -join ' ')" }
@@ -123,7 +123,7 @@ foreach ($m in $Models) {
     $n++
     $dir = Get-Dir $m.Repo
     $label = "[$($m.Group)] $($m.Repo)"
-    if (Test-Path (Join-Path $dir 'b200_model.json')) { Write-Host "  ($n/$($Models.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
+    if (Test-Path (Join-Path $dir 'gpu_model.json')) { Write-Host "  ($n/$($Models.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
     if ($m.Gated -and -not $env:HF_TOKEN) { $result[$label] = '건너뜀(승인 필요, 토큰 없음)'; continue }
     Write-Host ''
     Write-Host "  ($n/$($Models.Count)) $label 받는 중" -ForegroundColor Cyan
@@ -149,9 +149,9 @@ Remove-Item Env:HF_TOKEN -ErrorAction SilentlyContinue
 foreach ($m in @($Models | Where-Object { $_.Code })) {
     $dir = Get-Dir $m.Repo
     $leaf = Split-Path -Leaf $dir
-    $sums = Join-Path $dir '.b200_sha256'
+    $sums = Join-Path $dir '.gpu_sha256'
     $label = "[$($m.Group)] $($m.Repo)"
-    if (-not (Test-Path (Join-Path $dir 'b200_model.json'))) { continue }
+    if (-not (Test-Path (Join-Path $dir 'gpu_model.json'))) { continue }
     if ((Test-Path $sums) -and (Select-String -Quiet -SimpleMatch "  $leaf/code.zip" $sums)) { continue }
     Write-Host "  $label 코드 받는 중: $($m.Code)" -ForegroundColor Cyan
     $zip = Join-Path $dir 'code.zip'
@@ -176,13 +176,13 @@ foreach ($d in @(Get-ChildItem $Dest -Directory | Where-Object { $_.Name -like '
     if ($known -notcontains $d.Name) {
         Remove-Item -Recurse -Force $d.FullName
         Write-Info "목록에서 빠진 예전 모델을 지웠어요: $($d.Name -replace '__', '/')"
-    } elseif ($active -notcontains $d.Name -and (Test-Path (Join-Path $d.FullName 'b200_model.json'))) {
+    } elseif ($active -notcontains $d.Name -and (Test-Path (Join-Path $d.FullName 'gpu_model.json'))) {
         Write-Info "선택 모델(앞에 #)이라 GPU 서버에 올릴 목록에서 뺐어요: $($d.Name -replace '__', '/')"
     }
 }
 $lines = @(Get-ChildItem $Dest -Directory | Where-Object { $active -contains $_.Name } | ForEach-Object {
-    $s = Join-Path $_.FullName '.b200_sha256'
-    if ((Test-Path $s) -and (Test-Path (Join-Path $_.FullName 'b200_model.json'))) { (Get-Content -Encoding UTF8 $s) }
+    $s = Join-Path $_.FullName '.gpu_sha256'
+    if ((Test-Path $s) -and (Test-Path (Join-Path $_.FullName 'gpu_model.json'))) { (Get-Content -Encoding UTF8 $s) }
 } | Where-Object { $_ })
 [IO.File]::WriteAllText((Join-Path $Dest 'MANIFEST.sha256'), (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
 $sh = [IO.File]::ReadAllText((Join-Path $root 'server\models_install.sh')) -replace "`r", ''
@@ -224,7 +224,7 @@ Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @()
 Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
-Write-Host '   /app/shared/bin/b200 fetch models'
+Write-Host '   /app/shared/bin/gpu fetch models'
 Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/models 는 지워 공간을 비우세요(서버 2도 쓸 거면 먼저 NAS에 보관: docs\9_NAS.md).' -ForegroundColor Green
 Write-Host '   bash /app/inbox/models/models_install.sh'
 Write-Host ' 자세한 순서: docs\7_모델.md'

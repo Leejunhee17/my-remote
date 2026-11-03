@@ -1,4 +1,4 @@
-# 푸시할 때마다 tests/run.sh 를 돌린다. 버리는 가상 머신이라 admin_setup.sh 도 진짜 /app 에 돌려 본다(B200_TEST_SYSTEM=1).
+# 푸시할 때마다 tests/run.sh 를 돌린다. 버리는 가상 머신이라 admin_setup.sh 도 진짜 /app 에 돌려 본다(GPU_TEST_SYSTEM=1).
 name: 자동 시험
 on:
   push:
@@ -15,4 +15,4 @@ jobs:
       - name: 시험 도구
         run: sudo apt-get install -y --no-install-recommends shellcheck zip unzip
       - name: 자동 시험
-        run: sudo env B200_TEST_SYSTEM=1 bash tests/run.sh
+        run: sudo env GPU_TEST_SYSTEM=1 bash tests/run.sh

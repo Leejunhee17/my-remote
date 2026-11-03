@@ -9,10 +9,10 @@ cd "$(dirname "$0")"
 SRC=$PWD
 # root 는 공용 계정이 올린 폴더를 /app/inbox 로 새로 복사한 뒤 실행한다. 복사본에 링크가 있으면 누가 심은 것이라 멈춘다
 if [ "$(id -u)" = 0 ] && [ -n "$(find "$SRC" -type l -print -quit)" ]; then
-    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/datasets 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/shared/bin/b200 fetch datasets"; exit 1
+    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/datasets 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/shared/bin/gpu fetch datasets"; exit 1
 fi
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
-APP=${B200_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
+APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
 if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/shared" ] || [ -L "$APP/workspace" ]; }; then
     echo "멈춤: /app이 아직 잠기지 않았어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
 fi
@@ -59,7 +59,7 @@ export PATH="$PATH:$SH/tools/bin"
     stop "체크섬 목록(MANIFEST.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 datasets_download.ps1 을 다시 실행해 목록을 새로 만든 뒤 datasets 폴더를 다시 올려 들여오세요."
 # 체크섬 목록에는 압축 파일과 wildscenes 파일(하나하나)이 들어 있다. wildscenes 를 이미 옮겨서 이번에 안 올렸으면 그 줄은 뺀다
 SUMS=$(mktemp); trap 'rm -f "$SUMS"' EXIT
-if [ ! -d wildscenes ] && [ -f "$D/wildscenes/.b200_done" ]; then grep -v '^[0-9a-f]\{64\}  wildscenes/' MANIFEST.sha256 > "$SUMS"
+if [ ! -d wildscenes ] && [ -f "$D/wildscenes/.gpu_done" ]; then grep -v '^[0-9a-f]\{64\}  wildscenes/' MANIFEST.sha256 > "$SUMS"
 else cat MANIFEST.sha256 > "$SUMS"; fi
 n=$(grep -c . "$SUMS" || true); nw=$(grep -c '^[0-9a-f]\{64\}  wildscenes/' "$SUMS" || true)
 echo "  파일 ${n}개(그중 wildscenes ${nw}개)의 체크섬을 확인하고 있어요(100 GB면 10분 안팎)"
@@ -76,7 +76,7 @@ if [ -f wildscenes.ok ]; then
     want_f=$(sed -n 's/.*files=\([0-9]*\).*/\1/p' wildscenes.ok)
     if [ -d wildscenes ]; then
         have_f=$(find wildscenes -type f | wc -l)
-    elif [ -f "$D/wildscenes/.b200_done" ]; then
+    elif [ -f "$D/wildscenes/.gpu_done" ]; then
         have_f=$want_f
     else
         have_f=0
@@ -100,7 +100,7 @@ for f in "${files[@]}"; do
     i=$((i + 1))
     set_dir=${f%%/*}
     dest="$D/$set_dir"
-    mark="$dest/.b200_$(basename "$f").done"
+    mark="$dest/.gpu_$(basename "$f").done"
     if [ -f "$mark" ]; then echo "  ($i/${#files[@]}) $f: 이미 풀었어요"; continue; fi
     echo "  ($i/${#files[@]}) $f 푸는 중이에요"
     mkdir -p "$dest"
@@ -112,13 +112,13 @@ for f in "${files[@]}"; do
     esac
     if [ $? -eq 0 ]; then touch "$mark"; else bad "$f: 풀지 못했어요(남은 공간과 권한을 확인하세요)"; fi
 done
-if [ -d wildscenes ] && [ ! -f "$D/wildscenes/.b200_done" ]; then
+if [ -d wildscenes ] && [ ! -f "$D/wildscenes/.gpu_done" ]; then
     echo "  wildscenes 옮기는 중이에요"
     mkdir -p "$D/wildscenes"
     # 체크섬을 확인한 파일만 옮긴다(목록에 없는 파일이 끼어 있어도 공용 데이터셋에 들어가지 않게)
     sed -n 's|^[0-9a-f]\{64\}  wildscenes/||p' "$SUMS" > "$SUMS.w"
     (cd wildscenes && tar -cf - --no-recursion -T "$SUMS.w") | tar -xf - -C "$D/wildscenes" --no-same-owner &&
-        touch "$D/wildscenes/.b200_done" || bad "wildscenes를 옮기지 못했어요(남은 공간과 권한을 확인하세요)"
+        touch "$D/wildscenes/.gpu_done" || bad "wildscenes를 옮기지 못했어요(남은 공간과 권한을 확인하세요)"
     rm -f "$SUMS.w"
 fi
 ok "다 풀었어요"

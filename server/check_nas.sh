@@ -10,7 +10,7 @@ ok()   { echo "  ${c_g}[정상]${c_0} $*"; }
 warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 bad()  { echo "  ${c_r}[문제]${c_0} $*"; }
 head_() { echo; echo "${c_c}== $* ==${c_0}"; }
-ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
+ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
 ME=$(hostname -s)
 TEAM_DIR=${1:-}
 IS_ROOT=; [ "$(id -u)" = 0 ] && IS_ROOT=1
@@ -35,7 +35,7 @@ body() {
 
     head_ '연결된 NAS'
     mapfile -t mounts < <(findmnt -rn -t nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs -o TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null)
-    [ -z "${B200_NAS:-}" ] || mounts=("$B200_NAS (직접지정) - -")   # NAS 가 mount 목록에 안 보일 때 직접 적는다
+    [ -z "${GPU_NAS:-}" ] || mounts=("$GPU_NAS (직접지정) - -")   # NAS 가 mount 목록에 안 보일 때 직접 적는다
     if [ ${#mounts[@]} -eq 0 ]; then
         bad 'NAS로 연결된 폴더가 없어요. 서버 관리 팀에 NAS 연결(mount)을 요청하세요'
         return
@@ -70,12 +70,12 @@ body() {
         ACC_UID=$(id -u "$ACC"); ACC_GID=$(id -g "$ACC")
         echo "  우리 공용 계정 $ACC: uid $ACC_UID, gid $ACC_GID"
     else
-        bad "공용 계정이 없거나 이름을 알 수 없어요: ${ACC:-(비어 있음)}. /etc/b200/account 를 확인하세요"; ACC_UID=; ACC_GID=
+        bad "공용 계정이 없거나 이름을 알 수 없어요: ${ACC:-(비어 있음)}. /etc/gpu/account 를 확인하세요"; ACC_UID=; ACC_GID=
     fi
     echo "  이 서버의 일반 계정(uid 1000 이상):"
     getent passwd | awk -F: '$3 >= 1000 && $3 < 60000 {printf "    %-16s uid %s\n", $1, $3}'
     # 다른 서버의 결과와 맞춰 본다(NAS 의 스티키 tmp 폴더에 번호만 적어 둔다)
-    local shr="$NAS/tmp/.b200_nas" peer f puid pgid seen=
+    local shr="$NAS/tmp/.gpu_nas" peer f puid pgid seen=
     if [ -n "$ACC_UID" ] && [ -d "$NAS/tmp" ] && [ -k "$NAS/tmp" ] && [ ! -L "$shr" ]; then
         mkdir -p "$shr" 2>/dev/null && chmod 1777 "$shr" 2>/dev/null
         # root 는 다른 계정이 만든 폴더에 쓰지 않는다(그 계정이 파일을 링크로 바꿔치기하면 root 가 이 서버의 파일을 덮는다)
@@ -101,7 +101,7 @@ body() {
     if [ -z "$IS_ROOT" ]; then
         echo "  root 로 실행하면 확인해요."
     elif [ -d "$NAS/tmp" ] && [ -k "$NAS/tmp" ]; then
-        local probe owner; probe=$(mktemp "$NAS/tmp/.b200_squash.XXXXXX" 2>/dev/null)
+        local probe owner; probe=$(mktemp "$NAS/tmp/.gpu_squash.XXXXXX" 2>/dev/null)
         if [ -n "$probe" ]; then
             owner=$(stat -c '%u' "$probe"); rm -f "$probe"
             if [ "$owner" = 0 ]; then
@@ -151,7 +151,7 @@ body() {
 # 보고서 둘 곳: root 는 /app/inbox/reports(root 만 고치고 공용 계정 FileZilla로 내려받을 수 있음),
 # 그 밖에는 실행한 폴더(내 것일 때)나 홈. 남이 쓸 수 있는 폴더에는 쓰지 않는다(링크로 다른 파일을 덮게 만들 수 있다)
 report_dir() {
-    local ib=${B200_INBOX:-/app/inbox}   # 시험할 때만 바꾼다
+    local ib=${GPU_INBOX:-/app/inbox}   # 시험할 때만 바꾼다
     if [ "$(id -u)" = 0 ] && [ -d "$ib" ] && [ ! -L "$ib" ] && [ "$(stat -c %U "$ib")" = root ]; then
         mkdir -p "$ib/reports" && [ ! -L "$ib/reports" ] && chmod 755 "$ib/reports" && echo "$ib/reports" && return
     fi
@@ -185,9 +185,9 @@ chmod 644 "$out" 2>/dev/null   # 공용 계정(FileZilla)으로 내려받을 수
 masks=("$(hostname -f 2>/dev/null)=$LABEL" "$ME=$LABEL")
 [ -n "$ACC" ] && masks+=("$ACC=공용계정")
 i=0; while IFS=: read -r n _ u _; do [ "$u" -ge 1000 ] && [ "$u" -lt 60000 ] && [ "$n" != "$ACC" ] && { i=$((i + 1)); masks+=("$n=계정$i"); }; done < <(getent passwd)
-NASD=$(findmnt -rn -t nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs -o TARGET 2>/dev/null | head -1); NASD=${B200_NAS:-$NASD}
+NASD=$(findmnt -rn -t nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs -o TARGET 2>/dev/null | head -1); NASD=${GPU_NAS:-$NASD}
 i=0; for d in "$NASD"/*/; do n=$(basename "$d"); case "$n" in tmp|data|home|'*') continue ;; esac; i=$((i + 1)); masks+=("$n=폴더$i"); done 2>/dev/null
-for f in "$NASD"/tmp/.b200_nas/*.txt; do h=$(sed -n 's/^HOST=//p' "$f" 2>/dev/null | head -1); [[ "$h" =~ ^[A-Za-z0-9._-]{2,64}$ ]] && [ "$h" != "$ME" ] && masks+=("$h=상대서버(…${h: -2})"); done 2>/dev/null
+for f in "$NASD"/tmp/.gpu_nas/*.txt; do h=$(sed -n 's/^HOST=//p' "$f" 2>/dev/null | head -1); [[ "$h" =~ ^[A-Za-z0-9._-]{2,64}$ ]] && [ "$h" != "$ME" ] && masks+=("$h=상대서버(…${h: -2})"); done 2>/dev/null
 share="$RDIR/nas_공유용_${LABEL//[^A-Za-z0-9]/}_$(date +%Y%m%d-%H%M).txt"
 share_copy "$out" "$share" "${masks[@]}"
 echo; echo "보고서(원본, 사내 정보 있음): $(readlink -f "$out")"

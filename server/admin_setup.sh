@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # [GPU 서버 · 관리자(root) 전용] 공용 계정으로 여럿이 쓰는 서버의 기본 규칙을 시스템에 건다. 여러 번 실행해도 된다.
 #   bash admin_setup.sh          적용
-#   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. 공용 폴더 잠금·b200 명령·기록·드라이버 고정은 그대로 둔다)
+#   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. 공용 폴더 잠금·gpu 명령·기록·드라이버 고정은 그대로 둔다)
 # 하는 일 (팀원에게 새 명령을 외우게 하지 않고, 막기보다 알린다)
-#   - 공용 계정(/etc/b200/account)에 관리자 권한(sudo, docker·disk·lxd 등 그룹)이 없는지 확인한다(있으면 알려만 준다)
+#   - 공용 계정(/etc/gpu/account)에 관리자 권한(sudo, docker·disk·lxd 등 그룹)이 없는지 확인한다(있으면 알려만 준다)
 #   - /app/shared(기초 프로그램·데이터셋·모델)와 /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
-#   - 접속할 때 이름을 고르게 하고, 이름별 작업 폴더·캐시·명령 기록을 나눈다(/etc/profile.d/b200.sh)
+#   - 접속할 때 이름을 고르게 하고, 이름별 작업 폴더·캐시·명령 기록을 나눈다(/etc/profile.d/gpu.sh)
 #   - docker, nvidia-smi 도우미를 /app/shared/bin 에 설치한다(이름표, GPU 겹침 경고, "GPU별 사용자" 표)
 #   - GPU 서비스(Fabric Manager, persistenced)를 켜고 드라이버 버전을 고정한다
-#   - 10분마다 GPU 사용 기록과 알림, 월요일 아침 주간 보고서(/etc/cron.d/b200)
+#   - 10분마다 GPU 사용 기록과 알림, 월요일 아침 주간 보고서(/etc/cron.d/gpu)
 set -uo pipefail
 cd "$(dirname "$0")"
 HERE=$PWD
-ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
+ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
 S=/app/shared
 W=/app/workspace
 ST=/app/state
@@ -23,16 +23,16 @@ warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() { echo "${c_r}멈춤: $1${c_0}"; echo "할 일: $2"; exit 1; }
 
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
-[ -n "$ACC" ] || stop '공용 계정 이름을 알 수 없어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account'
-[[ "$ACC" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || stop "공용 계정 이름이 이상해요: $ACC" '/etc/b200/account 에 계정 이름 한 줄만 적으세요'
-id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" '/etc/b200/account 의 계정 이름을 확인하세요: cat /etc/b200/account'
+[ -n "$ACC" ] || stop '공용 계정 이름을 알 수 없어요' '서버에 한 번 적어 두세요: mkdir -p /etc/gpu && echo <계정이름> > /etc/gpu/account'
+[[ "$ACC" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || stop "공용 계정 이름이 이상해요: $ACC" '/etc/gpu/account 에 계정 이름 한 줄만 적으세요'
+id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" '/etc/gpu/account 의 계정 이름을 확인하세요: cat /etc/gpu/account'
 HOME_A=$(getent passwd "$ACC" | cut -d: -f6)
 
 if [ "${1:-}" = --undo ]; then
     step '되돌리기'
-    rm -f /etc/profile.d/b200.sh /etc/cron.d/b200
-    sed -i '/# b200 admin_setup/d' /etc/bash.bashrc
-    ok '접속 설정과 정기 점검을 지웠어요. b200 명령, 공용 폴더 잠금, 기록(/app/state), 드라이버 고정은 그대로 뒀어요.'
+    rm -f /etc/profile.d/gpu.sh /etc/cron.d/gpu
+    sed -i '/# gpu admin_setup/d' /etc/bash.bashrc
+    ok '접속 설정과 정기 점검을 지웠어요. gpu 명령, 공용 폴더 잠금, 기록(/app/state), 드라이버 고정은 그대로 뒀어요.'
     echo "  다시 쓰려면 같은 폴더에서 bash admin_setup.sh 를 실행하세요."
     exit 0
 fi
@@ -67,22 +67,22 @@ chown root:root /app && chmod 755 /app
 for d in "$S" "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty}; do
     [ -L "$d" ] && stop "링크가 있어요(누가 만들었는지 몰라요): $d" "ls -l $d 로 어디를 가리키는지 보고, 직접 만든 게 아니면 rm $d 로 링크만 지운 뒤 다시 실행하세요."
 done
-# 잠그기 전(예전 설치)에 공용 계정이 만든 /app/shared 는 안을 믿지 않는다. 설정(b200.conf)이나 프로그램(tools, mamba)을
+# 잠그기 전(예전 설치)에 공용 계정이 만든 /app/shared 는 안을 믿지 않는다. 설정(gpu.conf)이나 프로그램(tools, mamba)을
 # 미리 바꿔 두면 root(설치 스크립트)가 그것을 실행하게 된다. 데이터(데이터셋·모델)와 읽기만 하는 설정 파일만 새 폴더로 옮기고
-# 프로그램(tools, mamba, bin 등)은 치운다. 설정 파일은 b200 이 실행하지 않고 값만 꺼내 확인한다.
-# root 가 잠근 폴더에는 표시 파일(.b200_root)을 남긴다. 공용 계정은 root 소유 파일을 만들 수 없다
-if [ -d "$S" ] && ! { [ "$(stat -c %U "$S")" = root ] && [ "$(stat -c %U "$S/.b200_root" 2>/dev/null)" = root ]; }; then
+# 프로그램(tools, mamba, bin 등)은 치운다. 설정 파일은 gpu 이 실행하지 않고 값만 꺼내 확인한다.
+# root 가 잠근 폴더에는 표시 파일(.gpu_root)을 남긴다. 공용 계정은 root 소유 파일을 만들 수 없다
+if [ -d "$S" ] && ! { [ "$(stat -c %U "$S")" = root ] && [ "$(stat -c %U "$S/.gpu_root" 2>/dev/null)" = root ]; }; then
     old="/app/.shared_old_$(date +%Y%m%d_%H%M%S)"
     mv "$S" "$old" && chown root:root "$old" && chmod 700 "$old" && mkdir -p "$S" || stop "예전 $S 를 치우지 못했어요" "ls -la /app 으로 상태를 확인하세요."
     for n in datasets models; do [ -d "$old/$n" ] && [ ! -L "$old/$n" ] && mv "$old/$n" "$S/$n"; done
-    for n in team.txt gpu_alloc.txt b200.conf; do [ -f "$old/$n" ] && [ ! -L "$old/$n" ] && mv "$old/$n" "$S/$n"; done
+    for n in team.txt gpu_alloc.txt gpu.conf; do [ -f "$old/$n" ] && [ ! -L "$old/$n" ] && mv "$old/$n" "$S/$n"; done
     chown -R root:root "$S" && find "$S" -type l -delete   # 링크는 누가 심었는지 모른다(root 가 나중에 그 너머에 쓰게 된다)
     warn "예전 $S 는 공용 계정이 만든 것이라 그대로 믿지 않아요. 데이터셋·모델과 명단·배분·알림 설정만 옮기고, 나머지(기초 프로그램 등)는 $old 로 치웠어요(root만 볼 수 있어요)"
     echo "    기초 프로그램은 다시 설치하세요(마지막 '남은 일' 3번). 치운 폴더는 확인한 뒤 지워도 돼요: rm -rf $old"
 fi
 mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty} /app/inbox
 # 공용: root 만 쓰고 모두 읽는다
-chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S" && touch "$S/.b200_root"
+chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S" && touch "$S/.gpu_root"
 ok "$S: root만 고치고 팀원은 읽기만 해요"
 # 작업 공간과 기록: 공용 계정이 쓴다(보고서만 root)
 chown "$ACC:$ACC" "$W" && chmod 755 "$W"
@@ -102,7 +102,7 @@ ok "$W: 팀원 작업 공간,  $ST: 기록·알림,  /app/upload: 설치 파일 
 for n in shared workspace; do
     [ -e "$HOME_A/$n" ] || [ -L "$HOME_A/$n" ] || setsid -w runuser -u "$ACC" -- ln -sn "/app/$n" "$HOME_A/$n"   # 공용 계정 홈이라 그 권한으로
 done
-# 팀원 명단과 GPU 배분: 관리자가 고치고, b200 명령이 읽는다(엑셀 '팀원', 'GPU 배분' 시트와 같게)
+# 팀원 명단과 GPU 배분: 관리자가 고치고, gpu 명령이 읽는다(엑셀 '팀원', 'GPU 배분' 시트와 같게)
 [ -f "$S/team.txt" ] || cat > "$S/team.txt" <<'EOF'
 # 팀원 명단. 관리자만 고친다. 엑셀 '팀원' 시트와 같게 맞춘다.
 # 형식: 이름  그룹   (그룹은 gpu_alloc.txt 의 그룹 이름)
@@ -161,19 +161,19 @@ grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name grp _; do
     [ -d "$W/$name" ] || { setsid -w runuser -u "$ACC" -- mkdir -p "$W/$name/images" && echo "    작업 폴더를 만들었어요: $W/$name"; }
 done
 # 알림 기준 숫자. 바꾸면 규칙 문서(team/)의 숫자도 같이 바꾼다. 예전 설정(자동 종료 등)이 있으면 새로 쓴다
-grep -q '^IDLE_HOURS=' "$S/b200.conf" 2>/dev/null || cat > "$S/b200.conf" <<'EOF'
-# b200 알림 기준. 관리자만 고친다. 바꾸면 팀원 규칙 문서의 숫자도 같이 바꾼다. 모두 알림만 하고 멈추거나 지우지 않는다.
+grep -q '^IDLE_HOURS=' "$S/gpu.conf" 2>/dev/null || cat > "$S/gpu.conf" <<'EOF'
+# gpu 알림 기준. 관리자만 고친다. 바꾸면 팀원 규칙 문서의 숫자도 같이 바꾼다. 모두 알림만 하고 멈추거나 지우지 않는다.
 MAX_GPUS=4            # docker run 때 내 GPU가 이보다 많아지면 경고
 IDLE_HOURS=12         # GPU를 잡고 이 시간 내내 사용률 0%면 그 사람에게 알림(하루 한 번)
 DISK_ALERT=85         # /app 이 이 % 를 넘으면 많이 쓰는 3명과 관리자에게 알림(주 한 번)
 IMAGE_NOTICE_DAYS=30  # 이 일수 동안 안 쓴 도커 이미지는 들여온 사람에게 알림(주 한 번)
 NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)
 EOF
-grep -q '^NAS_DIR=' "$S/b200.conf" ||   # 예전 버전으로 만든 설정에는 없다
-    echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)' >> "$S/b200.conf"
-chmod 644 "$S/b200.conf"
+grep -q '^NAS_DIR=' "$S/gpu.conf" ||   # 예전 버전으로 만든 설정에는 없다
+    echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)' >> "$S/gpu.conf"
+chmod 644 "$S/gpu.conf"
 # NAS 팀 폴더를 정했으면(NAS_DIR) 팀원별 backup·docker_images 폴더도 공용 계정 권한으로 만든다(root 는 NAS에 쓰지 않는다)
-NAS_DIR=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$S/b200.conf" | tail -1)
+NAS_DIR=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$S/gpu.conf" | tail -1)
 if [ -n "$NAS_DIR" ]; then
     if setsid -w runuser -u "$ACC" -- test -d "$NAS_DIR" -a -w "$NAS_DIR"; then
         grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
@@ -185,13 +185,13 @@ if [ -n "$NAS_DIR" ]; then
 fi
 
 # ------------------------------------------------------------------ 3. 도우미
-step '3. 도우미 설치 (docker, nvidia-smi, b200)'
-for f in b200 docker nvidia-smi; do
-    [ -f "bin/$f" ] || stop "도우미 파일이 없어요: $HERE/bin/$f" "묶음을 다시 푸세요: cd $HERE && tar xf b200-pack.tar"
+step '3. 도우미 설치 (docker, nvidia-smi, gpu)'
+for f in gpu docker nvidia-smi; do
+    [ -f "bin/$f" ] || stop "도우미 파일이 없어요: $HERE/bin/$f" "묶음을 다시 푸세요: cd $HERE && tar xf gpu-pack.tar"
     install -m 755 "bin/$f" "$S/bin/$f"
 done
 rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"   # 예전 버전의 파일
-ok "$S/bin 에 설치했어요: docker(이름표·GPU 겹침 경고), nvidia-smi(GPU별 사용자 표), b200(접속 인사·정기 점검)"
+ok "$S/bin 에 설치했어요: docker(이름표·GPU 겹침 경고), nvidia-smi(GPU별 사용자 표), gpu(접속 인사·정기 점검)"
 # docker ps 에 사람(USER)과 GPU 열을 보이게 한다(공용 계정의 docker 설정). 공용 계정 홈이라 공용 계정 권한으로 쓴다
 setsid -w runuser -u "$ACC" -- mkdir -p "$HOME_A/.docker"
 setsid -w runuser -u "$ACC" -- python3 -I - "$HOME_A/.docker/config.json" <<'PY'
@@ -199,15 +199,15 @@ import json, os, sys
 p = sys.argv[1]
 try: c = json.load(open(p))
 except Exception: c = {}
-c["psFormat"] = 'table {{.Names}}\t{{.Label "b200.USER"}}\t{{.Label "b200.GPUS"}}\t{{.Image}}\t{{.Status}}'
+c["psFormat"] = 'table {{.Names}}\t{{.Label "gpu.USER"}}\t{{.Label "gpu.GPUS"}}\t{{.Image}}\t{{.Status}}'
 json.dump(c, open(p, "w"), indent=2)
 PY
 ok 'docker ps 에 이름(USER)과 GPU(GPUS) 열을 넣었어요'
 
 
 # ------------------------------------------------------------------ 4. 접속 설정
-step '4. 접속 설정 (/etc/profile.d/b200.sh)'
-cat > /etc/profile.d/b200.sh <<EOF
+step '4. 접속 설정 (/etc/profile.d/gpu.sh)'
+cat > /etc/profile.d/gpu.sh <<EOF
 # GPU 서버 공용 설정. admin_setup.sh 가 만든다. 관리자만 고칠 수 있다.
 [ -n "\${BASH_VERSION:-}" ] || return 0
 # 우리 공용 계정에만 건다. 다른 계정(서버 2의 다른 팀, root)의 docker·nvidia-smi·PATH 는 건드리지 않는다
@@ -215,55 +215,55 @@ cat > /etc/profile.d/b200.sh <<EOF
 case "\$(locale charmap 2>/dev/null)" in UTF-8) ;; *) unset LC_ALL; export LANG=C.UTF-8 ;; esac
 if [ "\$(id -u)" = 0 ]; then
     # 관리자: 아직 안 본 알림(이름 없는 GPU 사용, 디스크, GPU 오류, 주간 보고서)
-    case \$- in *i*) [ -n "\${B200_ADMIN_DONE:-}" ] || $S/bin/b200 _notices 관리자; B200_ADMIN_DONE=1 ;; esac
+    case \$- in *i*) [ -n "\${GPU_ADMIN_DONE:-}" ] || $S/bin/gpu _notices 관리자; GPU_ADMIN_DONE=1 ;; esac
     return 0
 fi
 [ "\$(id -un)" = "$ACC" ] || return 0
 # 도우미(docker, nvidia-smi)가 진짜 명령보다 먼저 오게 맨 앞에, 기초 프로그램은 맨 뒤에
 case ":\$PATH:" in *":$S/bin:"*) ;; *) PATH="$S/bin:\$PATH:$S/tools/bin"; export PATH ;; esac
-[ -n "\${B200_PROFILE_DONE:-}" ] && return 0
-B200_PROFILE_DONE=1
+[ -n "\${GPU_PROFILE_DONE:-}" ] && return 0
+GPU_PROFILE_DONE=1
 # 서버에는 인터넷이 없으니 Hugging Face 가 접속을 시도하지 않게 한다
 export HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 case \$- in *i*) ;; *) return 0 ;; esac   # 파일 전송(FileZilla) 같은 비대화 접속은 여기까지
 # 이름 고르기. tmux 새 창 등에서는 이미 이름이 있다
-if [ -z "\${B200_USER:-}" ]; then
-    $S/bin/b200 _hello
-    _b200_list=\$($S/bin/b200 _names)
-    if [ -n "\$_b200_list" ]; then echo "  이름을 고르세요(번호나 이름):"; echo "\$_b200_list"; fi
-    for _b200_i in 1 2 3; do
-        read -r -p "  > " _b200_a || break
-        B200_USER=\$($S/bin/b200 _resolve "\$_b200_a") && break
+if [ -z "\${GPU_USER:-}" ]; then
+    $S/bin/gpu _hello
+    _gpu_list=\$($S/bin/gpu _names)
+    if [ -n "\$_gpu_list" ]; then echo "  이름을 고르세요(번호나 이름):"; echo "\$_gpu_list"; fi
+    for _gpu_i in 1 2 3; do
+        read -r -p "  > " _gpu_a || break
+        GPU_USER=\$($S/bin/gpu _resolve "\$_gpu_a") && break
         echo "  목록에 없어요. 번호나 이름을 다시 입력하세요(명단에 내 이름이 없으면 관리자에게 등록을 요청하세요)."
     done
-    unset _b200_list _b200_i _b200_a
-    [ -n "\${B200_USER:-}" ] || echo "  이름 없이 접속했어요. 내 GPU 작업과 컨테이너가 '이름 없음'으로 보여요. 다시 고르려면: exec bash -l"
+    unset _gpu_list _gpu_i _gpu_a
+    [ -n "\${GPU_USER:-}" ] || echo "  이름 없이 접속했어요. 내 GPU 작업과 컨테이너가 '이름 없음'으로 보여요. 다시 고르려면: exec bash -l"
     # 이 창에 알림을 보낼 수 있게 창(pts)과 이름을 적어 둔다
-    _b200_t=\$(tty 2>/dev/null)
-    case "\$_b200_t" in /dev/pts/[0-9]*) [ -n "\${B200_USER:-}" ] && printf '%s' "\$B200_USER" > "$ST/tty/pts-\${_b200_t##*/}" 2>/dev/null ;; esac
-    unset _b200_t
+    _gpu_t=\$(tty 2>/dev/null)
+    case "\$_gpu_t" in /dev/pts/[0-9]*) [ -n "\${GPU_USER:-}" ] && printf '%s' "\$GPU_USER" > "$ST/tty/pts-\${_gpu_t##*/}" 2>/dev/null ;; esac
+    unset _gpu_t
 fi
 # 사람마다 tmux 를 따로 쓴다(계정이 같아 tmux 하나를 같이 쓰면 남의 창이 섞인다)
-tmux() { LC_ALL=C.UTF-8 command tmux -L "u-\${B200_USER:-이름없음}" "\$@"; }
-[ -n "\${B200_USER:-}" ] || return 0
-export B200_USER B200_WS=$W/\$B200_USER
-[ -d "\$B200_WS" ] || mkdir -p "\$B200_WS/images" 2>/dev/null   # 명단에 나중에 넣은 사람
+tmux() { LC_ALL=C.UTF-8 command tmux -L "u-\${GPU_USER:-이름없음}" "\$@"; }
+[ -n "\${GPU_USER:-}" ] || return 0
+export GPU_USER GPU_WS=$W/\$GPU_USER
+[ -d "\$GPU_WS" ] || mkdir -p "\$GPU_WS/images" 2>/dev/null   # 명단에 나중에 넣은 사람
 # 홈(10 GB)은 모두가 같이 쓰므로 캐시와 pip --user 설치는 내 작업 폴더에
-export XDG_CACHE_HOME=\$B200_WS/.cache TRITON_CACHE_DIR=\$B200_WS/.cache/triton PYTHONUSERBASE=\$B200_WS/.local
+export XDG_CACHE_HOME=\$GPU_WS/.cache TRITON_CACHE_DIR=\$GPU_WS/.cache/triton PYTHONUSERBASE=\$GPU_WS/.local
 case ":\$PATH:" in *":\$PYTHONUSERBASE/bin:"*) ;; *) PATH="\$PATH:\$PYTHONUSERBASE/bin" ;; esac
-export HISTFILE=$ST/history/\$B200_USER.bash_history HISTTIMEFORMAT='%F %T '
-export GIT_AUTHOR_NAME=\$B200_USER GIT_COMMITTER_NAME=\$B200_USER
-_b200_ps1() { case "\$PS1" in "[\$B200_USER] "*) ;; *) PS1="[\$B200_USER] \$PS1" ;; esac; }
-PROMPT_COMMAND="_b200_ps1\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"
+export HISTFILE=$ST/history/\$GPU_USER.bash_history HISTTIMEFORMAT='%F %T '
+export GIT_AUTHOR_NAME=\$GPU_USER GIT_COMMITTER_NAME=\$GPU_USER
+_gpu_ps1() { case "\$PS1" in "[\$GPU_USER] "*) ;; *) PS1="[\$GPU_USER] \$PS1" ;; esac; }
+PROMPT_COMMAND="_gpu_ps1\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"
 if [ -z "\${TMUX:-}" ]; then
-    [ "\$PWD" = "\$HOME" ] && [ -d "\$B200_WS" ] && cd "\$B200_WS"
-    $S/bin/b200 _notices
+    [ "\$PWD" = "\$HOME" ] && [ -d "\$GPU_WS" ] && cd "\$GPU_WS"
+    $S/bin/gpu _notices
 fi
 EOF
-chmod 644 /etc/profile.d/b200.sh
+chmod 644 /etc/profile.d/gpu.sh
 # 로그인 셸이 아닌 새 셸에서도 같은 설정을 읽게 한다
-grep -q '# b200 admin_setup' /etc/bash.bashrc ||
-    echo '[ -r /etc/profile.d/b200.sh ] && . /etc/profile.d/b200.sh  # b200 admin_setup' >> /etc/bash.bashrc
+grep -q '# gpu admin_setup' /etc/bash.bashrc ||
+    echo '[ -r /etc/profile.d/gpu.sh ] && . /etc/profile.d/gpu.sh  # gpu admin_setup' >> /etc/bash.bashrc
 # 예전 방식(~/.bashrc 의 PATH 줄)은 지운다. 이제 시스템 설정이 맡는다
 [ -f "$HOME_A/.bashrc" ] && setsid -w runuser -u "$ACC" -- sed -i '\#shared/tools/bin#d' "$HOME_A/.bashrc"
 ok '접속 설정: 이름 고르기(번호), 이름별 캐시·명령 기록, 작업 폴더로 이동, 알림 보기'
@@ -292,22 +292,22 @@ else warn '고정할 NVIDIA 패키지를 찾지 못했어요(드라이버를 apt
 
 # ------------------------------------------------------------------ 6. 정기 점검
 step '6. 정기 점검'
-cat > /etc/cron.d/b200 <<EOF
-# b200 admin_setup.sh 가 만든다. cron 기본 PATH 에는 /usr/sbin(runuser)이 없다
+cat > /etc/cron.d/gpu <<EOF
+# gpu admin_setup.sh 가 만든다. cron 기본 PATH 에는 /usr/sbin(runuser)이 없다
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-*/10 * * * * root $S/bin/b200 _check
-40 7 * * 1   root $S/bin/b200 _report > $ST/reports/\$(date +\%F).txt 2>&1 && echo "\$(date '+\%F \%H:\%M')	보고서-\$(date +\%F)	주간 보고서: $ST/reports/\$(date +\%F).txt" >> $ST/notice/관리자.txt
+*/10 * * * * root $S/bin/gpu _check
+40 7 * * 1   root $S/bin/gpu _report > $ST/reports/\$(date +\%F).txt 2>&1 && echo "\$(date '+\%F \%H:\%M')	보고서-\$(date +\%F)	주간 보고서: $ST/reports/\$(date +\%F).txt" >> $ST/notice/관리자.txt
 EOF
-chmod 644 /etc/cron.d/b200
+chmod 644 /etc/cron.d/gpu
 ok "10분마다 GPU 사용 기록과 알림(같은 알림은 하루나 한 주에 한 번), 월요일 07:40에 주간 보고서($ST/reports)"
 
 echo
 echo "${c_g}############################ 완료 ############################${c_0}"
 echo " 남은 일"
 echo "  1) $S/team.txt 에 팀원을 한 줄에 '이름 그룹'으로 적고 이 스크립트를 한 번 더 실행하세요(작업 폴더가 생겨요)"
-echo "  2) GPU 배분은 $S/gpu_alloc.txt, 알림 기준은 $S/b200.conf 에서 바꿔요(team/ 규칙 문서·엑셀도 같이)"
+echo "  2) GPU 배분은 $S/gpu_alloc.txt, 알림 기준은 $S/gpu.conf 에서 바꿔요(team/ 규칙 문서·엑셀도 같이)"
 echo "  3) 기초 프로그램: cd $HERE && bash pack_install.sh /app/shared"
-echo "  4) 도커: b200-docker.tar 를 /app/upload 에 올린 뒤 $S/bin/b200 fetch b200-docker.tar (지문 확인) → cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh"
-echo "  5) 데이터셋·모델: $S/bin/b200 fetch datasets / models → 설치(docs/1_처음_설치.md 4·5단계)"
+echo "  4) 도커: gpu-docker.tar 를 /app/upload 에 올린 뒤 $S/bin/gpu fetch gpu-docker.tar (지문 확인) → cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh"
+echo "  5) 데이터셋·모델: $S/bin/gpu fetch datasets / models → 설치(docs/1_처음_설치.md 4·5단계)"
 echo " 확인: 공용 계정으로 다시 접속하면 이름 목록이 나오고, nvidia-smi 아래에 'GPU별 사용자' 표가 붙어요."
 echo "${c_g}##############################################################${c_0}"

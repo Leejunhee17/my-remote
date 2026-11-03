@@ -102,12 +102,12 @@ cmd_info() {
         local other=$1
         head_ "다른 서버 $other"
         echo "  쓰는 네트워크 카드: $(route_to "$other")"
-        if ping -c 4 -W 2 "$other" >/tmp/.b200ping.$$ 2>&1; then
-            ok "응답이 와요(왕복 $(tail -1 /tmp/.b200ping.$$ | awk -F/ '{print $5}') ms)"
+        if ping -c 4 -W 2 "$other" >/tmp/.gpuping.$$ 2>&1; then
+            ok "응답이 와요(왕복 $(tail -1 /tmp/.gpuping.$$ | awk -F/ '{print $5}') ms)"
         else
             warn "ping 응답이 없어요(ping만 막혀 있을 수도 있어요)"
         fi
-        rm -f /tmp/.b200ping.$$
+        rm -f /tmp/.gpuping.$$
         if timeout 3 bash -c "</dev/tcp/$other/22" 2>/dev/null; then ok "SSH(22) 포트가 열려 있어요"
         else warn "SSH(22) 포트에 연결되지 않아요"; fi
         echo "  속도 측정: 그 서버에서 bash check_network.sh listen  →  이 서버에서 bash check_network.sh send $other"
@@ -190,7 +190,7 @@ cmd_disk() {
     if [ "$(id -u)" = 0 ] && [ ! -k "$dir" ] && { [ ! -O "$dir" ] || [ -n "$(find "$dir" -maxdepth 0 -perm /022)" ]; }; then
         bad "root로 실행하면 다른 계정이 쓰는 폴더는 측정하지 않아요: $dir. 같은 디스크의 root 폴더(예: /app/inbox)에서 측정하거나, 그 계정으로 실행하세요"; exit 1
     fi
-    TD=$(mktemp -d "$dir/.b200_speedtest.XXXXXX") || { bad "$dir 에 시험 폴더를 만들지 못했어요"; exit 1; }
+    TD=$(mktemp -d "$dir/.gpu_speedtest.XXXXXX") || { bad "$dir 에 시험 폴더를 만들지 못했어요"; exit 1; }
     trap 'rm -rf "$TD"' EXIT   # TD 는 끝날 때 지우려고 전역
     f="$TD/t"
     cnt=$((size_gb * 64 / jobs)); [ "$cnt" -ge 1 ] || cnt=1; b=$((cnt * jobs * 16 * 1024 * 1024))
@@ -210,10 +210,10 @@ cmd_disk() {
 }
 
 # ------------------------------------------------------------------ 한 번에(턴키)
-# 두 서버에서 각각 "bash check_network.sh all" 을 실행한다. 같은 NAS 의 .b200_net 폴더에 서로의 주소를 적어 두고,
+# 두 서버에서 각각 "bash check_network.sh all" 을 실행한다. 같은 NAS 의 .gpu_net 폴더에 서로의 주소를 적어 두고,
 # 짝이 보이면 서버 사이 속도를 양쪽에서 동시에 잰다(이더넷은 전이중이라 서로 방해하지 않는다). 짝이 없으면 혼자 잰다.
 WAIT_PEER=${WAIT_PEER:-600}
-ME=${B200_HOST:-$(hostname -s)}
+ME=${GPU_HOST:-$(hostname -s)}
 SUM=()
 nas_dir() {   # 쓸 수 있는 NAS 폴더: 적어 준 폴더 → NAS/tmp → NAS
     local d c
@@ -311,7 +311,7 @@ all_body() {
     cmd_info
 
     # 짝 찾기
-    R="$nas/.b200_net"
+    R="$nas/.gpu_net"
     if [ -n "$nas" ] && { [ -L "$R" ] || [ -L "$nas" ]; }; then
         warn "상대 서버 확인용 폴더가 링크라서 쓰지 않아요: $R (누가 만들었는지 확인하세요). 이 서버만 측정해요"; nas=
     fi
@@ -327,7 +327,7 @@ all_body() {
         mine="$R/$ME.info"
         # 끝나거나 중간에 멈추면 내 정보를 지운다(남아 있으면 다음에 한쪽만 실행해도 짝이 있는 줄 안다)
         trap 'rm -f "$mine" "$PINFO"' EXIT; trap 'rm -f "$mine" "$PINFO"; exit 130' INT TERM
-        { echo "HOST=$ME"; echo "ETH=${B200_ETH:-$(eth_ip)}"; echo "IB=$(ib_ips)"; echo "HCAS=$(active_hcas)"
+        { echo "HOST=$ME"; echo "ETH=${GPU_ETH:-$(eth_ip)}"; echo "IB=$(ib_ips)"; echo "HCAS=$(active_hcas)"
           echo "PORT=$PORT"; echo "PERFTEST=$(command -v ib_write_bw >/dev/null && echo 1)"; } | put "$mine"
         head_ "상대 서버 찾기 (NAS: $R)"
         echo "  다른 서버에서도 bash /app/inbox/check_network.sh all 을 실행하세요. 최대 $((WAIT_PEER / 60))분 기다려요."
@@ -412,7 +412,7 @@ all_body() {
 # 보고서 둘 곳: root 는 /app/inbox/reports(root 만 고치고 공용 계정 FileZilla로 내려받을 수 있음),
 # 그 밖에는 실행한 폴더(내 것일 때)나 홈. 남이 쓸 수 있는 폴더에는 쓰지 않는다(링크로 다른 파일을 덮게 만들 수 있다)
 report_dir() {
-    local ib=${B200_INBOX:-/app/inbox}   # 시험할 때만 바꾼다
+    local ib=${GPU_INBOX:-/app/inbox}   # 시험할 때만 바꾼다
     if [ "$(id -u)" = 0 ] && [ -d "$ib" ] && [ ! -L "$ib" ] && [ "$(stat -c %U "$ib")" = root ]; then
         mkdir -p "$ib/reports" && [ ! -L "$ib/reports" ] && chmod 755 "$ib/reports" && echo "$ib/reports" && return
     fi
@@ -446,7 +446,7 @@ cmd_all() {
     chmod 644 "$out" 2>/dev/null   # 공용 계정(FileZilla)으로 내려받을 수 있게
     # 공유용 사본: 이 서버와 상대 서버 이름을 가린다(상대 서버 이름은 NAS 의 상대 정보 파일에서)
     local masks=("$(hostname -f 2>/dev/null)=$LABEL" "$ME=$LABEL") f h
-    for f in "$PEER_NOTE" "$(nas_dir "${1:-}")"/.b200_net/*.info; do
+    for f in "$PEER_NOTE" "$(nas_dir "${1:-}")"/.gpu_net/*.info; do
         [ "$f" = "$PEER_NOTE" ] && { h=$(head -1 "$f"); [[ "$h" =~ ^[A-Za-z0-9._-]{2,64}$ ]] && masks+=("$h=상대서버(…${h: -2})"); continue; }
         h=$(field HOST "$f"); [[ "$h" =~ ^[A-Za-z0-9._-]{2,64}$ ]] && [ "$h" != "$ME" ] && masks+=("$h=상대서버(…${h: -2})")
     done 2>/dev/null

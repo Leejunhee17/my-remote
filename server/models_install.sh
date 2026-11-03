@@ -9,10 +9,10 @@ cd "$(dirname "$0")"
 SRC=$PWD
 # root 는 공용 계정이 올린 폴더를 /app/inbox 로 새로 복사한 뒤 실행한다. 복사본에 링크가 있으면 누가 심은 것이라 멈춘다
 if [ "$(id -u)" = 0 ] && [ -n "$(find "$SRC" -type l -print -quit)" ]; then
-    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/models 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/shared/bin/b200 fetch models"; exit 1
+    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/models 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/shared/bin/gpu fetch models"; exit 1
 fi
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
-APP=${B200_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
+APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
 if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/shared" ] || [ -L "$APP/workspace" ]; }; then
     echo "멈춤: /app이 아직 잠기지 않았어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
 fi
@@ -75,22 +75,22 @@ mapfile -t dirs < <(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' MANIFEST.sha2
 for d in "${dirs[@]}"; do
     repo=${d/__//}
     dest="$D/$repo"
-    if [ -f "$dest/b200_model.json" ] && cmp -s "$d/b200_model.json" "$dest/b200_model.json" &&
+    if [ -f "$dest/gpu_model.json" ] && cmp -s "$d/gpu_model.json" "$dest/gpu_model.json" &&
        { [ ! -f "$d/code.zip" ] || [ -d "$dest/code" ]; }; then
         echo "  $repo: 이미 있어요"; continue
     fi
     echo "  $repo 옮기는 중이에요"
     mkdir -p "$dest"
-    # 체크섬 목록(MANIFEST.sha256)에 있는 파일과 b200_model.json 만 옮긴다.
+    # 체크섬 목록(MANIFEST.sha256)에 있는 파일과 gpu_model.json 만 옮긴다.
     # 올린 폴더는 공용 계정이 고칠 수 있어서, 목록에 없는 파일(예: 몰래 넣은 .py)은 root 소유 공용 폴더로 가져가지 않는다
-    extra=$(comm -23 <(find "$d" -type f ! -path "$d/.cache/*" ! -name '.b200_*' ! -path "$d/b200_model.json" | sort) \
+    extra=$(comm -23 <(find "$d" -type f ! -path "$d/.cache/*" ! -name '.gpu_*' ! -path "$d/gpu_model.json" | sort) \
                      <(sed -n "s|^[0-9a-f]\{64\}  \($d/.*\)|\1|p" MANIFEST.sha256 | sort))
     [ -z "$extra" ] || warn "$repo: 체크섬 목록에 없는 파일 $(echo "$extra" | grep -c .)개는 옮기지 않아요(예: $(echo "$extra" | head -1))"
     copied=1
     while IFS= read -r rel; do
         t="$dest/${rel#"$d"/}"
         mkdir -p "$(dirname "$t")" && cp "$rel" "$t" || { copied=; break; }
-    done < <(sed -n "s|^[0-9a-f]\{64\}  \($d/.*\)|\1|p" MANIFEST.sha256; echo "$d/b200_model.json")
+    done < <(sed -n "s|^[0-9a-f]\{64\}  \($d/.*\)|\1|p" MANIFEST.sha256; echo "$d/gpu_model.json")
     [ -n "$copied" ] || { bad "$repo: 옮기지 못했어요(남은 공간과 권한을 확인하세요)"; continue; }
     # GitHub 코드 묶음은 code/ 폴더로 푼다(맨 위 폴더 한 단계는 뺀다)
     if [ -f "$dest/code.zip" ]; then
@@ -126,7 +126,7 @@ for d in "${dirs[@]}"; do
     "$PY" -I - "$D/$repo" "$repo" <<'EOF' || FAILS=$((FAILS + 1))
 import glob, json, os, struct, sys
 d, repo = sys.argv[1], sys.argv[2]
-meta = json.load(open(os.path.join(d, "b200_model.json"), encoding="utf-8"))
+meta = json.load(open(os.path.join(d, "gpu_model.json"), encoding="utf-8"))
 st = glob.glob(os.path.join(d, "**", "*.safetensors"), recursive=True)
 other = [p for e in ("*.bin", "*.pth", "*.pt", "*.ckpt") for p in glob.glob(os.path.join(d, "**", e), recursive=True)
          if os.sep + "code" + os.sep not in p]

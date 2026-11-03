@@ -10,7 +10,7 @@ warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 ASK=(); MINE=()
 bad()  { echo "  ${c_r}[문제]${c_0} $1"; ASK+=("$2"); }    # 서버 관리 팀에 요청할 것
 mine() { echo "  ${c_r}[문제]${c_0} $1"; MINE+=("$2"); }   # 관리자가 직접 할 것
-ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
+ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 GLIBC_NEED=2.35   # 접근 PC pack_build.ps1 의 -Glibc 기본값과 같게 둔다
 APP=${APP:-/app}
@@ -36,9 +36,9 @@ os=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")
 glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
 echo "  $os, 커널 $(uname -r), glibc $glibc"
 case "$os" in Ubuntu*) ;; *) warn "Ubuntu가 아니에요($os). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)" ;; esac
-if [ -z "$ACC" ]; then mine "공용 계정 이름을 알 수 없어요" "서버에 한 번 적어 두기: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account"
+if [ -z "$ACC" ]; then mine "공용 계정 이름을 알 수 없어요" "서버에 한 번 적어 두기: mkdir -p /etc/gpu && echo <계정이름> > /etc/gpu/account"
 elif id "$ACC" >/dev/null 2>&1; then ok "공용 계정($ACC)이 있어요"; else
-    bad "공용 계정이 없어요: $ACC (이름을 잘못 적었으면 /etc/b200/account 를 고치세요)" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"; fi
+    bad "공용 계정이 없어요: $ACC (이름을 잘못 적었으면 /etc/gpu/account 를 고치세요)" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"; fi
 if ver_ge "$glibc" "$GLIBC_NEED"; then ok "glibc $glibc (묶음 기준 $GLIBC_NEED 이상)"
 else mine "glibc $glibc: 묶음 기준($GLIBC_NEED)보다 낮아요" "접근 PC에서 묶음을 다시 만들기: pack_build.ps1 -Glibc $glibc"; fi
 
@@ -63,12 +63,12 @@ if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
             warn "NVLink 브리지로 묶인 GPU가 없어요(GPU끼리 PCIe로만 주고받아요). 브리지를 끼웠는지 서버 관리 팀에 확인하세요"
         fi ;;
     *)
-        # HGX(SXM) 보드는 Fabric Manager 가 NVLink 를 초기화해야 CUDA 가 GPU를 쓸 수 있다(B200 이후는 nvlsm 도)
+        # HGX(SXM) 보드는 Fabric Manager 가 NVLink 를 초기화해야 CUDA 가 GPU를 쓸 수 있다(Blackwell 세대부터는 nvlsm 도)
         fab=$(nvidia-smi -q 2>/dev/null | awk '/^ *Fabric/{f=1} f && /State/{print $3; exit}')
         case "$fab" in
             Completed) ok "NVLink Fabric 초기화가 끝났어요" ;;
             ""|N/A)    warn "NVLink Fabric 상태를 읽지 못했어요(HGX 보드가 아니면 상관없어요)" ;;
-            *)         bad "NVLink Fabric 상태: $fab (Completed여야 GPU를 써요)" "드라이버와 같은 버전의 nvidia-fabricmanager(B200 이후 세대는 nvlsm 도)를 설치하고 서비스를 켜 주세요" ;;
+            *)         bad "NVLink Fabric 상태: $fab (Completed여야 GPU를 써요)" "드라이버와 같은 버전의 nvidia-fabricmanager(Blackwell 세대부터는 nvlsm 도)를 설치하고 서비스를 켜 주세요" ;;
         esac
         if command -v systemctl >/dev/null; then
             st=$(systemctl is-active nvidia-fabricmanager 2>/dev/null)
@@ -97,7 +97,7 @@ if [ -d "$APP" ]; then
     if [ -d "$APP/workspace" ] && [ ! -w "$APP/workspace" ]; then
         mine "$APP/workspace 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
     fi
-    if [ -e "$APP/shared" ] && [ "$(stat -c %U "$APP/shared/.b200_root" 2>/dev/null)" != root ]; then
+    if [ -e "$APP/shared" ] && [ "$(stat -c %U "$APP/shared/.gpu_root" 2>/dev/null)" != root ]; then
         warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 데이터셋·모델과 설정 파일만 남기고 기초 프로그램 등은 치워요(2단계에서 다시 설치)"
     fi
     [ -d "$APP/shared/datasets" ] && ok "예전 데이터셋이 남아 있어요: $APP/shared/datasets (다시 올리지 않아도 돼요)"
@@ -132,7 +132,7 @@ fi
 # 보고서 둘 곳: root 는 /app/inbox/reports(root 만 고치고 공용 계정 FileZilla로 내려받을 수 있음),
 # 그 밖에는 실행한 폴더(내 것일 때)나 홈. 남이 쓸 수 있는 폴더에는 쓰지 않는다(링크로 다른 파일을 덮게 만들 수 있다)
 report_dir() {
-    local ib=${B200_INBOX:-/app/inbox}   # 시험할 때만 바꾼다
+    local ib=${GPU_INBOX:-/app/inbox}   # 시험할 때만 바꾼다
     if [ "$(id -u)" = 0 ] && [ -d "$ib" ] && [ ! -L "$ib" ] && [ "$(stat -c %U "$ib")" = root ]; then
         mkdir -p "$ib/reports" && [ ! -L "$ib/reports" ] && chmod 755 "$ib/reports" && echo "$ib/reports" && return
     fi

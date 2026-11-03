@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 커밋 전에 사내 정보가 들어가지 않았는지 봐요. 저장소를 받은 뒤 한 번만 켜요: git config core.hooksPath .githooks
-# 가릴 낱말(서버 이름, 계정 이름, NAS 주소, 팀 이름 등)은 저장소에 올라가지 않는 .git/info/b200-blocklist.txt 에 한 줄에 하나씩 적어요.
+# 가릴 낱말(서버 이름, 계정 이름, NAS 주소, 팀 이름 등)은 저장소에 올라가지 않는 .git/info/gpu-blocklist.txt 에 한 줄에 하나씩 적어요.
 bad=0
 files=$(git diff --cached --name-only --diff-filter=ACM)
 if echo "$files" | grep -E '_report_'; then
@@ -29,8 +29,9 @@ if [ -n "$tok" ]; then
     echo "$tok" | cut -c1-40
     echo "[멈춤] 토큰이나 키처럼 보이는 값이 있어요(위는 앞부분만). .env 에만 적으세요."; bad=1
 fi
-list=$(git rev-parse --git-path info/b200-blocklist.txt)
+list=$(git rev-parse --git-path info/gpu-blocklist.txt)
 if [ -s "$list" ] && echo "$added" | grep -inF -f <(grep -v '^[[:space:]]*#' "$list" | grep .); then
     echo "[멈춤] 가릴 낱말($list)이 들어 있어요."; bad=1
 fi
+[ -s "$list" ] || echo "[주의] 가릴 낱말 목록이 없어서 서버·계정 이름은 확인하지 못했어요: $list (docs/4_네트워크.md 의 \"결과 가져오기\")"
 [ "$bad" = 0 ] || { echo "커밋을 멈췄어요. 위 줄을 고치거나 가린 뒤 다시 커밋하세요."; exit 1; }

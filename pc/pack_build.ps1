@@ -1,5 +1,5 @@
 ﻿<#
-[접근 PC] 기초 프로그램과 서버 설치 스크립트 묶음(pack\b200-pack.tar)을 만든다.
+[접근 PC] 기초 프로그램과 서버 설치 스크립트 묶음(pack\gpu-pack.tar)을 만든다.
 팀원은 패키지를 도커 이미지에 넣어 오므로 공용 휠은 만들지 않는다.
 점검 → 받기 → 묶기 → 검사까지 한 번에 한다. 끊기면 다시 실행하면 이어서 한다.
 
@@ -12,8 +12,8 @@ param(
     [int]$MaxTries = 20      # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 포기
 )
 $here = $PSScriptRoot
-$root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\b200). 결과 폴더와 micromamba.exe 는 여기
-. (Join-Path $here 'b200_common.ps1')
+$root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\gpu). 결과 폴더와 micromamba.exe 는 여기
+. (Join-Path $here 'gpu_common.ps1')
 $out   = Join-Path $root 'pack'
 $T = 4
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -36,7 +36,7 @@ foreach ($e in 'curl.exe', 'tar.exe') {
 if ($script:Fails) {
     Stop-Run '필요한 프로그램이 없어요' "micromamba를 설치하고 PowerShell 창을 새로 여세요. 또는 micromamba.exe를 $root 폴더에 넣으세요."
 }
-$scripts = @('pack_install.sh', 'move_shared.sh', 'check_server.sh', 'check_network.sh', 'check_nas.sh', 'admin_setup.sh', 'bin/b200', 'bin/docker', 'bin/nvidia-smi')   # 묶음에 같이 넣는 서버 파일
+$scripts = @('pack_install.sh', 'move_shared.sh', 'check_server.sh', 'check_network.sh', 'check_nas.sh', 'admin_setup.sh', 'bin/gpu', 'bin/docker', 'bin/nvidia-smi')   # 묶음에 같이 넣는 서버 파일
 foreach ($f in @('lists\tools.txt') + @($scripts | ForEach-Object { 'server\' + ($_ -replace '/', '\') })) {
     if (-not (Test-Path (Join-Path $root $f))) { Stop-Run "없는 파일: $f" 'git pull로 저장소를 최신으로 받으세요.' }
 }
@@ -144,12 +144,12 @@ Write-Lf (Join-Path $out 'MANIFEST.sha256') ($files | ForEach-Object {
     "$((Get-FileHash (Join-Path $out $_) -Algorithm SHA256).Hash.ToLower())  $_" })
 
 Write-Info 'tar로 묶는 중이에요'
-$tar = Join-Path $out 'b200-pack.tar'
+$tar = Join-Path $out 'gpu-pack.tar'
 Remove-Item -Force -ErrorAction SilentlyContinue $tar
 Push-Location $out
-& tar.exe -cf b200-pack.tar MANIFEST.sha256 micromamba explicit.txt pack_info.txt @scripts pkgs
+& tar.exe -cf gpu-pack.tar MANIFEST.sha256 micromamba explicit.txt pack_info.txt @scripts pkgs
 $code = $LASTEXITCODE
-$listed = @(& tar.exe -tf b200-pack.tar | Where-Object { $_ -notmatch '/$' }).Count
+$listed = @(& tar.exe -tf gpu-pack.tar | Where-Object { $_ -notmatch '/$' }).Count
 Pop-Location
 if ($code -ne 0) { Stop-Run 'tar로 묶지 못했어요' '남은 공간을 확인하고 다시 실행하세요.' }
 if ($listed -ne $files.Count + 1) { Stop-Run "묶음 안의 파일 수가 맞지 않아요(묶음 ${listed}개, 있어야 할 것 $($files.Count + 1)개)" '다시 실행하세요.' }
@@ -164,13 +164,13 @@ Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 파일(하나):' -ForegroundColor Green
 Write-Host "   $tar  ($size)"
 Write-Host ''
-Save-Fingerprint 'b200-pack.tar' (Get-Fingerprint @($tar))
+Save-Fingerprint 'gpu-pack.tar' (Get-Fingerprint @($tar))
 Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
-Write-Host '   cp /app/upload/b200-pack.tar /app/inbox/ && sha256sum /app/inbox/b200-pack.tar'
+Write-Host '   cp /app/upload/gpu-pack.tar /app/inbox/ && sha256sum /app/inbox/gpu-pack.tar'
 Write-Host ' 3) 같으면 풀어서 실행하세요. admin_setup.sh 는 처음 설치할 때 맨 먼저 실행해요(/app 잠금).' -ForegroundColor Green
-Write-Host '   cd /app/inbox && tar xf b200-pack.tar && bash admin_setup.sh'
+Write-Host '   cd /app/inbox && tar xf gpu-pack.tar && bash admin_setup.sh'
 Write-Host '   cd /app/inbox && bash pack_install.sh /app/shared'
 Write-Host ' 자세한 순서: docs\1_처음_설치.md 의 1·2단계'
 Write-Host '##############################################################' -ForegroundColor Green

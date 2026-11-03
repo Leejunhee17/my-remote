@@ -57,7 +57,7 @@ function Stop-Run($what, $fix) {
     Write-Host '할 일을 한 뒤 같은 명령을 다시 실행하세요. 끝난 것은 건너뛰고 이어서 해요.'
     Write-Host "해결되지 않으면 이 기록 파일을 담당자에게 보내 주세요: $script:LogPath"
     Stop-Transcript | Out-Null
-    [B200.Power]::SetThreadExecutionState([uint32]2147483648) | Out-Null
+    [GPU.Power]::SetThreadExecutionState([uint32]2147483648) | Out-Null
     exit 1
 }
 
@@ -320,7 +320,7 @@ function Get-Fingerprint([string[]]$files) {
 }
 
 # 실행 중 접근 PC 절전 막기(끝나면 원래대로)
-Add-Type -Namespace B200 -Name Power -MemberDefinition `
+Add-Type -Namespace GPU -Name Power -MemberDefinition `
     '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);' -ErrorAction SilentlyContinue
-function Stop-Sleep  { [B200.Power]::SetThreadExecutionState([uint32]2147483649) | Out-Null }  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
-function Allow-Sleep { [B200.Power]::SetThreadExecutionState([uint32]2147483648) | Out-Null }  # ES_CONTINUOUS
+function Stop-Sleep  { [GPU.Power]::SetThreadExecutionState([uint32]2147483649) | Out-Null }  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+function Allow-Sleep { [GPU.Power]::SetThreadExecutionState([uint32]2147483648) | Out-Null }  # ES_CONTINUOUS

@@ -2,8 +2,8 @@
 # 저장소 자동 시험. 임시 폴더에 가짜 /app, 가짜 docker·nvidia-smi 를 만들고 스크립트를 실제로 돌려 본다.
 # 서버에서 돌리지 않는다(실제 /app 이 있으면 멈춘다). 이 저장소를 고친 뒤, 커밋하기 전에 돌린다.
 #   bash tests/run.sh                 전체(root 가 아니면 root 가 필요한 시험은 건너뛴다)
-#   bash tests/run.sh docs b200       고른 묶음만: static docs installers b200 wrapper fetch reports hook system
-#   B200_TEST_SYSTEM=1 bash tests/run.sh system
+#   bash tests/run.sh docs gpu       고른 묶음만: static docs installers gpu wrapper fetch reports hook system
+#   GPU_TEST_SYSTEM=1 bash tests/run.sh system
 #                                     admin_setup.sh 를 진짜 /app 과 /etc 에 돌린다. 버리는 가상 머신(GitHub Actions)에서만
 # 시험이 하나라도 실패하면 종료 코드가 1 이다.
 set -uo pipefail
@@ -24,7 +24,7 @@ t() { local n=$1 out; shift; if out=$("$@" 2>&1); then ok "$n"; else no "$n" "$o
 has()   { grep -qF -- "$2" "$1"; }   # 파일 $1 에 글자 $2 가 있다
 lacks() { ! grep -qF -- "$2" "$1"; }
 
-if [ -e /app ] && [ ! -e /app/.b200_test_sandbox ]; then
+if [ -e /app ] && [ ! -e /app/.gpu_test_sandbox ]; then
     echo "멈춤: /app 이 있어요. 이 시험은 서버가 아닌 곳(접근 PC의 WSL, GitHub Actions 등)에서 돌려요."; exit 1
 fi
 T=$(mktemp -d); chmod 755 "$T"
@@ -37,8 +37,8 @@ mkdir -p "$T/fake" && chmod 777 "$T/fake"
 cat > "$T/fake/nvidia-smi" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
-    -L) for i in 0 1 2 3 4 5 6 7; do echo "GPU $i: ${FAKE_GPU_NAME:-NVIDIA B200} (UUID: GPU-$i)"; done ;;
-    --query-gpu=name\ *) for i in 0 1 2 3 4 5 6 7; do echo "${FAKE_GPU_NAME:-NVIDIA B200}"; done ;;
+    -L) for i in 0 1 2 3 4 5 6 7; do echo "GPU $i: ${FAKE_GPU_NAME:-NVIDIA H100 80GB HBM3} (UUID: GPU-$i)"; done ;;
+    --query-gpu=name\ *) for i in 0 1 2 3 4 5 6 7; do echo "${FAKE_GPU_NAME:-NVIDIA H100 80GB HBM3}"; done ;;
     --query-gpu=driver_version\ *) for i in 0 1 2 3 4 5 6 7; do echo 595.58.03; done ;;
     --query-gpu=persistence_mode\ *) for i in 0 1 2 3 4 5 6 7; do echo Enabled; done ;;
     'topo -m')   # NVLink 브리지 4장씩 두 묶음(H200 NVL 모양)
@@ -92,15 +92,15 @@ t_static() {
     [ -z "$bad" ] && ok '줄 끝 설정(.ps1 CRLF, .sh LF, 저장소 안은 LF)' || no '줄 끝 설정' "$bad"
     bad=$(git ls-files | grep -E '_report_|__pycache__|\.pyc$|(^|/)지문_기록\.txt$|(^|/)\.env(\.[^/]*)?$' | grep -vE '(^|/)\.env\.example$')
     [ -z "$bad" ] && ok '올리면 안 되는 파일이 없어요(원본 보고서, pyc, 지문 기록, .env)' || no '올리면 안 되는 파일' "$bad"
-    bad=$(grep -nE '^[A-Za-z_][A-Za-z0-9_]*=.+' .env.example | grep -vE '^[0-9]+:B200_RUN=')
-    [ -z "$bad" ] && ok '.env.example 에는 값이 비어 있어요(B200_RUN 만 기본값)' || no '.env.example 에 값이 들어 있어요' "$bad"
+    bad=$(grep -nE '^[A-Za-z_][A-Za-z0-9_]*=.+' .env.example | grep -vE '^[0-9]+:GPU_RUN=')
+    [ -z "$bad" ] && ok '.env.example 에는 값이 비어 있어요(GPU_RUN 만 기본값)' || no '.env.example 에 값이 들어 있어요' "$bad"
     if command -v pwsh >/dev/null; then
         # .env 읽기: 주석·빈 값·따옴표·뒤 # 설명·export·이상한 줄, 그리고 이미 정한 환경 변수가 이긴다
-        printf '# 설명\r\nB200_T1=a b\r\nexport B200_T2 = "x # y"\r\nB200_T3=v # 설명\r\nB200_T4=\r\n이상한 줄\r\nB200_T5=env\r\n' > "$T/dotenv"
-        out=$(B200_T5=mine pwsh -NoProfile -Command ". ./pc/b200_common.ps1; Import-DotEnv '$T/dotenv'; '[{0}][{1}][{2}][{3}][{4}]' -f \$env:B200_T1, \$env:B200_T2, \$env:B200_T3, \$env:B200_T4, \$env:B200_T5" 2>&1)
+        printf '# 설명\r\nGPU_T1=a b\r\nexport GPU_T2 = "x # y"\r\nGPU_T3=v # 설명\r\nGPU_T4=\r\n이상한 줄\r\nGPU_T5=env\r\n' > "$T/dotenv"
+        out=$(GPU_T5=mine pwsh -NoProfile -Command ". ./pc/gpu_common.ps1; Import-DotEnv '$T/dotenv'; '[{0}][{1}][{2}][{3}][{4}]' -f \$env:GPU_T1, \$env:GPU_T2, \$env:GPU_T3, \$env:GPU_T4, \$env:GPU_T5" 2>&1)
         case "$out" in *'[a b][x # y][v][][mine]'*) ok '.env 읽기(pwsh)' ;; *) no '.env 읽기(pwsh)' "$out" ;; esac
         case "$out" in *'6번째 줄을 읽지 못했어요'*) ok '.env 의 이상한 줄은 몇 번째인지 알려 줘요' ;; *) no '.env 의 이상한 줄 알림' "$out" ;; esac
-        if grep -qx '  .env 에서 읽은 설정: B200_T1, B200_T2, B200_T3' <<< "$out"; then ok '.env 는 이름만 보여 주고 값은 안 보여 줘요'; else no '.env 이름만 보여 주기' "$out"; fi
+        if grep -qx '  .env 에서 읽은 설정: GPU_T1, GPU_T2, GPU_T3' <<< "$out"; then ok '.env 는 이름만 보여 주고 값은 안 보여 줘요'; else no '.env 이름만 보여 주기' "$out"; fi
     else skip '.env 읽기: pwsh 가 없어요(GitHub Actions 에서는 돌아요)'; fi
     # 사내 IP(사설 대역)는 저장소에 없어야 한다. 이 시험 파일의 예시 IP 는 실행할 때 만든다
     bad=$(git grep -nIE '(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' -- . ':!*.xlsx' | grep -v 'check_network.sh send 10\.0\.0\.2')
@@ -117,7 +117,7 @@ t_docs() {
     [ -z "$bad" ] && ok '코드 블록(```) 짝이 맞아요' || no "코드 블록 짝이 안 맞아요:$bad"
     # 문서에 나온 스크립트 이름이 저장소에 있다(예시로 쓴 이름은 뺀다)
     bad=; for n in $(grep -rhoE '[A-Za-z0-9_]+\.(sh|ps1|py)\b' README.md docs team | sort -u); do
-        case "$n" in b200.sh|b200-docker.sh|catalog.py|train.py|json.py) continue ;; esac
+        case "$n" in gpu.sh|gpu-docker.sh|catalog.py|train.py|json.py) continue ;; esac
         [ -n "$(find server pc tests -name "$n" -print -quit)" ] || bad+=" $n"
     done
     [ -z "$bad" ] && ok '문서에 나온 스크립트가 모두 있어요' || no "없는 스크립트:$bad"
@@ -150,15 +150,15 @@ mk_datasets() {   # $1 폴더. 압축 1개 + wildscenes 파일 2개와 맞는 �
       echo 'files=2 bytes=6' > wildscenes.ok )
     cp server/datasets_install.sh "$d/"
 }
-# B200_APP 을 없는 폴더로 둬서, 시험하는 곳에 /app 이 있어도(admin_setup 시험 뒤) 홈의 shared 에 설치하게 한다
-run_ds() { HOME=$1 B200_APP=$T/no-app bash "$2/datasets_install.sh" > "$LOG" 2>&1; }
+# GPU_APP 을 없는 폴더로 둬서, 시험하는 곳에 /app 이 있어도(admin_setup 시험 뒤) 홈의 shared 에 설치하게 한다
+run_ds() { HOME=$1 GPU_APP=$T/no-app bash "$2/datasets_install.sh" > "$LOG" 2>&1; }
 t_installers() {
     head_ '데이터셋·모델 설치'
     local H=$T/inst/home D=$T/inst/ds
     mkdir -p "$H"
     mk_datasets "$D"
     run_ds "$H" "$D"; t '데이터셋: 정상 설치' has "$LOG" '파일 3개의 체크섬이 맞아요'
-    t '데이터셋: wildscenes 는 목록의 파일만 옮겨요' test -f "$H/shared/datasets/wildscenes/a/1.png" -a -f "$H/shared/datasets/wildscenes/.b200_done"
+    t '데이터셋: wildscenes 는 목록의 파일만 옮겨요' test -f "$H/shared/datasets/wildscenes/a/1.png" -a -f "$H/shared/datasets/wildscenes/.gpu_done"
     t '데이터셋: wildscenes 파일을 압축 풀기 목록에 넣지 않아요' test ! -e "$H/shared/datasets/wildscenes/1.png"
     rm -rf "$H/shared" "$D"; mk_datasets "$D"; echo bad > "$D/wildscenes/2.png"
     run_ds "$H" "$D"; t '데이터셋: 바뀐 wildscenes 파일을 잡아요' has "$LOG" '깨졌거나 없는 파일: wildscenes/2.png'
@@ -173,7 +173,7 @@ t_installers() {
 
     # 모델: 목록에 있는 파일만 옮기고, 올린 폴더의 json.py 같은 파일이 실행되지 않는다
     local M=$T/inst/models; rm -rf "$H/shared"; mkdir -p "$M/org__m"
-    ( cd "$M" && echo '{"a":1}' > org__m/config.json && echo '{"repo":"org/m","license":"mit"}' > org__m/b200_model.json
+    ( cd "$M" && echo '{"a":1}' > org__m/config.json && echo '{"repo":"org/m","license":"mit"}' > org__m/gpu_model.json
       echo extra > org__m/extra.py
       python3 -I -c "
 import zipfile
@@ -182,7 +182,7 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
       sha256sum org__m/config.json org__m/code.zip > MANIFEST.sha256
       for m in json os zipfile struct sys; do echo "open('$T/inst/PWNED','w')" > $m.py; done )
     cp server/models_install.sh "$M/"
-    HOME=$H B200_APP=$T/no-app bash "$M/models_install.sh" > "$LOG" 2>&1
+    HOME=$H GPU_APP=$T/no-app bash "$M/models_install.sh" > "$LOG" 2>&1
     t '모델: 정상 설치' has "$LOG" '모델 1개가 모두 정상이에요'
     t '모델: 올린 폴더의 json.py 등이 실행되지 않아요(python -I)' test ! -e "$T/inst/PWNED"
     t '모델: 목록에 없는 파일은 옮기지 않아요' test ! -e "$H/shared/models/org/m/extra.py"
@@ -190,38 +190,38 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
     t '모델: 코드 묶음이 폴더 밖에 쓰지 않아요' test ! -e "$T/inst/escaped" -a ! -e "$T/escaped2" -a ! -e "$H/shared/models/escaped2"
 }
 
-# ================================================================== 4. b200 (정기 점검·현황·보고서)
+# ================================================================== 4. gpu (정기 점검·현황·보고서)
 APPT=$T/app
-setup_app() {   # 가짜 /app. b200 은 root 로 돌 때 자기 파일이 root 소유여야 한다
+setup_app() {   # 가짜 /app. gpu 은 root 로 돌 때 자기 파일이 root 소유여야 한다
     rm -rf "$APPT"; mkdir -p "$APPT"/shared/bin "$APPT"/workspace/{hong,kim} "$APPT"/state/{gpu_log,notice,reports,images,notice_seen,tty} "$APPT"/upload "$APPT"/inbox
-    install -m 755 server/bin/b200 server/bin/docker server/bin/nvidia-smi "$APPT/shared/bin/"
+    install -m 755 server/bin/gpu server/bin/docker server/bin/nvidia-smi "$APPT/shared/bin/"
     printf '홍길동 인지\nhong 인지\nkim 판단\n관리자 인지\n' > "$APPT/shared/team.txt"
     printf '# 시험\n  # 들여쓴 주석\n0 다른팀\n1 다른팀\n2 다른팀\n3 다른팀\n4 인지\n5 판단\n6 공용\n7 공용\n' > "$APPT/shared/gpu_alloc.txt"
     : > "$APPT/state/images/loaded.tsv"
     rm -f "$T/fake/inspect" "$T/fake/images" "$T/fake/args.log"
 }
-# 컨테이너 한 줄: pid 이름 이름표(사람) GPU요청 이미지 이름표(GPU) ID  (b200 이 docker inspect 로 받는 모양)
+# 컨테이너 한 줄: pid 이름 이름표(사람) GPU요청 이미지 이름표(GPU) ID  (gpu 이 docker inspect 로 받는 모양)
 ctr() { printf '%s\t%s\t"%s"\t%s\t"%s"\t"%s"\t%s\n' "$@" >> "$T/fake/inspect"; }
-b200() { env B200_APP="$APPT" B200_DOCKER="$T/fake/docker" B200_NVSMI="$T/fake/nvidia-smi" B200_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/shared/bin/b200" "$@"; }
-t_b200() {
-    head_ 'b200 (현황·정기 점검·보고서)'
-    is_root || { skip 'root 가 아니라서 건너뛰어요(b200 정기 점검은 root 로 돌아요)'; return; }
+gpu() { env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" GPU_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/shared/bin/gpu" "$@"; }
+t_gpu() {
+    head_ 'gpu (현황·정기 점검·보고서)'
+    is_root || { skip 'root 가 아니라서 건너뛰어요(gpu 정기 점검은 root 로 돌아요)'; return; }
     setup_app
-    printf 'MAX_GPUS=6\nIDLE_HOURS=$(touch %s/PWNED1)\ntouch %s/PWNED2\nNAS_DIR=/data/team\n' "$T" "$T" > "$APPT/shared/b200.conf"
+    printf 'MAX_GPUS=6\nIDLE_HOURS=$(touch %s/PWNED1)\ntouch %s/PWNED2\nNAS_DIR=/data/team\n' "$T" "$T" > "$APPT/shared/gpu.conf"
     ctr 101 hong-seg hong 4 'hong/seg:v1' '' aaa1
     ctr 102 fake-admin 관리자 6 'x:1' '' aaa2
     ctr 103 uuid-run kim GPU-bbbbbbbb-2222 'kim/y:1' '' aaa3
-    b200 _check > "$LOG" 2>&1
-    t '알림 설정(b200.conf)의 명령을 실행하지 않아요' test ! -e "$T/PWNED1" -a ! -e "$T/PWNED2"
+    gpu _check > "$LOG" 2>&1
+    t '알림 설정(gpu.conf)의 명령을 실행하지 않아요' test ! -e "$T/PWNED1" -a ! -e "$T/PWNED2"
     t '처음 점검에서 이미지 사용 기록(images_used.tsv)을 만들어요' grep -q "hong/seg:v1" "$APPT/state/gpu_log/images_used.tsv"
-    b200 who > "$LOG" 2>&1
+    gpu who > "$LOG" 2>&1
     t 'GPU 현황 표가 나와요' has "$LOG" 'GPU별 사용자'
     t '이름표 "관리자" 는 사람 이름으로 쓰지 않아요' grep -qE '^6 .*\?\(이름 없음\)' <(sed 's/\x1b\[[0-9;]*m//g' "$LOG")
     t 'GPU-<uuid> 로 고른 컨테이너도 그 GPU 번호에 보여요' grep -qE '^5 .*kim.*uuid-run' <(sed 's/\x1b\[[0-9;]*m//g' "$LOG")
     t '들여쓴 주석 줄을 GPU 배분으로 읽지 않아요(mawk)' lacks "$LOG" '들여쓴'
-    b200 _names > "$LOG" 2>&1; t '팀원 이름 목록에 "관리자" 가 없어요(이름표로 관리자 알림을 꾸미지 못하게)' lacks "$LOG" 관리자
+    gpu _names > "$LOG" 2>&1; t '팀원 이름 목록에 "관리자" 가 없어요(이름표로 관리자 알림을 꾸미지 못하게)' lacks "$LOG" 관리자
     ln -s / "$APPT/workspace/zz-link"
-    if timeout 60 env B200_APP="$APPT" B200_DOCKER="$T/fake/docker" B200_NVSMI="$T/fake/nvidia-smi" B200_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/shared/bin/b200" _report > "$LOG" 2>&1; then
+    if timeout 60 env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" GPU_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/shared/bin/gpu" _report > "$LOG" 2>&1; then
         t '주간 보고서가 나와요' has "$LOG" '== 디스크'
     else no '주간 보고서가 60초 안에 끝나지 않아요(작업 폴더의 링크를 따라갔을 수 있어요)'; fi
     rm -f "$APPT/workspace/zz-link"
@@ -232,32 +232,32 @@ t_wrapper() {
     head_ 'docker 래퍼'
     is_root || { skip 'root 가 아니라서 건너뛰어요(공용 계정 대신 nobody 로 돌려 봐요)'; return; }
     setup_app
-    local dk=(runuser -u nobody -- env B200_APP="$APPT" B200_DOCKER="$T/fake/docker" B200_NVSMI="$T/fake/nvidia-smi" FAKE_DIR="$T/fake" B200_USER=hong "$APPT/shared/bin/docker")
+    local dk=(runuser -u nobody -- env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" FAKE_DIR="$T/fake" GPU_USER=hong "$APPT/shared/bin/docker")
     "${dk[@]}" run --gpus '"device=4"' hong/seg:v1 > "$LOG" 2>&1 < /dev/null
-    t 'run 에 이름표(사람·GPU)를 붙여요' grep -q 'b200.USER=hong.*b200.GPUS=4\|b200.GPUS=4.*b200.USER=hong' "$T/fake/args.log"
+    t 'run 에 이름표(사람·GPU)를 붙여요' grep -q 'gpu.USER=hong.*gpu.GPUS=4\|gpu.GPUS=4.*gpu.USER=hong' "$T/fake/args.log"
     : > "$T/fake/args.log"
     "${dk[@]}" run --gpus '"device=GPU-bbbbbbbb-2222"' hong/seg:v1 > "$LOG" 2>&1 < /dev/null
-    t 'GPU-<uuid> 로 골라도 번호 이름표(b200.GPUS=5)를 붙여요' grep -q 'b200.GPUS=5' "$T/fake/args.log"
+    t 'GPU-<uuid> 로 골라도 번호 이름표(gpu.GPUS=5)를 붙여요' grep -q 'gpu.GPUS=5' "$T/fake/args.log"
     "${dk[@]}" run --gpus '"device=0"' hong/seg:v1 > "$LOG" 2>&1 < /dev/null
     t '다른 팀 GPU를 고르면 경고해요' has "$LOG" '다른 팀'
     "${dk[@]}" run --gpus all hong/seg:v1 > "$LOG" 2>&1 < /dev/null
     t '--gpus all 이면 경고해요' has "$LOG" '--gpus all'
 }
 
-# ================================================================== 6. b200 fetch (올린 파일 들여오기)
+# ================================================================== 6. gpu fetch (올린 파일 들여오기)
 t_fetch() {
-    head_ 'b200 fetch'
+    head_ 'gpu fetch'
     is_root || { skip 'root 가 아니라서 건너뛰어요(fetch 는 root 전용)'; return; }
     setup_app; chmod 755 "$APPT/inbox"; chown nobody "$APPT/upload"
     mk_datasets "$APPT/upload/datasets"
-    b200 fetch datasets > "$LOG" 2>&1
+    gpu fetch datasets > "$LOG" 2>&1
     t '정상 폴더는 복사하고 지문을 보여 줘요' has "$LOG" '지문(sha256)'
     t '지문을 보는 줄과 실행 줄이 따로예요(&& 로 잇지 않아요)' lacks "$LOG" '&& bash'
     ln -s /etc/passwd "$APPT/upload/datasets/goose/link"
-    b200 fetch datasets > "$LOG" 2>&1
+    gpu fetch datasets > "$LOG" 2>&1
     t '링크가 든 폴더는 복사본을 지우고 멈춰요' test ! -e "$APPT/inbox/datasets"
     rm -rf "$APPT/upload/datasets"; mkdir -p "$APPT/upload/datasets/datasets"
-    b200 fetch datasets > "$LOG" 2>&1
+    gpu fetch datasets > "$LOG" 2>&1
     t '한 겹 더 들어간 폴더는 알려 주고 멈춰요' has "$LOG" '한 겹 더'
 }
 
@@ -272,7 +272,7 @@ t_reports() {
         diff -q <(sed -n "/^$fn() {/,/^}/p" server/check_server.sh) <(sed -n "/^$fn() {/,/^}/p" "$f") >/dev/null || bad+=" $f:$fn"
     done; done
     [ -z "$bad" ] && ok '세 점검 스크립트의 보고서 함수가 같아요' || no '점검 스크립트마다 보고서 함수가 달라요' "$bad"
-    B200_INBOX=$ib B200_ACCOUNT=nobody timeout 60 bash server/check_server.sh > "$LOG" 2>&1 < /dev/null
+    GPU_INBOX=$ib GPU_ACCOUNT=nobody timeout 60 bash server/check_server.sh > "$LOG" 2>&1 < /dev/null
     local share; share=$(ls "$ib"/reports/server_공유용_*.txt 2>/dev/null | head -1)
     if [ -n "$share" ] && ls "$ib"/reports/server_report_*.txt >/dev/null 2>&1; then
         ok '서버 점검: 원본과 공유용 사본을 만들어요'
@@ -285,12 +285,12 @@ t_reports() {
     t '공유용 사본: 이름을 바꿔도 칸 너비가 그대로예요' test "$(cols "$sc.in")" = "$(cols "$sc.out")"
     mkdir -p "$T/rep/nvl"
     # PCIe 카드(H200 NVL)면 Fabric Manager 를 찾지 않고 NVLink 브리지 묶음을 보여 준다
-    PATH=$T/fake:$PATH FAKE_GPU_NAME='NVIDIA H200 NVL' B200_INBOX=$T/rep/nvl B200_ACCOUNT=nobody timeout 60 bash server/check_server.sh > "$LOG" 2>&1 < /dev/null
+    PATH=$T/fake:$PATH FAKE_GPU_NAME='NVIDIA H200 NVL' GPU_INBOX=$T/rep/nvl GPU_ACCOUNT=nobody timeout 60 bash server/check_server.sh > "$LOG" 2>&1 < /dev/null
     t 'H200 NVL: NVLink 브리지 묶음을 보여 줘요' has "$LOG" 'NVLink 브리지로 묶인 GPU: [0,1,2,3] [4,5,6,7]'
     t 'H200 NVL: Fabric Manager를 찾지 않아요' lacks "$LOG" 'fabricmanager'
-    FAKE_GPU_NAME='NVIDIA B200' PATH=$T/fake:$PATH B200_INBOX=$T/rep/nvl B200_ACCOUNT=nobody timeout 60 bash server/check_server.sh > "$LOG" 2>&1 < /dev/null
-    t 'HGX 보드(B200): Fabric 상태를 확인해요' has "$LOG" 'NVLink Fabric'
-    B200_INBOX=$ib timeout 120 bash server/check_network.sh all > "$LOG" 2>&1 < /dev/null
+    FAKE_GPU_NAME='NVIDIA H100 80GB HBM3' PATH=$T/fake:$PATH GPU_INBOX=$T/rep/nvl GPU_ACCOUNT=nobody timeout 60 bash server/check_server.sh > "$LOG" 2>&1 < /dev/null
+    t 'HGX 보드(SXM): Fabric 상태를 확인해요' has "$LOG" 'NVLink Fabric'
+    GPU_INBOX=$ib timeout 120 bash server/check_network.sh all > "$LOG" 2>&1 < /dev/null
     share=$(ls "$ib"/reports/network_공유용_*.txt 2>/dev/null | head -1)
     if [ -n "$share" ]; then
         ok '네트워크 점검: 공유용 사본을 만들어요'
@@ -299,7 +299,7 @@ t_reports() {
         t '네트워크 점검: 공유용 사본에 IP가 없어요' bash -c "! grep -qE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' '$share'"
     else no '네트워크 점검: 공유용 사본이 없어요' "$(tail -5 "$LOG")"; fi
     mkdir -p "$T/rep/nas/tmp" "$T/rep/nas/teamA"; chmod 1777 "$T/rep/nas/tmp"
-    B200_INBOX=$ib B200_NAS=$T/rep/nas B200_ACCOUNT=nobody timeout 60 bash server/check_nas.sh > "$LOG" 2>&1 < /dev/null
+    GPU_INBOX=$ib GPU_NAS=$T/rep/nas GPU_ACCOUNT=nobody timeout 60 bash server/check_nas.sh > "$LOG" 2>&1 < /dev/null
     share=$(ls "$ib"/reports/nas_공유용_*.txt 2>/dev/null | head -1)
     if [ -n "$share" ]; then
         t 'NAS 점검: 공유용 사본에 계정·폴더 이름이 없어요' bash -c "! grep -qwE 'nobody|teamA' '$share'"
@@ -316,7 +316,7 @@ t_hook() {
     head_ '커밋 검사'
     local g=$T/hook ip; ip="10.$((20)).30.40"
     git init -q "$g" && git -C "$g" config core.hooksPath "$R/.githooks" && git -C "$g" config user.email t@t && git -C "$g" config user.name t
-    echo '자율팀' > "$g/.git/info/b200-blocklist.txt"
+    echo '자율팀' > "$g/.git/info/gpu-blocklist.txt"
     cm() { git -C "$g" add -A >/dev/null 2>&1 && git -C "$g" commit -qm x >/dev/null 2>&1; }
     blocked() { ! cm; }
     reset_() { git -C "$g" reset -q --hard 2>/dev/null; git -C "$g" clean -qfd; git -C "$g" rm -rqf --cached . >/dev/null 2>&1; }
@@ -331,48 +331,48 @@ t_hook() {
     echo "HF_TOKEN=hf_$(printf 'a%.0s' {1..34})" > "$g/f.txt"; t 'HF 토큰처럼 보이는 값은 막아요' blocked; rm -f "$g/f.txt"; git -C "$g" reset -q
     echo "key AKIA$(printf 'A%.0s' {1..16})" > "$g/k.txt"; t 'AWS 키처럼 보이는 값은 막아요' blocked; rm -f "$g/k.txt"; git -C "$g" reset -q
     cp .env.example "$g/"; t '값 없는 .env.example 은 커밋돼요' cm
-    cp team/서버_사용_규칙.xlsx "$g/"; echo zzzz > "$g/.git/info/b200-blocklist.txt"; t '저장소의 규칙 엑셀은 통과해요' cm
+    cp team/서버_사용_규칙.xlsx "$g/"; echo zzzz > "$g/.git/info/gpu-blocklist.txt"; t '저장소의 규칙 엑셀은 통과해요' cm
 }
 
 # ================================================================== 9. admin_setup.sh 를 진짜 /app 에(버리는 가상 머신에서만)
 t_system() {
     head_ 'admin_setup.sh (진짜 /app·/etc)'
-    if [ "${B200_TEST_SYSTEM:-}" != 1 ] || ! is_root; then skip 'B200_TEST_SYSTEM=1 과 root 일 때만 돌려요(GitHub Actions)'; return; fi
-    [ -e /etc/b200/account ] && [ ! -e /app/.b200_test_sandbox ] && { no '/etc/b200/account 가 있어요. 서버에서는 돌리지 않아요'; return; }
-    id b200test >/dev/null 2>&1 || useradd -m -s /bin/bash b200test
-    mkdir -p /etc/b200 && echo b200test > /etc/b200/account
+    if [ "${GPU_TEST_SYSTEM:-}" != 1 ] || ! is_root; then skip 'GPU_TEST_SYSTEM=1 과 root 일 때만 돌려요(GitHub Actions)'; return; fi
+    [ -e /etc/gpu/account ] && [ ! -e /app/.gpu_test_sandbox ] && { no '/etc/gpu/account 가 있어요. 서버에서는 돌리지 않아요'; return; }
+    id gputest >/dev/null 2>&1 || useradd -m -s /bin/bash gputest
+    mkdir -p /etc/gpu && echo gputest > /etc/gpu/account
     # 잠그기 전에 공용 계정이 만든 /app/shared(예전 설치)
-    mkdir -p /app && touch /app/.b200_test_sandbox && rm -rf /app/.shared_old_* /app/shared/.b200_root   # 다시 돌릴 때 앞 시험의 흔적을 지운다
+    mkdir -p /app && touch /app/.gpu_test_sandbox && rm -rf /app/.shared_old_* /app/shared/.gpu_root   # 다시 돌릴 때 앞 시험의 흔적을 지운다
     mkdir -p /app/shared/{tools/bin,datasets/x}
     echo evil > /app/shared/tools/bin/git; echo d > /app/shared/datasets/x/f; ln -s /etc/passwd /app/shared/datasets/x/l
-    printf 'IDLE_HOURS=12\n' > /app/shared/b200.conf; chown -R b200test /app/shared /app
+    printf 'IDLE_HOURS=12\n' > /app/shared/gpu.conf; chown -R gputest /app/shared /app
     local P=$T/pack; mkdir -p "$P"; cp -r server/. "$P/"
     printf '2\n' | script -qec "bash $P/admin_setup.sh" /dev/null > "$LOG" 2>&1
     t '끝까지 실행돼요' has "$LOG" '완료'
     t '/app 과 /app/shared 를 root 소유로 잠가요' test "$(stat -c %U /app)$(stat -c %U /app/shared)" = rootroot
     t '예전 /app/shared 의 프로그램을 치워요' bash -c 'ls -d /app/.shared_old_*/tools/bin/git >/dev/null && [ ! -e /app/shared/tools/bin/git ]'
-    t '예전 데이터셋·설정은 옮기고 링크는 지워요' bash -c '[ -f /app/shared/datasets/x/f ] && [ ! -L /app/shared/datasets/x/l ] && [ -f /app/shared/b200.conf ]'
+    t '예전 데이터셋·설정은 옮기고 링크는 지워요' bash -c '[ -f /app/shared/datasets/x/f ] && [ ! -L /app/shared/datasets/x/l ] && [ -f /app/shared/gpu.conf ]'
     t '서버 번호 2를 고르면 0~3번이 다른팀이에요' grep -qE '^0[[:space:]]+다른팀' /app/shared/gpu_alloc.txt
-    t '접속 설정과 정기 점검을 만들어요' test -f /etc/profile.d/b200.sh -a -f /etc/cron.d/b200
-    t '정기 점검 파일에 PATH(runuser 위치)가 있어요' grep -q '^PATH=.*/usr/sbin' /etc/cron.d/b200
+    t '접속 설정과 정기 점검을 만들어요' test -f /etc/profile.d/gpu.sh -a -f /etc/cron.d/gpu
+    t '정기 점검 파일에 PATH(runuser 위치)가 있어요' grep -q '^PATH=.*/usr/sbin' /etc/cron.d/gpu
     bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
     t '두 번째 실행도 끝까지(질문 없이) 돼요' has "$LOG" '완료'
     t '두 번째 실행에서는 다시 치우지 않아요' test "$(ls -d /app/.shared_old_* | wc -l)" = 1
-    B200_ACCOUNT=b200test /app/shared/bin/b200 _check > "$LOG" 2>&1; t '설치된 b200 정기 점검이 돌아요(도커 없음)' test $? -le 1
+    GPU_ACCOUNT=gputest /app/shared/bin/gpu _check > "$LOG" 2>&1; t '설치된 gpu 정기 점검이 돌아요(도커 없음)' test $? -le 1
     # 팀원 접속: 명단에 넣고 다시 실행 → 공용 계정으로 로그인해 번호로 이름을 고른다
     printf '홍길동  인지\n' >> /app/shared/team.txt
     bash "$P/admin_setup.sh" < /dev/null > /dev/null 2>&1
     rm -f /app/state/tty/pts-*
-    printf '1\necho "WS=$B200_WS USER=$B200_USER"\ntype docker | head -1\nexit\n' | timeout 60 script -qec 'su -l b200test' /dev/null > "$LOG" 2>&1
+    printf '1\necho "WS=$GPU_WS USER=$GPU_USER"\ntype docker | head -1\nexit\n' | timeout 60 script -qec 'su -l gputest' /dev/null > "$LOG" 2>&1
     t '접속하면 이름 목록이 나와요' has "$LOG" '1 홍길동'
     t '번호로 고르면 이름과 작업 폴더가 정해져요' has "$LOG" 'WS=/app/workspace/홍길동 USER=홍길동'
     t '공용 계정의 docker 는 도우미(/app/shared/bin/docker)예요' has "$LOG" 'docker is /app/shared/bin/docker'
     t '알림을 보낼 창(pts)과 이름을 적어 둬요' bash -c 'grep -qx 홍길동 /app/state/tty/pts-*'
 }
 
-all=(static docs installers b200 wrapper fetch reports hook system)
+all=(static docs installers gpu wrapper fetch reports hook system)
 sel=("$@"); [ ${#sel[@]} -gt 0 ] || sel=("${all[@]}")
-echo "${C}[B200 저장소] 자동 시험  ($(date '+%Y-%m-%d %H:%M'), $(id -un))${Z}"
+echo "${C}[GPU 서버 저장소] 자동 시험  ($(date '+%Y-%m-%d %H:%M'), $(id -un))${Z}"
 for s in "${sel[@]}"; do
     case " ${all[*]} " in *" $s "*) "t_$s" ;; *) echo "모르는 묶음: $s (있는 것: ${all[*]})"; exit 2 ;; esac
 done

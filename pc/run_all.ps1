@@ -3,7 +3,7 @@
 하나가 멈춰도 나머지는 이어서 하고, 끝에 결과를 한눈에 보여 준다. 끝난 것은 건너뛰므로 몇 번이고 다시 실행해도 된다.
 서버에 올리기·설치는 하지 않는다. 각 작업이 끝날 때 보여 주는 안내(지문 포함)를 따라 한다.
 
-  powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1                     # .env 의 B200_RUN(없으면 네 가지 모두)
+  powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1                     # .env 의 GPU_RUN(없으면 네 가지 모두)
   powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1 -Run models,datasets   # 이번에만 고른 것
 #>
 param(
@@ -11,21 +11,21 @@ param(
 )
 $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent
-. (Join-Path $here 'b200_common.ps1')
+. (Join-Path $here 'gpu_common.ps1')
 
 $Jobs = [ordered]@{
-    pack     = @{ File = 'pack_build.ps1';        Title = '기초 프로그램 묶음(pack\b200-pack.tar)' }
-    docker   = @{ File = 'docker_pack.ps1';       Title = 'rootless Docker 묶음(pack_docker\b200-docker.tar)' }
+    pack     = @{ File = 'pack_build.ps1';        Title = '기초 프로그램 묶음(pack\gpu-pack.tar)' }
+    docker   = @{ File = 'docker_pack.ps1';       Title = 'rootless Docker 묶음(pack_docker\gpu-docker.tar)' }
     datasets = @{ File = 'datasets_download.ps1'; Title = '데이터셋(datasets\)' }
     models   = @{ File = 'models_download.ps1';   Title = '사전학습 모델(models\)' }
 }
-if (-not $Run.Count -and $env:B200_RUN) { $Run = @($env:B200_RUN) }
+if (-not $Run.Count -and $env:GPU_RUN) { $Run = @($env:GPU_RUN) }
 $Run = @($Run | ForEach-Object { $_ -split '[,\s]+' } | Where-Object { $_ } | ForEach-Object { $_.ToLower() } | Select-Object -Unique)
 if (-not $Run.Count) { $Run = @($Jobs.Keys) }
 $unknown = @($Run | Where-Object { -not $Jobs.Contains($_) })
 if ($unknown.Count) {
     Write-Host "  [문제] 모르는 작업이에요: $($unknown -join ', '). 쓸 수 있는 것: $(@($Jobs.Keys) -join ', ')" -ForegroundColor Red
-    Write-Host '  .env 의 B200_RUN 이나 -Run 뒤의 이름을 고쳐 다시 실행하세요.'
+    Write-Host '  .env 의 GPU_RUN 이나 -Run 뒤의 이름을 고쳐 다시 실행하세요.'
     exit 1
 }
 

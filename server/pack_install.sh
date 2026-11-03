@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [GPU 서버] b200-pack.tar 의 기초 프로그램(tmux, nvtop, rsync 등)을 공용 폴더에 설치한다.
+# [GPU 서버] gpu-pack.tar 의 기초 프로그램(tmux, nvtop, rsync 등)을 공용 폴더에 설치한다.
 # 팀원은 Python 패키지를 도커 이미지에 넣어 오므로 공용 휠·공용 Python 환경은 만들지 않는다.
 # 점검 → 설치 → 검사까지 한 번에 한다. 실패하면 고친 뒤 다시 실행하면 된다.
 #   bash pack_install.sh /app/shared   관리자(root). admin_setup.sh 다음에 실행한다(지금 방식)
@@ -76,7 +76,7 @@ echo "  운영체제: $(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")"
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
 for f in MANIFEST.sha256 micromamba explicit.txt pack_info.txt pkgs; do
-    [ -e "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf b200-pack.tar  (풀었는데도 없으면 접근 PC의 b200-pack.tar 를 다시 올려 복사하세요)"
+    [ -e "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf gpu-pack.tar  (풀었는데도 없으면 접근 PC의 gpu-pack.tar 를 다시 올려 복사하세요)"
 done
 echo "  묶음 정보: $(info made)에 만든 묶음, glibc $(info glibc) 기준, 기초 프로그램 패키지 $(info tools)개"
 
@@ -90,7 +90,7 @@ bad_files=$(grep -vE '  ((pack_install|move_shared|check_server|check_network|ch
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | head -20 | sed 's/^/    깨진 파일: /'
     stop "올리는 중에 파일이 깨졌어요($(echo "$bad_files" | wc -l)개)" \
-         "접근 PC의 pack\\b200-pack.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요."
+         "접근 PC의 pack\\gpu-pack.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요."
 fi
 ok "파일 $(grep -cvE '  ((pack_install|move_shared|check_server|check_network|check_nas|admin_setup)\.sh|bin/.*)$' MANIFEST.sha256)개 체크섬이 맞아요"
 
@@ -106,9 +106,9 @@ need=$(( $(du -sm pkgs | awk '{s+=$1} END {print s}') * 3 / 1024 + 2 ))
 # ~/shared 가 큰 디스크를 가리키는 링크여도 그 디스크를 잰다
 free=$(( $(df -Pm "$S/." | awk 'NR==2 {print $4}') / 1024 ))
 if [ "$free" -lt "$need" ]; then
-    [ -f b200-pack.tar ] && warn "다 푼 b200-pack.tar 를 지우면 $(( $(du -sm b200-pack.tar | cut -f1) / 1024 )) GB를 비울 수 있어요: rm $HERE/b200-pack.tar"
+    [ -f gpu-pack.tar ] && warn "다 푼 gpu-pack.tar 를 지우면 $(( $(du -sm gpu-pack.tar | cut -f1) / 1024 )) GB를 비울 수 있어요: rm $HERE/gpu-pack.tar"
     stop "$S 가 있는 디스크의 남은 공간이 ${free} GB예요(${need} GB 필요)" \
-         "다 푼 b200-pack.tar 나 /app/upload 의 원본을 지워 공간을 비우세요. 홈(10 GB)에 설치하려던 거면 /app 경로를 붙이세요: bash pack_install.sh /app/shared"
+         "다 푼 gpu-pack.tar 나 /app/upload 의 원본을 지워 공간을 비우세요. 홈(10 GB)에 설치하려던 거면 /app 경로를 붙이세요: bash pack_install.sh /app/shared"
 fi
 ok "$S 남은 공간 ${free} GB (필요한 공간 약 ${need} GB)"
 
@@ -118,21 +118,21 @@ mkdir -p "$S/mamba/pkgs"
 cp pack_info.txt "$S/" && cp -n pkgs/* "$S/mamba/pkgs/" || stop "패키지 파일을 복사하지 못했어요" "남은 공간(df -h $S)과 쓰기 권한을 확인하세요."
 chmod +x micromamba
 export MAMBA_ROOT_PREFIX="$S/mamba"
-if [ -f "$S/tools/.b200_ok" ] && cmp -s explicit.txt "$S/tools/.b200_ok"; then
+if [ -f "$S/tools/.gpu_ok" ] && cmp -s explicit.txt "$S/tools/.gpu_ok"; then
     ok "이미 같은 버전이 설치돼 있어서 건너뛰어요"
-elif [ -f "$S/tools/.b200_ok" ] && [ "${B200_REBUILD_TOOLS:-0}" != 1 ]; then
+elif [ -f "$S/tools/.gpu_ok" ] && [ "${GPU_REBUILD_TOOLS:-0}" != 1 ]; then
     warn "기초 프로그램 목록이 바뀌었어요. 쓰는 사람이 있을 수 있어 지금 설치된 것을 그대로 뒀어요."
-    warn "팀원이 안 쓸 때 새로 설치하세요: B200_REBUILD_TOOLS=1 bash pack_install.sh $S"
+    warn "팀원이 안 쓸 때 새로 설치하세요: GPU_REBUILD_TOOLS=1 bash pack_install.sh $S"
 else
     rm -rf "$S/tools"   # 지난번에 끝까지 못 깐 것
     ./micromamba create -p "$S/tools" --offline -y -f explicit.txt ||
         stop "기초 프로그램을 설치하지 못했어요" "바로 위의 오류 줄을 확인하세요. 원인을 모르겠으면 기록 파일을 보세요."
     cp micromamba "$S/tools/bin/"
-    cp explicit.txt "$S/tools/.b200_ok"
+    cp explicit.txt "$S/tools/.gpu_ok"
     ok "설치했어요"
 fi
-if [ -f /etc/profile.d/b200.sh ] || [ "$(id -u)" = 0 ]; then
-    ok "PATH는 관리자 설정(/etc/profile.d/b200.sh)이 맡아요. 공용 계정으로 다시 접속하면 바로 써요"
+if [ -f /etc/profile.d/gpu.sh ] || [ "$(id -u)" = 0 ]; then
+    ok "PATH는 관리자 설정(/etc/profile.d/gpu.sh)이 맡아요. 공용 계정으로 다시 접속하면 바로 써요"
 elif ! grep -q 'shared/tools/bin' ~/.bashrc; then
     # 서버에 원래 있는 명령이 먼저 잡히도록 뒤에 붙인다
     echo 'export PATH=$PATH:$HOME/shared/tools/bin' >> ~/.bashrc
@@ -165,7 +165,7 @@ if [ "$FAILS" -eq 0 ]; then
     echo " 모두 정상이에요. 기초 프로그램: $S/tools"
     echo " 공용 계정으로 새로 접속하면 바로 쓸 수 있어요(목록: docs/5_기초프로그램.md)."
     echo " 다음 단계: 도커(docs/1_처음_설치.md 3단계)"
-    echo " 공간 정리(묶음 파일만): rm -f $HERE/b200-pack.tar /app/upload/b200-pack.tar"
+    echo " 공간 정리(묶음 파일만): rm -f $HERE/gpu-pack.tar /app/upload/gpu-pack.tar"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"

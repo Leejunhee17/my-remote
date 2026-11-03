@@ -28,7 +28,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
 1. **우리 팀 폴더 하나 아래에만 만들어요.** 다른 팀 폴더와 NAS 최상위는 건드리지 않아요.
 2. **NAS의 파일은 믿지 않고, 가져올 때 지문을 확인해요.** NAS는 팀원 모두(공용 계정)와 다른 팀이 접근할 수 있는 곳이에요. root 가 실행할 파일은 지금처럼 `/app/inbox` 로 새로 복사해 지문을 맞춘 뒤 실행해요.
-3. **root 는 NAS에서 직접 쓰거나 실행하지 않아요.** 폴더 만들기·정리는 공용 계정 권한(`runuser -u "$(cat /etc/b200/account)" --`)으로 해요.
+3. **root 는 NAS에서 직접 쓰거나 실행하지 않아요.** 폴더 만들기·정리는 공용 계정 권한(`runuser -u "$(cat /etc/gpu/account)" --`)으로 해요.
    - 우리 NAS는 root squash 를 하지 않는 것으로 보여요. 그러면 누가 심어 둔 링크를 따라 root 가 서버의 시스템 파일을 덮어쓸 수 있어요.
    - root 로 NAS에 만든 파일은 root 소유가 돼서 팀원이 고치거나 지울 수 없어요.
 4. **학습은 `/app`(로컬 SSD)에서 하고, NAS는 보관·전달에만 써요.** 작은 파일이 많은 데이터셋은 NAS에서 직접 읽으면 느려요.
@@ -43,7 +43,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 ├── originals/                    반입 원본. 지울 일이 거의 없어요
 │   ├── datasets/                 접근 PC의 datasets 폴더 그대로(MANIFEST.sha256 포함)
 │   ├── models/                   접근 PC의 models 폴더 그대로
-│   └── server_setup/<날짜>/       b200-pack.tar, b200-docker.tar
+│   └── server_setup/<날짜>/       gpu-pack.tar, gpu-docker.tar
 ├── docker_images/<이름>/          팀원이 만든 도커 이미지 .tar
 ├── backup/<이름>/                 실험 결과·체크포인트
 └── tmp_transfer/                 서버 사이 임시 전달. 14일 지나면 지워요
@@ -67,7 +67,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 |---|---|---|
 | `originals/datasets` | 약 112 GB | 데이터셋 7개(`docs/6_데이터셋.md`) |
 | `originals/models` | 약 334 GB | 기본 모델(`docs/7_모델.md`). 선택 모델을 받으면 늘어요(`vlmxl` 의 Qwen3.5-397B만 406 GB) |
-| `originals/server_setup` | 버전마다 몇 GB | 접근 PC의 `pack\b200-pack.tar` 크기. 최근 3판만 둬요 |
+| `originals/server_setup` | 버전마다 몇 GB | 접근 PC의 `pack\gpu-pack.tar` 크기. 최근 3판만 둬요 |
 | `docker_images/` | N × 약 40 GB | PyTorch 기반 이미지 하나 15~25 GB × 사람마다 2개 |
 | `backup/` | N × B | 체크포인트가 가장 커요. 예: ViT-L 체크포인트 하나 1~3 GB |
 | `tmp_transfer/` | 약 450 GB | 데이터셋과 기본 모델을 한 번에 옮길 때 |
@@ -82,13 +82,13 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
    ```bash
    # [서버 1] root. 공용 계정 권한으로 만들어요(원칙 3)
    T=/data/<팀 폴더>
-   runuser -u "$(cat /etc/b200/account)" -- mkdir -p $T/originals/datasets $T/originals/models $T/originals/server_setup $T/docker_images $T/backup $T/tmp_transfer
-   runuser -u "$(cat /etc/b200/account)" -- chmod 750 $T
+   runuser -u "$(cat /etc/gpu/account)" -- mkdir -p $T/originals/datasets $T/originals/models $T/originals/server_setup $T/docker_images $T/backup $T/tmp_transfer
+   runuser -u "$(cat /etc/gpu/account)" -- chmod 750 $T
    bash /app/inbox/check_nas.sh $T                  # 주인·권한·용량 확인
    ```
 
 3. 만들 수 없으면 아래 "서버 관리 팀에 물어볼 것" 을 보고 물어봐요.
-4. `/app/shared/b200.conf` 에 `NAS_DIR=/data/<팀 폴더>` 를 적고 `cd /app/inbox && bash admin_setup.sh` 를 다시 실행해요. 팀원별 `backup/<이름>`, `docker_images/<이름>` 폴더가 생기고, 주간 보고서에 폴더별 사용량과 오래된 `tmp_transfer/` 파일이 나와요. 나중에 팀원을 명단에 추가하면 그때도 다시 실행해요.
+4. `/app/shared/gpu.conf` 에 `NAS_DIR=/data/<팀 폴더>` 를 적고 `cd /app/inbox && bash admin_setup.sh` 를 다시 실행해요. 팀원별 `backup/<이름>`, `docker_images/<이름>` 폴더가 생기고, 주간 보고서에 폴더별 사용량과 오래된 `tmp_transfer/` 파일이 나와요. 나중에 팀원을 명단에 추가하면 그때도 다시 실행해요.
 
 ## 쓰는 법
 
@@ -98,40 +98,40 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
 ```bash
 # [서버 1] root
-A=$(cat /etc/b200/account); T=/data/<팀 폴더>/originals
+A=$(cat /etc/gpu/account); T=/data/<팀 폴더>/originals
 P=$T/server_setup/$(date +%F)                          # 묶음은 만든 날짜 폴더마다 따로 둬요
 runuser -u "$A" -- mkdir -p $P
-runuser -u "$A" -- cp /app/inbox/b200-pack.tar /app/inbox/b200-docker.tar $P/
+runuser -u "$A" -- cp /app/inbox/gpu-pack.tar /app/inbox/gpu-docker.tar $P/
 runuser -u "$A" -- ls $T/server_setup                 # 날짜 폴더가 4개 이상이면 가장 오래된 것을 지워요(최근 3판만)
 runuser -u "$A" -- cp -r /app/inbox/datasets /app/inbox/models $T/
 ```
 
 ### 서버 2: NAS에서 가져와 설치
 
-공용 계정 권한으로 NAS에서 `/app/upload` 로 옮겨 온 뒤에는 서버 1과 같은 순서예요. 지문은 접근 PC의 `D:\b200\지문_기록.txt` 와 맞춰요.
+공용 계정 권한으로 NAS에서 `/app/upload` 로 옮겨 온 뒤에는 서버 1과 같은 순서예요. 지문은 접근 PC의 `D:\gpu\지문_기록.txt` 와 맞춰요.
 
 ```bash
-# [서버 2] root. 0단계(/etc/b200/account, /app/inbox·upload 만들기)는 먼저 해 둬요
-A=$(cat /etc/b200/account); T=/data/<팀 폴더>/originals
+# [서버 2] root. 0단계(/etc/gpu/account, /app/inbox·upload 만들기)는 먼저 해 둬요
+A=$(cat /etc/gpu/account); T=/data/<팀 폴더>/originals
 runuser -u "$A" -- ls $T/server_setup                 # 날짜 폴더 목록. 가장 최근 날짜를 아래 <날짜> 에 적어요
 P=$T/server_setup/<날짜>
-runuser -u "$A" -- cp $P/b200-pack.tar $P/b200-docker.tar /app/upload/
+runuser -u "$A" -- cp $P/gpu-pack.tar $P/gpu-docker.tar /app/upload/
 runuser -u "$A" -- cp -r $T/datasets $T/models /app/upload/
 ```
 
 그다음은 **지문을 보는 줄과 실행하는 줄을 나눠서** 해요. 지문이 `지문_기록.txt` 와 같을 때만 다음 줄을 실행해요.
 
 ```bash
-# 1·2단계: 아직 b200 명령이 없어서 직접 복사해요
-cp /app/upload/b200-pack.tar /app/inbox/ && sha256sum /app/inbox/b200-pack.tar          # 지문 확인
-cd /app/inbox && tar xf b200-pack.tar && bash admin_setup.sh && bash pack_install.sh /app/shared
+# 1·2단계: 아직 gpu 명령이 없어서 직접 복사해요
+cp /app/upload/gpu-pack.tar /app/inbox/ && sha256sum /app/inbox/gpu-pack.tar          # 지문 확인
+cd /app/inbox && tar xf gpu-pack.tar && bash admin_setup.sh && bash pack_install.sh /app/shared
 
-# 3~5단계: 여기부터는 b200 fetch 를 써요
-/app/shared/bin/b200 fetch b200-docker.tar                                               # 지문 확인
-cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh
-/app/shared/bin/b200 fetch datasets                                                      # 지문 확인
+# 3~5단계: 여기부터는 gpu fetch 를 써요
+/app/shared/bin/gpu fetch gpu-docker.tar                                               # 지문 확인
+cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh
+/app/shared/bin/gpu fetch datasets                                                      # 지문 확인
 bash /app/inbox/datasets/datasets_install.sh
-/app/shared/bin/b200 fetch models                                                        # 지문 확인
+/app/shared/bin/gpu fetch models                                                        # 지문 확인
 bash /app/inbox/models/models_install.sh
 ```
 
@@ -154,7 +154,7 @@ bash /app/inbox/models/models_install.sh
 | 항목 | 확인하는 곳 | 결과 |
 |---|---|---|
 | 우리 팀 폴더 이름·위치 | 팀 회의. 화면의 "바로 아래 폴더" 에서 다른 팀 폴더와 겹치지 않는 이름으로 | |
-| 공용 계정이 만들 수 있는지 | 화면의 "공용 계정이 쓸 수 있는 곳" | 아직 몰라요. 공용 계정 이름을 `/etc/b200/account` 에 적고 다시 실행해요. `/data` 가 root 소유 755라 아마 못 만들어요 |
+| 공용 계정이 만들 수 있는지 | 화면의 "공용 계정이 쓸 수 있는 곳" | 아직 몰라요. 공용 계정 이름을 `/etc/gpu/account` 에 적고 다시 실행해요. `/data` 가 root 소유 755라 아마 못 만들어요 |
 | root squash | 화면의 "root squash" | 안 해요(추정, root 가 root 소유 755 `/data` 에 쓸 수 있음). 다음 실행부터는 화면에 바로 나와요 |
 | 두 서버의 공용 계정 번호가 같은지 | 화면의 "계정 번호"(두 서버에서 모두 실행한 뒤 맞춰 봐요) | 일반 계정 4개(uid 1000~1003)는 두 서버에서 같아 보여요. 공용 계정은 이름을 적은 뒤 확인해요 |
 | 전체·남은 용량 | 화면의 "용량" | 전체 414 TB, 남은 것 397 TB(2026-11-03). 계획한 8.2 TB 는 충분해요 |

@@ -29,8 +29,8 @@ SKIP = [
     "*.mlmodel", "*.mlpackage/*", "onnx/*", "openvino/*", "coreml/*", "*.png", "*.jpg", "*.gif", "*.mp4",
 ]
 WEIGHT_ALT = ["*.bin", "*.pth", "*.pt", "*.ckpt"]  # safetensors 가 있으면 뺀다
-STATE = ".b200_state.json"
-SUMS = ".b200_sha256"
+STATE = ".gpu_state.json"
+SUMS = ".gpu_sha256"
 
 
 def pick(info):
@@ -118,7 +118,7 @@ def main(cmd, repo, d):
     with open(os.path.join(d, SUMS), "w", encoding="utf-8", newline="\n") as f:
         for s in files:
             f.write(f"{state[s.rfilename]['sha256']}  {base}/{s.rfilename}\n")
-    with open(os.path.join(d, "b200_model.json"), "w", encoding="utf-8") as f:
+    with open(os.path.join(d, "gpu_model.json"), "w", encoding="utf-8") as f:
         json.dump({"repo": repo, "commit": info.sha, "files": len(files), "bytes": total,
                    "license": getattr(info.card_data, "license", None)}, f, ensure_ascii=False)
     return 0

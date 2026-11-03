@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # GPU 서버의 docker. 관리자가 /app/shared/bin/docker 에 설치한다(admin_setup.sh). 팀원은 평소처럼 docker 를 쓴다.
 # 진짜 docker 를 부르기 전후로 두 가지만 더 한다. 막지는 않는다.
-#   - run·create: 컨테이너에 이름표(b200.USER=내 이름, b200.GPUS=GPU)를 붙인다. 남이 쓰는 GPU면 경고하고 한 번 묻는다
+#   - run·create: 컨테이너에 이름표(gpu.USER=내 이름, gpu.GPUS=GPU)를 붙인다. 남이 쓰는 GPU면 경고하고 한 번 묻는다
 #   - load·build·commit·import: 새로 생긴 이미지를 누가 들여왔는지 적어 둔다(오래 안 쓰면 그 사람에게 알림)
-APP=${B200_APP:-/app}
+APP=${GPU_APP:-/app}
 S=$APP/shared
-REAL=${B200_DOCKER:-/opt/b200/docker/current/docker}
+REAL=${GPU_DOCKER:-/opt/gpu/docker/current/docker}
 if [ ! -x "$REAL" ]; then
     self=$(readlink -f "$0"); REAL=
     for d in $(type -ap docker); do [ "$(readlink -f "$d")" = "$self" ] || { REAL=$d; break; }; done
     [ -n "$REAL" ] || { echo "도커가 아직 설치되지 않았어요. 관리자에게 알려 주세요." >&2; exit 127; }
 fi
 [ "$(id -u)" = 0 ] && exec "$REAL" "$@"
-ME=${B200_USER:-}
+ME=${GPU_USER:-}
 
 # 경고하고 한 번 묻는다(화면에서 실행할 때만). 아니라고 하면 끝낸다
 ask() { echo "  [경고] $*" >&2; [ -t 0 ] && [ -t 2 ] || return 0
@@ -36,15 +36,15 @@ case "${pre[0]:-}:$sub" in
             # GPU-<uuid> 로 골랐으면 번호로 바꿔 같은 경고·기록을 받게 한다
             if [[ "$v" =~ device=([0-9A-Za-z,-]*GPU-[0-9A-Za-z,-]+) ]]; then
                 spec=$(echo "${BASH_REMATCH[1]}" | tr ',' '\n' | while read -r t; do
-                    case "$t" in GPU-*) "${B200_NVSMI:-/usr/bin/nvidia-smi}" --query-gpu=index,uuid --format=csv,noheader 2>/dev/null | awk -F', ' -v u="$t" '$2==u {print $1}' ;;
+                    case "$t" in GPU-*) "${GPU_NVSMI:-/usr/bin/nvidia-smi}" --query-gpu=index,uuid --format=csv,noheader 2>/dev/null | awk -F', ' -v u="$t" '$2==u {print $1}' ;;
                                  *) echo "$t" ;; esac; done | grep -xE '[0-9]{1,2}' | paste -sd,)
             elif [[ "$v" =~ device=([0-9,]+) ]]; then spec=${BASH_REMATCH[1]}
             elif [ "$v" = all ]; then spec=all
             elif [[ "$v" =~ ^[0-9]+$ ]]; then spec=n$v
             else spec=; fi
             if [ -n "$spec" ]; then
-                labels+=(--label "b200.GPUS=$( [ "${spec#n}" != "$spec" ] && echo "0번부터 ${spec#n}장" || echo "$spec")")
-                "$S/bin/b200" _gpu-warn "$spec"
+                labels+=(--label "gpu.GPUS=$( [ "${spec#n}" != "$spec" ] && echo "0번부터 ${spec#n}장" || echo "$spec")")
+                "$S/bin/gpu" _gpu-warn "$spec"
                 if [ $? = 2 ] && [ -t 0 ] && [ -t 2 ]; then
                     read -r -p "  그래도 실행할까요? [y/N] " ans
                     [[ "$ans" =~ ^[yY] ]] || { echo "  실행하지 않았어요." >&2; exit 1; }
@@ -52,7 +52,7 @@ case "${pre[0]:-}:$sub" in
             fi
         fi
         [ -n "$gspec" ] || [ ! -t 2 ] || echo "  [알림] --gpus 옵션이 없어서 GPU 없이 실행해요. GPU를 쓰려면 --gpus '\"device=번호\"' 를 붙여 컨테이너를 새로 만드세요." >&2
-        if [ -n "$ME" ]; then labels+=(--label "b200.USER=$ME")
+        if [ -n "$ME" ]; then labels+=(--label "gpu.USER=$ME")
         elif [ -t 2 ]; then echo "  [알림] 접속할 때 이름을 고르지 않아 이 컨테이너는 '이름 없음'으로 보여요. 이름을 붙이려면 다시 접속해 이름을 고른 뒤 컨테이너를 새로 만드세요(이미 만든 컨테이너에는 붙지 않아요)." >&2; fi
         exec "$REAL" "${pre[@]}" "$sub" "${labels[@]}" "$@"
         ;;
@@ -61,7 +61,7 @@ case "${pre[0]:-}:$sub" in
         others=
         for a in "${@:2}"; do
             case "$a" in -*) continue ;; esac
-            u=$("$REAL" inspect -f '{{index .Config.Labels "b200.USER"}}' "$a" 2>/dev/null)
+            u=$("$REAL" inspect -f '{{index .Config.Labels "gpu.USER"}}' "$a" 2>/dev/null)
             [ -n "$u" ] && [ "$u" != "${ME:-}" ] && others="$others $a($u)"
         done
         [ -z "$others" ] || ask "남의 컨테이너예요:${others}. 학습이 멈추거나 안에서 설치한 것이 지워져요. 먼저 그 사람에게 물어보세요."

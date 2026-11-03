@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# [GPU 서버 · 관리자(root) 전용] b200-docker.tar 로 공용 계정 전용 rootless Docker 를 설치한다.
-#   cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh            # 공용 계정은 /etc/b200/account
+# [GPU 서버 · 관리자(root) 전용] gpu-docker.tar 로 공용 계정 전용 rootless Docker 를 설치한다.
+#   cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh            # 공용 계정은 /etc/gpu/account
 # 도커 데몬은 root 가 아니라 공용 계정 권한으로 돈다. 그래서 컨테이너 안에서 무엇을 해도 서버 root 권한은 얻지 못한다.
-# 데몬은 root 가 관리하는 서비스(b200-docker)라 팀원이 끄거나 설정을 바꿀 수 없다.
+# 데몬은 root 가 관리하는 서비스(gpu-docker)라 팀원이 끄거나 설정을 바꿀 수 없다.
 set -uo pipefail
 cd "$(dirname "$0")"
 HERE=$PWD
-ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
-OPT=/opt/b200/docker
-CONF=/etc/b200/docker
+ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
+OPT=/opt/gpu/docker
+CONF=/etc/gpu/docker
 DATA=/app/docker
-LOG=/var/log/b200/docker_install_$(date +%Y%m%d_%H%M%S).log
-mkdir -p /var/log/b200 2>/dev/null && exec > >(tee -a "$LOG") 2>&1
+LOG=/var/log/gpu/docker_install_$(date +%Y%m%d_%H%M%S).log
+mkdir -p /var/log/gpu 2>/dev/null && exec > >(tee -a "$LOG") 2>&1
 T=6
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 step() { echo; echo "${c_c}==== [$1/$T] $2 ====${c_0}"; }
@@ -30,16 +30,16 @@ echo "[GPU 서버] rootless Docker 설치  ($(date '+%Y-%m-%d %H:%M'), 공용 �
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
-[ -n "$ACC" ] || stop '공용 계정 이름을 알 수 없어요' '서버에 한 번 적어 두세요: mkdir -p /etc/b200 && echo <계정이름> > /etc/b200/account'
-id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" "/etc/b200/account 의 계정 이름을 확인하세요: cat /etc/b200/account"
+[ -n "$ACC" ] || stop '공용 계정 이름을 알 수 없어요' '서버에 한 번 적어 두세요: mkdir -p /etc/gpu && echo <계정이름> > /etc/gpu/account'
+id "$ACC" >/dev/null 2>&1 || stop "공용 계정을 찾지 못했어요: $ACC" "/etc/gpu/account 의 계정 이름을 확인하세요: cat /etc/gpu/account"
 UID_A=$(id -u "$ACC")
-for f in MANIFEST_docker.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf b200-docker.tar"; done
+for f in MANIFEST_docker.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf gpu-docker.tar"; done
 # 목록이 비었거나 모양이 다른 줄이 있으면 sha256sum 은 그 줄을 건너뛰고 "맞음"이 될 수 있어 따로 본다
 [ "$(grep -c . MANIFEST_docker.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST_docker.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
     stop "체크섬 목록(MANIFEST_docker.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 docker_pack.ps1 을 다시 실행해 새 묶음을 올리세요."
 bad=$(grep -v '  docker_install\.sh$' MANIFEST_docker.sha256 | sha256sum -c --quiet --strict - 2>/dev/null | sed 's/: .*//'); rc=$?
 [ "$rc" = 0 ] || [ -n "$bad" ] || stop '체크섬을 확인하지 못했어요' "묶음이나 폴더를 /app/upload 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
-[ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨진 파일: /'; stop '올리는 중에 파일이 깨졌어요' '접근 PC의 pack_docker\b200-docker.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요.'; }
+[ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨진 파일: /'; stop '올리는 중에 파일이 깨졌어요' '접근 PC의 pack_docker\gpu-docker.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요.'; }
 ok "파일 체크섬이 맞아요 (Docker $(info docker), NVIDIA Container Toolkit $(info nvidia_toolkit))"
 CODE=$(. /etc/os-release && echo "${VERSION_CODENAME:-}")
 ok "운영체제 $(. /etc/os-release && echo "$PRETTY_NAME"), 커널 $(uname -r)"
@@ -124,16 +124,16 @@ done
 loginctl enable-linger "$ACC" && ok '공용 계정이 로그인하지 않아도 도커가 돌게 했어요(linger)'
 # Ubuntu 24.04 는 일반 사용자의 이름공간 만들기를 AppArmor 로 막는다. rootlesskit 만 풀어 준다
 if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
-    cat > /etc/apparmor.d/b200-rootlesskit <<EOF
+    cat > /etc/apparmor.d/gpu-rootlesskit <<EOF
 abi <abi/4.0>,
 include <tunables/global>
 
 "$OPT/*/rootlesskit" flags=(unconfined) {
   userns,
-  include if exists <local/b200-rootlesskit>
+  include if exists <local/gpu-rootlesskit>
 }
 EOF
-    apparmor_parser -r /etc/apparmor.d/b200-rootlesskit && ok 'AppArmor에서 rootlesskit을 허용했어요' ||
+    apparmor_parser -r /etc/apparmor.d/gpu-rootlesskit && ok 'AppArmor에서 rootlesskit을 허용했어요' ||
         stop 'AppArmor 프로필을 적용하지 못했어요' '바로 위 오류를 확인하세요.'
 fi
 [ "$(stat -c %U /app)" = root ] && [ ! -L "$DATA" ] || stop '/app이 잠기지 않았거나 /app/docker가 링크예요' '관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh'
@@ -150,7 +150,7 @@ EOF
 chmod 644 "$CONF/daemon.json"
 ok "이미지·컨테이너 저장 위치 $DATA, 설정 $CONF/daemon.json (설정은 root만 고칠 수 있어요)"
 
-cat > /etc/systemd/system/b200-docker.service <<EOF
+cat > /etc/systemd/system/gpu-docker.service <<EOF
 [Unit]
 Description=GPU 서버 rootless Docker ($ACC)
 After=network.target user@$UID_A.service
@@ -176,52 +176,52 @@ KillMode=mixed
 WantedBy=multi-user.target
 EOF
 # 팀원 셸에서 docker 명령이 이 데몬을 쓰게 한다. 우리 공용 계정에만 건다(다른 계정의 docker 는 그대로)
-cat > /etc/profile.d/b200-docker.sh <<EOF
-# b200 docker_install.sh 가 만든 파일
+cat > /etc/profile.d/gpu-docker.sh <<EOF
+# gpu docker_install.sh 가 만든 파일
 # 뒤에 붙인다. 앞에는 /app/shared/bin/docker(이름표를 붙이고 GPU 겹침을 경고하는 docker)가 온다
 if [ "\$(id -un)" = "$ACC" ]; then
     case ":\$PATH:" in *":$OPT/current:"*) ;; *) PATH="\$PATH:$OPT/current" ;; esac
     export DOCKER_HOST=unix:///run/user/$UID_A/docker.sock
 fi
 EOF
-ok 'b200-docker 서비스와 /etc/profile.d/b200-docker.sh 를 만들었어요'
+ok 'gpu-docker 서비스와 /etc/profile.d/gpu-docker.sh 를 만들었어요'
 
 # ------------------------------------------------------------------ 5. 켜기
 step 5 '켜기'
 systemctl daemon-reload
-systemctl enable b200-docker >/dev/null 2>&1
+systemctl enable gpu-docker >/dev/null 2>&1
 # 이미 돌고 있으면 다시 켤 때 팀원 컨테이너(학습)가 모두 멈춘다. 몇 개인지 보여 주고 한 번 묻는다
-if systemctl is-active -q b200-docker; then
-    nrun=$(setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" DOCKER_CONFIG=/etc/b200/docker/cli "$OPT/current/docker" ps -q </dev/null 2>/dev/null | grep -c .)
+if systemctl is-active -q gpu-docker; then
+    nrun=$(setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" DOCKER_CONFIG=/etc/gpu/docker/cli "$OPT/current/docker" ps -q </dev/null 2>/dev/null | grep -c .)
     if [ "${nrun:-0}" -gt 0 ]; then
         warn "도커를 다시 켜면 돌고 있는 컨테이너 ${nrun}개(팀원 학습)가 모두 멈춰요. 팀에 미리 알리세요"
         if [ -t 0 ]; then read -r -p "  지금 다시 켤까요? [y/N] " a; [[ "$a" =~ ^[yY] ]] || stop '도커 다시 켜기를 미뤘어요' '팀원이 쓰지 않을 때 같은 명령을 다시 실행하세요. 설치한 버전은 다시 켤 때 적용돼요.'
         else stop '돌고 있는 컨테이너가 있어요' 'PuTTY 화면에서 직접 실행해 확인 질문에 답하세요.'; fi
     fi
 fi
-systemctl restart b200-docker
+systemctl restart gpu-docker
 for i in $(seq 1 30); do [ -S "/run/user/$UID_A/docker.sock" ] && break; sleep 1; done
 [ -S "/run/user/$UID_A/docker.sock" ] || {
-    journalctl -u b200-docker -n 30 --no-pager | sed 's/^/    /'
-    stop '도커 데몬이 켜지지 않았어요' '바로 위 서비스 기록을 확인하세요. 더 보려면: journalctl -u b200-docker -n 100'
+    journalctl -u gpu-docker -n 30 --no-pager | sed 's/^/    /'
+    stop '도커 데몬이 켜지지 않았어요' '바로 위 서비스 기록을 확인하세요. 더 보려면: journalctl -u gpu-docker -n 100'
 }
-ok 'b200-docker 서비스가 돌고 있어요'
+ok 'gpu-docker 서비스가 돌고 있어요'
 
 # ------------------------------------------------------------------ 6. 검사
 step 6 '검사 (공용 계정으로)'
 # 터미널을 떼고(setsid), 공용 계정이 고칠 수 있는 ~/.docker 설정(플러그인 등)은 읽지 않는다
-as_acc() { setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" DOCKER_CONFIG=/etc/b200/docker/cli PATH="$OPT/current:/usr/bin:/bin" "$@" </dev/null; }
+as_acc() { setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" DOCKER_CONFIG=/etc/gpu/docker/cli PATH="$OPT/current:/usr/bin:/bin" "$@" </dev/null; }
 as_acc docker info --format '{{.SecurityOptions}} {{.DockerRootDir}}' | grep -q rootless &&
     ok "rootless로 동작해요. 저장 위치 $(as_acc docker info --format '{{.DockerRootDir}}')" ||
-    stop 'rootless로 동작하지 않아요' "공용 계정 도커 정보를 확인하세요: /app/shared/bin/b200 docker info"
+    stop 'rootless로 동작하지 않아요' "공용 계정 도커 정보를 확인하세요: /app/shared/bin/gpu docker info"
 as_acc docker info --format '{{json .Runtimes}}' | grep -q nvidia && ok 'GPU 런타임(nvidia)이 등록됐어요' || warn "GPU 런타임(nvidia)이 보이지 않아요. $CONF/daemon.json 의 runtimes 항목과 nvidia-container-runtime 설치를 확인하세요"
-echo "  GPU 컨테이너는 PyTorch 이미지를 처음 들여온 뒤 공용 계정으로 확인해요: b200 doctor <이미지>"
+echo "  GPU 컨테이너는 PyTorch 이미지를 처음 들여온 뒤 공용 계정으로 확인해요: gpu doctor <이미지>"
 
 echo
 echo "${c_g}############################ 완료 ############################${c_0}"
 echo " 공용 계정($ACC) 전용 rootless Docker $(info docker)를 설치했어요."
 echo " 팀원은 다시 접속하면 docker 명령을 바로 써요. 컨테이너에는 --gpus 로 정한 GPU만 보여요."
-echo " 관리: systemctl status b200-docker (다시 켜기: systemctl restart b200-docker),  기록: journalctl -u b200-docker"
-echo " 다음 단계: 데이터셋·모델(docs/1_처음_설치.md 4·5단계), 그다음 공용 계정으로 b200 doctor <PyTorch 이미지>"
-echo " 공간 정리(묶음 파일만): rm -f $HERE/b200-docker.tar /app/upload/b200-docker.tar"
+echo " 관리: systemctl status gpu-docker (다시 켜기: systemctl restart gpu-docker),  기록: journalctl -u gpu-docker"
+echo " 다음 단계: 데이터셋·모델(docs/1_처음_설치.md 4·5단계), 그다음 공용 계정으로 gpu doctor <PyTorch 이미지>"
+echo " 공간 정리(묶음 파일만): rm -f $HERE/gpu-docker.tar /app/upload/gpu-docker.tar"
 echo "${c_g}##############################################################${c_0}"

@@ -1,34 +1,34 @@
 #!/usr/bin/env bash
-# GPU 서버 도우미. 관리자가 /app/shared/bin/b200 에 설치한다(admin_setup.sh). 팀원이 외울 명령이 아니다.
+# GPU 서버 도우미. 관리자가 /app/shared/bin/gpu 에 설치한다(admin_setup.sh). 팀원이 외울 명령이 아니다.
 # 팀원은 docker, nvidia-smi 를 평소처럼 쓰고, 이 파일은 그 뒤에서 다음을 맡는다.
 #   - 접속 인사: 이름 고르기, GPU별 쓰는 사람, 나에게 온 알림
 #   - nvidia-smi 아래 "GPU별 사용자" 표, docker run 의 GPU 겹침 경고
 #   - 정기 점검(10분): 사용 기록과 알림(겹침, 놀고 있는 GPU, 디스크, 오래된 이미지). 멈추거나 지우지는 않는다
 #   - 주간 보고서(관리자)
-# 공용 계정 하나로 여럿이 쓰므로, 접속할 때 고른 이름(B200_USER)으로 사람을 구분한다.
+# 공용 계정 하나로 여럿이 쓰므로, 접속할 때 고른 이름(GPU_USER)으로 사람을 구분한다.
 set -uo pipefail
 export LC_ALL=C.UTF-8   # 한글 이름의 화면 폭 계산과 tmux·도커 출력
-APP=${B200_APP:-/app}   # 시험할 때만 바꾼다
+APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다
 S=$APP/shared
 W=$APP/workspace
 ST=$APP/state
-ACC=${B200_ACCOUNT:-$(cat /etc/b200/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/b200/account 한 곳에 적는다
-[ -n "$ACC" ] || [ "$(id -u)" != 0 ] || echo "${0##*/}: 공용 계정 이름을 알 수 없어요. /etc/b200/account 를 확인하세요(그동안 도커 컨테이너가 안 보여요)" >&2
+ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
+[ -n "$ACC" ] || [ "$(id -u)" != 0 ] || echo "${0##*/}: 공용 계정 이름을 알 수 없어요. /etc/gpu/account 를 확인하세요(그동안 도커 컨테이너가 안 보여요)" >&2
 TEAM=$S/team.txt
 ALLOC=$S/gpu_alloc.txt
 NOTE=$ST/notice          # 알림: root(정기 점검)만 쓰는 곳
 SEEN=$ST/notice_seen     # 팀원이 어디까지 봤는지: 공용 계정이 쓰는 곳. root 는 여기를 읽거나 쓰지 않는다
 USED=$ST/gpu_log/images_used.tsv   # 이미지를 마지막으로 쓴 날: root 만 쓰는 곳(공용 계정 폴더에 root 가 쓰면 링크로 시스템 파일을 덮을 수 있다)
-ME=${B200_USER:-}
-# 관리자가 정하는 숫자(/app/shared/b200.conf 가 있으면 그 값). 모두 알림 기준이다
+ME=${GPU_USER:-}
+# 관리자가 정하는 숫자(/app/shared/gpu.conf 가 있으면 그 값). 모두 알림 기준이다
 # root(정기 점검)도 읽으므로 실행(source)하지 않고 정해진 이름의 값만 꺼내 모양을 확인한다
-conf() { local v; v=$(sed -n "s/^$1=\([^ #]*\).*/\1/p" "$S/b200.conf" 2>/dev/null | tail -1); [[ "$v" =~ $2 ]] && printf '%s' "$v"; }
+conf() { local v; v=$(sed -n "s/^$1=\([^ #]*\).*/\1/p" "$S/gpu.conf" 2>/dev/null | tail -1); [[ "$v" =~ $2 ]] && printf '%s' "$v"; }
 MAX_GPUS=$(conf MAX_GPUS '^[0-9]{1,3}$');            MAX_GPUS=${MAX_GPUS:-4}
 IDLE_HOURS=$(conf IDLE_HOURS '^[0-9]{1,4}$');        IDLE_HOURS=${IDLE_HOURS:-12}
 DISK_ALERT=$(conf DISK_ALERT '^[0-9]{1,3}$');        DISK_ALERT=${DISK_ALERT:-85}
 IMAGE_NOTICE_DAYS=$(conf IMAGE_NOTICE_DAYS '^[0-9]{1,4}$'); IMAGE_NOTICE_DAYS=${IMAGE_NOTICE_DAYS:-30}
 NAS_DIR=$(conf NAS_DIR '^/[A-Za-z0-9._/-]+$')
-NVSMI=${B200_NVSMI:-/usr/bin/nvidia-smi}
+NVSMI=${GPU_NVSMI:-/usr/bin/nvidia-smi}
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_b=$'\e[1m'; c_0=$'\e[0m'
 is_root() { [ "$(id -u)" = 0 ]; }
 # root 가 이 파일을 실행하는데 root 소유가 아니면(예: admin_setup.sh --undo 뒤) 공용 계정이 고친 내용을 root 가 실행하게 된다
@@ -60,13 +60,13 @@ resolve_name() {
 }
 
 # ------------------------------------------------------------------ 도커(진짜 docker 를 바로 부른다)
-if is_root && id "$ACC" >/dev/null 2>&1 && [ -z "${B200_DOCKER:-}" ]; then
+if is_root && id "$ACC" >/dev/null 2>&1 && [ -z "${GPU_DOCKER:-}" ]; then
     # root 가 공용 계정 도커를 볼 때: 터미널을 떼고(setsid) 공용 계정이 고칠 수 있는 ~/.docker 설정(플러그인 등)은 읽지 않는다
-    DOCKER=(setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$(id -u "$ACC")/docker.sock" DOCKER_CONFIG=/etc/b200/docker/cli /opt/b200/docker/current/docker)
+    DOCKER=(setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$(id -u "$ACC")/docker.sock" DOCKER_CONFIG=/etc/gpu/docker/cli /opt/gpu/docker/current/docker)
 else
-    # 접속 첫 화면은 /etc/profile.d/b200-docker.sh 보다 먼저 돌아서 DOCKER_HOST 가 아직 없다. rootless 도커 자리를 기본으로 쓴다
+    # 접속 첫 화면은 /etc/profile.d/gpu-docker.sh 보다 먼저 돌아서 DOCKER_HOST 가 아직 없다. rootless 도커 자리를 기본으로 쓴다
     [ -n "${DOCKER_HOST:-}" ] || is_root || export DOCKER_HOST="unix:///run/user/$(id -u)/docker.sock"
-    DOCKER=(${B200_DOCKER:-/opt/b200/docker/current/docker})
+    DOCKER=(${GPU_DOCKER:-/opt/gpu/docker/current/docker})
 fi
 # 도커가 필요한 명령에서만 확인한다(접속할 때 알림 보기 등에서는 도커를 부르지 않는다)
 HAVE_DOCKER=; DOCKER_CHECKED=
@@ -76,15 +76,15 @@ have_docker() {
 }
 
 # 실행 중인 컨테이너: "pid<TAB>이름<TAB>사람<TAB>GPU<TAB>이미지<TAB>컨테이너ID"
-# GPU 는 3,4 | all | n2(앞에서 2장) | -(없음). 사람은 docker 래퍼가 붙인 이름표(b200.USER)
+# GPU 는 3,4 | all | n2(앞에서 2장) | -(없음). 사람은 docker 래퍼가 붙인 이름표(gpu.USER)
 CONTAINERS=
 load_containers() {
     have_docker || return 0
     local ids; ids=$("${DOCKER[@]}" ps -q 2>/dev/null); [ -n "$ids" ] || return 0
     # shellcheck disable=SC2086
-    CONTAINERS=$("${DOCKER[@]}" inspect -f '{{.State.Pid}}{{"\t"}}{{slice .Name 1}}{{"\t"}}{{printf "%q" (index .Config.Labels "b200.USER")}}{{"\t"}}{{range .HostConfig.DeviceRequests}}{{if .DeviceIDs}}{{join .DeviceIDs ","}}{{else if eq .Count -1}}all{{else}}n{{.Count}}{{end}}{{end}}{{"\t"}}{{printf "%q" .Config.Image}}{{"\t"}}{{printf "%q" (index .Config.Labels "b200.GPUS")}}{{"\t"}}{{.Id}}' $ids 2>/dev/null |
+    CONTAINERS=$("${DOCKER[@]}" inspect -f '{{.State.Pid}}{{"\t"}}{{slice .Name 1}}{{"\t"}}{{printf "%q" (index .Config.Labels "gpu.USER")}}{{"\t"}}{{range .HostConfig.DeviceRequests}}{{if .DeviceIDs}}{{join .DeviceIDs ","}}{{else if eq .Count -1}}all{{else}}n{{.Count}}{{end}}{{end}}{{"\t"}}{{printf "%q" .Config.Image}}{{"\t"}}{{printf "%q" (index .Config.Labels "gpu.GPUS")}}{{"\t"}}{{.Id}}' $ids 2>/dev/null |
         # 이름표는 누구나 아무 글자(줄바꿈 포함)나 넣을 수 있다. %q 로 한 줄로 받고, 모양이 맞는 줄만 쓴다(root 가 읽는다)
-        # GPU 요청 정보가 비어 있으면 이름표(b200.GPUS)로 본다
+        # GPU 요청 정보가 비어 있으면 이름표(gpu.GPUS)로 본다
         awk -F'\t' -v OFS='\t' 'NF==7 && $1 ~ /^[0-9]+$/ && $7 ~ /^[0-9a-f]+$/ {
             gsub(/^"|"$/, "", $3); gsub(/^"|"$/, "", $5); gsub(/^"|"$/, "", $6)
             if ($3 ~ /[\\"[:space:][:cntrl:]]/ || $3=="관리자") $3="?"; if ($5 ~ /[\\"[:space:][:cntrl:]]/) $5="?"
@@ -111,7 +111,7 @@ expand_gpus() {
 }
 
 # ------------------------------------------------------------------ GPU 프로세스 → 사람
-# ① 컨테이너 안 프로세스면 그 컨테이너의 이름표 ② 프로세스 환경의 B200_USER(접속할 때 고른 이름이 따라간다)
+# ① 컨테이너 안 프로세스면 그 컨테이너의 이름표 ② 프로세스 환경의 GPU_USER(접속할 때 고른 이름이 따라간다)
 # ③ 작업 폴더 이름 순서로 찾는다. 결과는 "사람 어디(컨테이너 이름이나 -)"
 # docker exec 로 띄운 프로세스는 컨테이너 첫 프로세스의 자손이 아니라서(부모가 containerd-shim), cgroup 의 컨테이너 ID 로 먼저 찾는다
 owner_of_pid() {
@@ -130,7 +130,7 @@ owner_of_pid() {
         fi
         p=$(sed 's/.*) //' "/proc/$p/stat" 2>/dev/null | cut -d' ' -f2)
     done
-    u=$( { tr '\0' '\n' < "/proc/$pid/environ"; } 2>/dev/null | sed -n 's/^B200_USER=//p' | head -1)
+    u=$( { tr '\0' '\n' < "/proc/$pid/environ"; } 2>/dev/null | sed -n 's/^GPU_USER=//p' | head -1)
     if [ -z "$u" ]; then
         cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
         case "$cwd" in "$W"/*) u=${cwd#"$W"/}; u=${u%%/*} ;; esac
@@ -258,7 +258,7 @@ push_tty() {
         t=$(readlink "$p/fd/0" 2>/dev/null); [[ "$t" =~ ^/dev/pts/[0-9]+$ ]] || continue
         n=; f="$ST/tty/pts-${t##*/}"   # 공용 계정이 쓰는 파일이라 보통 파일일 때만, 잠깐만 읽는다
         [ -f "$f" ] && [ ! -L "$f" ] && n=$(timeout 1 head -c 64 "$f" 2>/dev/null)
-        [ "$n" = "$who" ] || { tr '\0' '\n' < "$p/environ"; } 2>/dev/null | grep -qxF "B200_USER=$who" || continue
+        [ "$n" = "$who" ] || { tr '\0' '\n' < "$p/environ"; } 2>/dev/null | grep -qxF "GPU_USER=$who" || continue
         echo "$t"
     done | sort -u | while read -r t; do
         timeout 2 bash -c 'printf "\r\n\e[33m[서버 알림]\e[0m %s\r\n" "$1" > "$2"' _ "$msg" "$t" 2>/dev/null
@@ -406,7 +406,7 @@ cmd__report() {
         echo "== 도커 이미지 (이미지, 들여온 사람, 마지막 사용, 크기)"
         image_table | sort -t$'\t' -k3,3 | awk -F'\t' '{printf "  %-50s %-10s %s  %s\n", $1, $2, $3, $4}'
     fi
-    # NAS 우리 팀 폴더(b200.conf 의 NAS_DIR). root squash 에서도 읽히고 링크를 심어도 root 가 따라가지 않게 공용 계정으로 본다
+    # NAS 우리 팀 폴더(gpu.conf 의 NAS_DIR). root squash 에서도 읽히고 링크를 심어도 root 가 따라가지 않게 공용 계정으로 본다
     if [ -n "${NAS_DIR:-}" ] && [ -d "$NAS_DIR" ] && [ ! -L "$NAS_DIR" ]; then
         local as=(); is_root && as=(setsid -w runuser -u "$ACC" --)
         echo
@@ -429,15 +429,15 @@ cmd__report() {
 cmd_doctor() {
     echo "== GPU"; "$NVSMI" -L 2>&1 | head -8
     echo "== 도커"
-    have_docker || { echo '  도커 데몬에 연결하지 못했어요. root로 확인하세요: systemctl status b200-docker'; return; }
+    have_docker || { echo '  도커 데몬에 연결하지 못했어요. root로 확인하세요: systemctl status gpu-docker'; return; }
     "${DOCKER[@]}" info --format '  Docker {{.ServerVersion}}, {{.DockerRootDir}}, {{.SecurityOptions}}' 2>&1 | tail -1
-    [ $# -ge 1 ] || { echo '  컨테이너 안 GPU 계산까지 보려면 이미지를 붙여 실행하세요: b200 doctor <PyTorch 이미지>'; return; }
+    [ $# -ge 1 ] || { echo '  컨테이너 안 GPU 계산까지 보려면 이미지를 붙여 실행하세요: gpu doctor <PyTorch 이미지>'; return; }
     # 다른 팀 GPU(서버 2의 0~3번)는 피해서 우리 GPU 하나로 시험한다
     local g; g=$(seq 0 $(( $(gpu_count) - 1 )) | while read -r i; do is_other "$i" || { echo "$i"; break; }; done)
     echo "== 컨테이너에서 GPU ${g:-0}번으로 시험"
     "${DOCKER[@]}" run --rm --gpus "\"device=${g:-0}\"" --entrypoint '' "$1" sh -c \
         'P=$(command -v python || command -v python3); $P -c "import torch; x=torch.randn(64,64,device=\"cuda\"); ok=float((x@x).sum())==float((x@x).sum()); print(\"  PyTorch\", torch.__version__, \"/ CUDA\", torch.version.cuda, \"/ 보이는 GPU \"+str(torch.cuda.device_count())+\"장 / GPU 계산\", \"정상\" if ok else \"이상\")"' 2>&1 | tail -3
-    echo "  보이는 GPU가 1장이고 GPU 계산이 정상이면 돼요. 오류가 나면 docs/8_문제_해결.md 의 'b200 doctor' 줄을 보세요."
+    echo "  보이는 GPU가 1장이고 GPU 계산이 정상이면 돼요. 오류가 나면 docs/8_문제_해결.md 의 'gpu doctor' 줄을 보세요."
 }
 
 # ------------------------------------------------------------------ 관리자: 올린 파일 들여오기
@@ -447,8 +447,8 @@ cmd_fetch() {
     is_root || { echo "root 전용이에요."; return 1; }
     local n=${1:-} up=$APP/upload in=$APP/inbox
     case "$n" in
-        datasets|models|b200-pack.tar|b200-docker.tar) ;;
-        *) echo "쓰는 법: b200 fetch datasets | models | b200-pack.tar | b200-docker.tar"; return 1 ;;
+        datasets|models|gpu-pack.tar|gpu-docker.tar) ;;
+        *) echo "쓰는 법: gpu fetch datasets | models | gpu-pack.tar | gpu-docker.tar"; return 1 ;;
     esac
     [ "$(stat -c '%U %a' "$in" 2>/dev/null)" = "root 755" ] && [ ! -L "$in" ] ||
         { echo "${c_r}멈춤:${c_0} $in 이 root 소유(755)가 아니에요. 먼저 실행하세요: cd /app/inbox && bash admin_setup.sh"; return 1; }
@@ -479,9 +479,9 @@ cmd_fetch() {
         cp "$up/$n" "$in/" || { echo "${c_r}멈춤:${c_0} 복사하지 못했어요(남은 공간: df -h /app)"; return 1; }
         echo "지문(sha256): $(sha256sum "$in/$n" | cut -d' ' -f1)"
         case "$n" in
-            b200-pack.tar)   echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash admin_setup.sh && bash pack_install.sh /app/shared"
+            gpu-pack.tar)   echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash admin_setup.sh && bash pack_install.sh /app/shared"
                              echo "  (admin_setup.sh 도 다시 실행해야 묶음 안의 고친 도우미가 /app/shared/bin 에 설치돼요)" ;;
-            b200-docker.tar) echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash docker_install.sh" ;;
+            gpu-docker.tar) echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash docker_install.sh" ;;
         esac
     fi
     echo "다르면 실행하지 마세요. $up/$n 을 지우고 다시 올린 뒤 이 명령을 다시 실행하세요."
@@ -492,7 +492,7 @@ case "${1:-}" in
     fetch)        shift; cmd_fetch "$@" ;;
     doctor)       shift; cmd_doctor "$@" ;;
     docker)       shift; is_root || { echo "root 전용이에요. 공용 계정은 docker 를 바로 쓰세요."; exit 1; }
-                  "${DOCKER[@]}" "$@" ;;   # 관리자가 공용 계정 도커를 볼 때: /app/shared/bin/b200 docker ps -a
+                  "${DOCKER[@]}" "$@" ;;   # 관리자가 공용 계정 도커를 볼 때: /app/shared/bin/gpu docker ps -a
     _hello)       cmd__hello ;;
     _names)       cmd__names ;;
     _resolve)     resolve_name "${2:-}" ;;
@@ -500,5 +500,5 @@ case "${1:-}" in
     _gpu-warn)    cmd__gpu_warn "${2:-}" ;;
     _check)       cmd__check ;;
     _report)      cmd__report ;;
-    *)            echo "쓰는 법: b200 [who] | doctor [이미지] | docker <명령>(root) | fetch <이름>(root)   (나머지 명령은 접속 설정·docker·정기 점검이 내부에서 써요)"; exit 1 ;;
+    *)            echo "쓰는 법: gpu [who] | doctor [이미지] | docker <명령>(root) | fetch <이름>(root)   (나머지 명령은 접속 설정·docker·정기 점검이 내부에서 써요)"; exit 1 ;;
 esac

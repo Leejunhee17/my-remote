@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # GPU 서버의 nvidia-smi. 관리자가 /app/shared/bin/nvidia-smi 에 설치한다(admin_setup.sh).
 # 옵션 없이 화면에서 실행하면 원래 표 아래에 "GPU별 사용자" 표(이름, 컨테이너)를 붙인다. 옵션이 있으면 원래 그대로.
-REAL=${B200_NVSMI:-/usr/bin/nvidia-smi}
+REAL=${GPU_NVSMI:-/usr/bin/nvidia-smi}
 if [ $# -eq 0 ] && [ -t 1 ]; then
     "$REAL"; rc=$?
-    "${B200_APP:-/app}/shared/bin/b200" who 2>/dev/null
+    "${GPU_APP:-/app}/shared/bin/gpu" who 2>/dev/null
     exit $rc
 fi
 exec "$REAL" "$@"
