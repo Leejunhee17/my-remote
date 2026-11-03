@@ -378,8 +378,8 @@ all_body() {
     fi
 
     # 디스크: NAS 는 두 서버가 차례로(동시에 재면 나눠 가져서 값이 반이 된다)
-    # root 는 다른 계정이 쓸 수 있는 폴더(/app/workspace)에서 재지 않는다(시험 폴더를 바꿔치기해 시스템 파일을 덮을 수 있다)
-    local_dir=; for d in /app/inbox /app/workspace /app; do [ -d "$d" ] && [ -w "$d" ] && [ -O "$d" ] && { local_dir=$d; break; }; done
+    # root 는 다른 계정이 쓸 수 있는 폴더(/app/autonomy_sw)에서 재지 않는다(시험 폴더를 바꿔치기해 시스템 파일을 덮을 수 있다)
+    local_dir=; for d in /app/inbox /app/autonomy_sw /app; do [ -d "$d" ] && [ -w "$d" ] && [ -O "$d" ] && { local_dir=$d; break; }; done
     if [ -n "$peer" ] && [ "$role" = B ]; then
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
         echo "  상대 서버($peer)가 NAS 측정을 마칠 때까지 기다려요..."; wait_file "$R/$peer.nasdone" "$pf" 900 || warn '상대 서버가 15분 안에 끝내지 않아서 기다리지 않고 넘어가요'

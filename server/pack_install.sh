@@ -4,13 +4,13 @@
 # 점검 → 설치 → 검사까지 한 번에 한다. 실패하면 고친 뒤 다시 실행하면 된다.
 #   bash pack_install.sh /app/shared   관리자(root). admin_setup.sh 다음에 실행한다(지금 방식)
 #   bash pack_install.sh               공용 계정으로 ~/shared 에 설치(예전 방식, 관리자 설정 전)
-#   공용 계정으로 경로를 주면 ~/shared 를 그곳을 가리키는 링크로 만들고, 작업 폴더와 링크 ~/workspace 도 없으면 만든다
+#   공용 계정으로 경로를 주면 ~/shared 를 그곳을 가리키는 링크로 만들고, 작업 폴더와 링크 ~/autonomy_sw 도 없으면 만든다
 set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 GPU 서버(리눅스)에서 실행해요. 접근 PC에서는 pc 폴더의 .ps1 을 쓰세요."; exit 1; fi
 cd "$(dirname "$0")"
 HERE=$PWD
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
-if [ "$(id -u)" = 0 ] && [ -d /app ] && { [ "$(stat -c %U /app)" != root ] || [ -L /app/shared ] || [ -L /app/workspace ]; }; then
+if [ "$(id -u)" = 0 ] && [ -d /app ] && { [ "$(stat -c %U /app)" != root ] || [ -L /app/shared ] || [ -L /app/autonomy_sw ]; }; then
     echo "멈춤: /app이 아직 잠기지 않았어요. 먼저 root로 실행하세요: cd $HERE && bash admin_setup.sh"; exit 1
 fi
 
@@ -39,8 +39,8 @@ elif [ -n "$REAL" ]; then
         ln -s "$REAL" "$HOME/shared"
     fi
     # 같은 디스크에 개인 작업 폴더를 두고 홈에는 링크만 둔다(OS를 새로 설치했을 때 다시 만들 필요 없게)
-    W="$(dirname "$REAL")/workspace"
-    if [ ! -e "$HOME/workspace" ] && mkdir -p "$W" 2>/dev/null; then ln -s "$W" "$HOME/workspace"; fi
+    W="$(dirname "$REAL")/autonomy_sw"
+    if [ ! -e "$HOME/autonomy_sw" ] && mkdir -p "$W" 2>/dev/null; then ln -s "$W" "$HOME/autonomy_sw"; fi
 fi
 # 실제 경로로 적어야 기초 프로그램에 박히는 경로가 누구에게나 맞다(예: /app/shared)
 if [ "$(id -u)" = 0 ]; then S=$(realpath -m "$REAL"); else S=$(realpath -m "$HOME/shared"); fi

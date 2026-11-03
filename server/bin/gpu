@@ -10,7 +10,7 @@ set -uo pipefail
 export LC_ALL=C.UTF-8   # 한글 이름의 화면 폭 계산과 tmux·도커 출력
 APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다
 S=$APP/shared
-W=$APP/workspace
+W=$APP/autonomy_sw
 ST=$APP/state
 ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
 [ -n "$ACC" ] || [ "$(id -u)" != 0 ] || echo "${0##*/}: 공용 계정 이름을 알 수 없어요. /etc/gpu/account 를 확인하세요(그동안 도커 컨테이너가 안 보여요)" >&2

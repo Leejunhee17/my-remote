@@ -90,12 +90,12 @@ if [ -d "$APP" ]; then
     rota=$(lsblk -ndo ROTA "$app_dev" 2>/dev/null || lsblk -no ROTA "$app_dev" 2>/dev/null | head -1)
     kind=$([ "$(echo $rota)" = 0 ] && echo SSD || { [ "$(echo $rota)" = 1 ] && echo HDD || echo 종류 모름; })
     echo "  $APP: $app_dev, $kind, 남은 공간 ${app_gb} GB"
-    # /app 은 root 소유로 둔다(admin_setup.sh 가 잠근다). 팀원은 그 아래 /app/workspace 에 쓴다
+    # /app 은 root 소유로 둔다(admin_setup.sh 가 잠근다). 팀원은 그 아래 /app/autonomy_sw 에 쓴다
     owner=$(stat -c %U "$APP")
-    if [ "$owner" = root ]; then ok "$APP 주인이 root예요(팀원은 $APP/workspace 에 써요)"
+    if [ "$owner" = root ]; then ok "$APP 주인이 root예요(팀원은 $APP/autonomy_sw 에 써요)"
     else warn "$APP 주인: $owner. 1단계에서 root로 admin_setup.sh 를 실행하면 root 소유로 잠가요"; fi
-    if [ -d "$APP/workspace" ] && [ ! -w "$APP/workspace" ]; then
-        mine "$APP/workspace 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
+    if [ -d "$APP/autonomy_sw" ] && [ ! -w "$APP/autonomy_sw" ]; then
+        mine "$APP/autonomy_sw 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
     fi
     if [ -e "$APP/shared" ] && [ "$(stat -c %U "$APP/shared/.gpu_root" 2>/dev/null)" != root ]; then
         warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 데이터셋·모델과 설정 파일만 남기고 기초 프로그램 등은 치워요(2단계에서 다시 설치)"

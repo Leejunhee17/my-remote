@@ -139,7 +139,7 @@ bash /app/inbox/models/models_install.sh
 
 | 할 일 | 명령 |
 |---|---|
-| 실험 결과 보관 | `rsync -a /app/workspace/<이름>/runs/exp1 /data/<팀 폴더>/backup/<이름>/` |
+| 실험 결과 보관 | `rsync -a /app/autonomy_sw/<이름>/runs/exp1 /data/<팀 폴더>/backup/<이름>/` |
 | 도커 이미지 보관·다른 서버에서 쓰기 | `docker save -o /data/<팀 폴더>/docker_images/<이름>/myseg_v1.tar <이름>/myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
 | 서버 사이 큰 파일 전달 | `tmp_transfer/` 에 두고 다른 서버에서 가져간 뒤 지워요 |
 

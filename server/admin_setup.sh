@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # [GPU 서버 · 관리자(root) 전용] 공용 계정으로 여럿이 쓰는 서버의 기본 규칙을 시스템에 건다. 여러 번 실행해도 된다.
 #   bash admin_setup.sh          적용
-#   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. 공용 폴더 잠금·gpu 명령·기록·드라이버 고정은 그대로 둔다)
+#   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. 공용 폴더 잠금·gpu 명령·기록은 그대로 둔다)
 # 하는 일 (팀원에게 새 명령을 외우게 하지 않고, 막기보다 알린다)
 #   - 공용 계정(/etc/gpu/account)에 관리자 권한(sudo, docker·disk·lxd 등 그룹)이 없는지 확인한다(있으면 알려만 준다)
 #   - /app/shared(기초 프로그램·데이터셋·모델)와 /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
 #   - 접속할 때 이름을 고르게 하고, 이름별 작업 폴더·캐시·명령 기록을 나눈다(/etc/profile.d/gpu.sh)
 #   - docker, nvidia-smi 도우미를 /app/shared/bin 에 설치한다(이름표, GPU 겹침 경고, "GPU별 사용자" 표)
-#   - GPU 서비스(Fabric Manager, persistenced)를 켜고 드라이버 버전을 고정한다
+#   - GPU 서비스(persistenced, HGX 보드면 Fabric Manager)를 켠다. 드라이버 버전은 고정하지 않는다(업데이트는 서버 관리 팀이 정한다)
 #   - 10분마다 GPU 사용 기록과 알림, 월요일 아침 주간 보고서(/etc/cron.d/gpu)
 set -uo pipefail
 cd "$(dirname "$0")"
 HERE=$PWD
 ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
 S=/app/shared
-W=/app/workspace
+W=/app/autonomy_sw
 ST=/app/state
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 step() { echo; echo "${c_c}==== $1 ====${c_0}"; }
@@ -32,7 +32,7 @@ if [ "${1:-}" = --undo ]; then
     step '되돌리기'
     rm -f /etc/profile.d/gpu.sh /etc/cron.d/gpu
     sed -i '/# gpu admin_setup/d' /etc/bash.bashrc
-    ok '접속 설정과 정기 점검을 지웠어요. gpu 명령, 공용 폴더 잠금, 기록(/app/state), 드라이버 고정은 그대로 뒀어요.'
+    ok '접속 설정과 정기 점검을 지웠어요. gpu 명령, 공용 폴더 잠금, 기록(/app/state)은 그대로 뒀어요.'
     echo "  다시 쓰려면 같은 폴더에서 bash admin_setup.sh 를 실행하세요."
     exit 0
 fi
@@ -80,6 +80,12 @@ if [ -d "$S" ] && ! { [ "$(stat -c %U "$S")" = root ] && [ "$(stat -c %U "$S/.gp
     warn "예전 $S 는 공용 계정이 만든 것이라 그대로 믿지 않아요. 데이터셋·모델과 명단·배분·알림 설정만 옮기고, 나머지(기초 프로그램 등)는 $old 로 치웠어요(root만 볼 수 있어요)"
     echo "    기초 프로그램은 다시 설치하세요(마지막 '남은 일' 3번). 치운 폴더는 확인한 뒤 지워도 돼요: rm -rf $old"
 fi
+# 예전 작업 폴더 이름(/app/workspace)을 쓰던 서버: 안의 파일은 그대로 두고 폴더 이름만 바꾼다(같은 디스크라 바로 끝난다)
+if [ -d /app/workspace ] && [ ! -L /app/workspace ] && [ ! -e "$W" ]; then
+    mv /app/workspace "$W" && warn "예전 작업 폴더 /app/workspace 를 $W 로 옮겼어요(안의 파일은 그대로). 팀원에게 새 위치를 알려 주세요"
+elif [ -e /app/workspace ] && [ -e "$W" ]; then
+    warn "/app/workspace 와 $W 가 둘 다 있어요. /app/workspace 안의 파일을 확인해 $W 로 옮긴 뒤 지우세요"
+fi
 mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty} /app/inbox
 # 공용: root 만 쓰고 모두 읽는다
 chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S" && touch "$S/.gpu_root"
@@ -99,7 +105,8 @@ chown root:root /app/inbox && chmod 755 /app/inbox
 mkdir -p /app/upload && chown "$ACC:$ACC" /app/upload && chmod 755 /app/upload
 ok "$W: 팀원 작업 공간,  $ST: 기록·알림,  /app/upload: 설치 파일 올리는 곳(공용 계정),  /app/inbox: root가 지문을 확인한 설치 파일"
 # 홈에서도 보이게 링크(홈은 10 GB 라 실제 파일은 /app 에)
-for n in shared workspace; do
+[ -L "$HOME_A/workspace" ] && [ "$(readlink "$HOME_A/workspace")" = /app/workspace ] && setsid -w runuser -u "$ACC" -- rm -f "$HOME_A/workspace"   # 예전 이름의 링크
+for n in shared autonomy_sw; do
     [ -e "$HOME_A/$n" ] || [ -L "$HOME_A/$n" ] || setsid -w runuser -u "$ACC" -- ln -sn "/app/$n" "$HOME_A/$n"   # 공용 계정 홈이라 그 권한으로
 done
 # 팀원 명단과 GPU 배분: 관리자가 고치고, gpu 명령이 읽는다(엑셀 '팀원', 'GPU 배분' 시트와 같게)
@@ -269,7 +276,7 @@ grep -q '# gpu admin_setup' /etc/bash.bashrc ||
 ok '접속 설정: 이름 고르기(번호), 이름별 캐시·명령 기록, 작업 폴더로 이동, 알림 보기'
 
 # ------------------------------------------------------------------ 5. GPU 서비스
-step '5. GPU 서비스와 드라이버 고정'
+step '5. GPU 서비스'
 # PCIe 카드(H200 NVL 등)는 NVSwitch 가 없어 Fabric Manager 가 필요 없다(켜면 시작하지 못하고 실패만 남긴다)
 gname=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
 svcs=(nvidia-persistenced nvidia-fabricmanager nvlsm)
@@ -282,13 +289,6 @@ for svc in "${svcs[@]}"; do
         [ "$svc" = nvidia-fabricmanager ] && warn "$svc 서비스가 없어요. HGX(SXM) 보드는 이게 있어야 GPU를 써요. 서버 관리 팀에 드라이버와 같은 버전으로 요청하세요"
     fi
 done
-mapfile -t held < <(dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null |
-    awk '$NF=="installed" && $1 ~ /^(nvidia-|libnvidia-|cuda-drivers|nvlsm|libnvsdm|datacenter-gpu-manager)/ {print $1}')
-if grep -qE '^\s*[0-9]+\s+다른팀' "$S/gpu_alloc.txt" 2>/dev/null; then
-    warn '다른 팀과 같이 쓰는 서버라 드라이버 버전을 고정(apt-mark hold)하지 않았어요. 드라이버 업데이트는 서버 관리 팀·다른 팀과 정하세요'
-elif [ ${#held[@]} -gt 0 ]; then
-    apt-mark hold "${held[@]}" >/dev/null && ok "드라이버 관련 패키지 ${#held[@]}개의 버전을 고정했어요(apt-mark hold)"
-else warn '고정할 NVIDIA 패키지를 찾지 못했어요(드라이버를 apt가 아닌 방식으로 설치했을 수 있어요)'; fi
 
 # ------------------------------------------------------------------ 6. 정기 점검
 step '6. 정기 점검'

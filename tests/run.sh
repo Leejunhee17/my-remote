@@ -193,7 +193,7 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
 # ================================================================== 4. gpu (정기 점검·현황·보고서)
 APPT=$T/app
 setup_app() {   # 가짜 /app. gpu 은 root 로 돌 때 자기 파일이 root 소유여야 한다
-    rm -rf "$APPT"; mkdir -p "$APPT"/shared/bin "$APPT"/workspace/{hong,kim} "$APPT"/state/{gpu_log,notice,reports,images,notice_seen,tty} "$APPT"/upload "$APPT"/inbox
+    rm -rf "$APPT"; mkdir -p "$APPT"/shared/bin "$APPT"/autonomy_sw/{hong,kim} "$APPT"/state/{gpu_log,notice,reports,images,notice_seen,tty} "$APPT"/upload "$APPT"/inbox
     install -m 755 server/bin/gpu server/bin/docker server/bin/nvidia-smi "$APPT/shared/bin/"
     printf '홍길동 인지\nhong 인지\nkim 판단\n관리자 인지\n' > "$APPT/shared/team.txt"
     printf '# 시험\n  # 들여쓴 주석\n0 다른팀\n1 다른팀\n2 다른팀\n3 다른팀\n4 인지\n5 판단\n6 공용\n7 공용\n' > "$APPT/shared/gpu_alloc.txt"
@@ -220,11 +220,11 @@ t_gpu() {
     t 'GPU-<uuid> 로 고른 컨테이너도 그 GPU 번호에 보여요' grep -qE '^5 .*kim.*uuid-run' <(sed 's/\x1b\[[0-9;]*m//g' "$LOG")
     t '들여쓴 주석 줄을 GPU 배분으로 읽지 않아요(mawk)' lacks "$LOG" '들여쓴'
     gpu _names > "$LOG" 2>&1; t '팀원 이름 목록에 "관리자" 가 없어요(이름표로 관리자 알림을 꾸미지 못하게)' lacks "$LOG" 관리자
-    ln -s / "$APPT/workspace/zz-link"
+    ln -s / "$APPT/autonomy_sw/zz-link"
     if timeout 60 env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" GPU_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/shared/bin/gpu" _report > "$LOG" 2>&1; then
         t '주간 보고서가 나와요' has "$LOG" '== 디스크'
     else no '주간 보고서가 60초 안에 끝나지 않아요(작업 폴더의 링크를 따라갔을 수 있어요)'; fi
-    rm -f "$APPT/workspace/zz-link"
+    rm -f "$APPT/autonomy_sw/zz-link"
 }
 
 # ================================================================== 5. docker 래퍼(팀원 = 공용 계정으로)
@@ -346,12 +346,14 @@ t_system() {
     mkdir -p /app/shared/{tools/bin,datasets/x}
     echo evil > /app/shared/tools/bin/git; echo d > /app/shared/datasets/x/f; ln -s /etc/passwd /app/shared/datasets/x/l
     printf 'IDLE_HOURS=12\n' > /app/shared/gpu.conf; chown -R gputest /app/shared /app
+    rm -rf /app/autonomy_sw; mkdir -p /app/workspace/kim && echo r > /app/workspace/kim/result.txt && chown -R gputest /app/workspace   # 예전 이름의 작업 폴더
     local P=$T/pack; mkdir -p "$P"; cp -r server/. "$P/"
     printf '2\n' | script -qec "bash $P/admin_setup.sh" /dev/null > "$LOG" 2>&1
     t '끝까지 실행돼요' has "$LOG" '완료'
     t '/app 과 /app/shared 를 root 소유로 잠가요' test "$(stat -c %U /app)$(stat -c %U /app/shared)" = rootroot
     t '예전 /app/shared 의 프로그램을 치워요' bash -c 'ls -d /app/.shared_old_*/tools/bin/git >/dev/null && [ ! -e /app/shared/tools/bin/git ]'
     t '예전 데이터셋·설정은 옮기고 링크는 지워요' bash -c '[ -f /app/shared/datasets/x/f ] && [ ! -L /app/shared/datasets/x/l ] && [ -f /app/shared/gpu.conf ]'
+    t '예전 작업 폴더(/app/workspace)를 /app/autonomy_sw 로 옮겨요' bash -c '[ -f /app/autonomy_sw/kim/result.txt ] && [ ! -e /app/workspace ]'
     t '서버 번호 2를 고르면 0~3번이 다른팀이에요' grep -qE '^0[[:space:]]+다른팀' /app/shared/gpu_alloc.txt
     t '접속 설정과 정기 점검을 만들어요' test -f /etc/profile.d/gpu.sh -a -f /etc/cron.d/gpu
     t '정기 점검 파일에 PATH(runuser 위치)가 있어요' grep -q '^PATH=.*/usr/sbin' /etc/cron.d/gpu
@@ -365,7 +367,7 @@ t_system() {
     rm -f /app/state/tty/pts-*
     printf '1\necho "WS=$GPU_WS USER=$GPU_USER"\ntype docker | head -1\nexit\n' | timeout 60 script -qec 'su -l gputest' /dev/null > "$LOG" 2>&1
     t '접속하면 이름 목록이 나와요' has "$LOG" '1 홍길동'
-    t '번호로 고르면 이름과 작업 폴더가 정해져요' has "$LOG" 'WS=/app/workspace/홍길동 USER=홍길동'
+    t '번호로 고르면 이름과 작업 폴더가 정해져요' has "$LOG" 'WS=/app/autonomy_sw/홍길동 USER=홍길동'
     t '공용 계정의 docker 는 도우미(/app/shared/bin/docker)예요' has "$LOG" 'docker is /app/shared/bin/docker'
     t '알림을 보낼 창(pts)과 이름을 적어 둬요' bash -c 'grep -qx 홍길동 /app/state/tty/pts-*'
 }

@@ -38,7 +38,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 기초 
 | 인터넷 | 돼요. 여기서 내려받아요 | 안 돼요 |
 | 접속 | | HIWARE 를 거쳐요. 팀원은 모두 공용 계정 하나(PuTTY, FileZilla). 관리자는 root(PuTTY만 돼요). 파일은 공용 계정 FileZilla로 올려요 |
 | 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD, NAS `/data`(다른 팀과 같이 써요. 계획: `docs/9_NAS.md`) |
-| 주요 위치 | `D:\gpu` | 공용 `/app/shared`(root 만 고침), 작업 `/app/workspace/<이름>`, 기록·알림 `/app/state`, 설치 파일 올리는 곳 `/app/upload`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
+| 주요 위치 | `D:\gpu` | 공용 `/app/shared`(root 만 고침), 작업 `/app/autonomy_sw/<이름>`, 기록·알림 `/app/state`, 설치 파일 올리는 곳 `/app/upload`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
 
 ## 문서 지도
 
