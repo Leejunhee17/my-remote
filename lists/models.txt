@@ -1,11 +1,11 @@
 # Hugging Face 사전학습 모델 목록 (야지·오프로드 주행 기준). pc\models_download.ps1 이 읽는다. 설명은 docs/7_모델.md.
 # 형식: 그룹  저장소  [gated]  [code=GitHub 주소]
 #   gated = 모델 페이지에서 약관 동의 + HF 토큰이 필요
-#   code= = 모델 코드가 GitHub에만 있을 때. 코드 묶음도 받아 B200 서버의 <모델>/code 에 푼다
+#   code= = 모델 코드가 GitHub에만 있을 때. 코드 묶음도 받아 GPU 서버의 <모델>/code 에 푼다
 # 줄 맨 앞에 # 을 붙이면 받지 않는다. 크기는 2026-11-02 기준 대략 값(GB).
 # 고른 기준: 오프로드 장면은 풀·나무·흙·물·바위가 대부분이라, 도시 도로(Cityscapes)보다
 #            자연물 클래스가 많은 ADE20K·Mapillary 로 학습한 모델과 범용 기반 모델을 먼저 받는다.
-#            주행 영상 의사 라벨(pseudo-label)은 속도보다 품질이 중요해서, B200 에 올라가는 가장 큰 급을 기본으로 둔다.
+#            주행 영상 의사 라벨(pseudo-label)은 속도보다 품질이 중요해서, H200 한 장(141 GB)에 올라가는 가장 큰 급을 기본으로 둔다.
 
 # ---------------------------------------------------------------- seg: GOOSE·RELLIS·RUGD 미세조정 출발점 (약 8.1 GB)
 seg       XYZ9843/GOOSE-M2F  code=https://github.com/Aditya-Lingam-9000/GOOSE-M2F  # 3.5  GOOSE 64클래스로 학습한 Mask2Former Swin-L (ICRA 2026 GOOSE 2D 챌린지 3위, .pth + 코드)
@@ -33,7 +33,7 @@ backbone  timm/vit_large_patch16_dinov3.lvd1689m                      # 1.2  DIN
 backbone  facebook/dinov2-with-registers-large                        # 1.2  DINOv2-L (Apache-2.0)
 backbone  facebook/dinov3-vith16plus-pretrain-lvd1689m  gated         # 3.4  DINOv3 ViT-H+ (GOOSE 2026 2위 팀 단일 모델 최고)
 backbone  nvidia/C-RADIOv4-H                                          # 1.7  C-RADIOv4 (DINO+SigLIP+SAM 증류, trust_remote_code)
-backbone  facebook/dinov3-vit7b16-pretrain-lvd1689m      gated         # 26.9 DINOv3 7B. 의사 라벨을 만드는 교사(teacher) 분할 모델의 백본. B200 한 장에 bf16 으로 올라간다
+backbone  facebook/dinov3-vit7b16-pretrain-lvd1689m      gated         # 26.9 DINOv3 7B. 의사 라벨을 만드는 교사(teacher) 분할 모델의 백본. H200 한 장에 bf16 으로 올라간다
 #backbone facebook/PE-Spatial-G14-448  code=https://github.com/facebookresearch/perception_models  # 7.4  Perception Encoder Spatial G (SAM 2.1 로 다듬은 밀집 특징, .pt)
 #backbone lorebianchi98/Talk2DINOv3-ViTL                              # 1.6  DINOv3 특징 + 텍스트로 풀·흙·자갈 같은 배경 클래스 분할 (DINOv3 라이선스)
 
@@ -89,5 +89,5 @@ vlmseg    ByteDance/Sa2VA-Qwen3-VL-4B                                 # 20.2 SAM
 
 # ---------------------------------------------------------------- vlmxl: 수백 GB 급 VLM. 기본으로 받지 않는다
 # 받으려면 # 을 지우고 -Only vlmxl 로 따로 받는다. 서버에서는 설치하는 동안 같은 모델이 최대 3벌 생기니 docs/7_모델.md "아주 큰 VLM 받기" 순서를 따른다
-#vlmxl    Qwen/Qwen3.5-397B-A17B-FP8                                  # 406  가장 큰 Qwen VLM. 박스·위치 찾기 점수 최고(RefCOCO 92.3). 어려운 장면 판정용. B200 4장
-#vlmxl    Qwen/Qwen3.5-122B-A10B-FP8                                  # 127  중간 크기. B200 1장
+#vlmxl    Qwen/Qwen3.5-397B-A17B-FP8                                  # 406  가장 큰 Qwen VLM. 박스·위치 찾기 점수 최고(RefCOCO 92.3). 어려운 장면 판정용. H200 4장
+#vlmxl    Qwen/Qwen3.5-122B-A10B-FP8                                  # 127  중간 크기. H200 2장(한 장이면 KV 캐시 자리가 모자라요)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [B200 서버] 네트워크와 NAS를 점검해요. 설정은 아무것도 바꾸지 않아요.
+# [GPU 서버] 네트워크와 NAS를 점검해요. 설정은 아무것도 바꾸지 않아요.
 #   bash check_network.sh all               ★ 전체 점검: 두 서버에서 각각 실행하면 NAS로 서로를 찾아
 #                                           서버 사이(이더넷·InfiniBand·RDMA), 로컬 SSD, NAS 속도를 모두 측정하고 보고서를 남겨요(root 권장)
 #   bash check_network.sh                   이 서버의 네트워크 카드·속도, NAS 연결 보기
@@ -30,10 +30,20 @@ nic_line() {
     [ -d "$d/device" ] || kind="$kind(가상)"
     addr=$(ip -4 -br addr show "$n" 2>/dev/null | awk '{print $3}')
     echo "  $(pad "$n" 16)$(pad "$kind" 16)$(pad "$state" 8)$(pad "${speed:+$((speed / 1000)) Gbps}" 11)$(pad "$mtu" 7)${addr:--}"
-    # 묶은 카드(bond): 어떤 카드를 묶었는지와 나눠 보내는 방식. 한 연결(TCP 하나)은 카드 하나 속도를 넘지 못한다
+    # 묶은 카드(bond): 어떤 카드를 묶었는지와 나눠 보내는 방식(모드마다 한 연결이 낼 수 있는 속도가 다르다)
     if [ -d "$d/bonding" ]; then
-        echo "      = $(cat "$d/bonding/slaves" 2>/dev/null | sed 's/ / + /g'),  모드 $(cut -d' ' -f1 "$d/bonding/mode" 2>/dev/null), 연결 분배 방식 $(cut -d' ' -f1 "$d/bonding/xmit_hash_policy" 2>/dev/null)"
-        echo "        한 연결(scp 하나 등)은 카드 하나 속도까지만 나와요. 여러 연결을 동시에 해야 합친 속도가 나와요"
+        local bmode; bmode=$(cut -d' ' -f1 "$d/bonding/mode" 2>/dev/null)
+        case "$bmode" in
+        balance-rr)
+            echo "      = $(cat "$d/bonding/slaves" 2>/dev/null | sed 's/ / + /g'),  모드 balance-rr(패킷을 카드마다 번갈아 보내요)"
+            echo "        한 연결도 두 카드를 같이 쓰지만, 패킷 순서가 뒤섞여 보통 카드 하나 속도 안팎이에요. 여러 연결을 동시에 하면 합친 속도가 나와요" ;;
+        active-backup)
+            echo "      = $(cat "$d/bonding/slaves" 2>/dev/null | sed 's/ / + /g'),  모드 active-backup"
+            echo "        한 번에 카드 하나만 써요(나머지는 고장 대비 예비). 여러 연결을 해도 카드 하나 속도예요" ;;
+        *)
+            echo "      = $(cat "$d/bonding/slaves" 2>/dev/null | sed 's/ / + /g'),  모드 $bmode, 연결 분배 방식 $(cut -d' ' -f1 "$d/bonding/xmit_hash_policy" 2>/dev/null)"
+            echo "        한 연결(scp 하나 등)은 카드 하나 속도까지만 나와요. 여러 연결을 동시에 해야 합친 속도가 나와요" ;;
+        esac
     fi
 }
 # IP 로 가는 카드와 그 카드의 속도
@@ -49,7 +59,7 @@ rate() {   # 바이트 초 → "x.xx GB/s (y Gbps)"
 }
 
 cmd_info() {
-    [ -n "${ALL_MODE:-}" ] || echo "${c_c}[B200 서버] 네트워크 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))${c_0}"
+    [ -n "${ALL_MODE:-}" ] || echo "${c_c}[GPU 서버] 네트워크 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))${c_0}"
     head_ '네트워크 카드'
     command -v ip >/dev/null || warn 'ip 명령(iproute2)이 없어 주소와 경로를 못 봐요'
     echo "  $(pad 이름 16)$(pad 종류 16)$(pad 상태 8)$(pad 속도 11)$(pad MTU 7)IPv4"
@@ -296,7 +306,7 @@ disk_both() {   # 한 줄기와 8줄기
 all_body() {
     local nas R peer= pf role mine local_dir PINFO=
     nas=$(nas_dir "${1:-}")
-    echo "${c_c}[B200 서버] 네트워크 전체 점검  ($(date '+%Y-%m-%d %H:%M'), $ME, $(id -un))${c_0}"
+    echo "${c_c}[GPU 서버] 네트워크 전체 점검  ($(date '+%Y-%m-%d %H:%M'), $ME, $(id -un))${c_0}"
     [ "$(id -u)" = 0 ] || warn 'root가 아니라서 InfiniBand 망 조회(ibhosts)는 건너뛰어요'
     cmd_info
 
@@ -354,14 +364,14 @@ all_body() {
             head_ "서버 사이: InfiniBand로 IP 통신 (IPoIB, $pib)"
             echo "  쓰는 네트워크 카드: $(route_to "$pib")"
             pair_tcp IPoIB $((PORT + 1)) "$pib" $((pport + 1))
-            echo "  (python으로 측정해서 수십 Gbps보다 높게는 안 나와요. 실제 InfiniBand 속도는 아래 RDMA 값을 보세요)"
+            echo "  (TCP로 잰 값이에요. 두 서버를 묶어 학습할 때 쓰는 RDMA 는 CPU를 거치지 않아 보통 이보다 빨라요. 아래 RDMA 값을 보세요)"
         fi
         head_ '서버 사이: RDMA (두 서버를 묶어 학습할 때 NCCL 이 쓰는 통신)'
         if command -v ib_write_bw >/dev/null && [ "$(field PERFTEST "$pf")" = 1 ]; then
             local common; common=$(comm -12 <(active_hcas | tr ' ' '\n' | grep . | sort) <(field HCAS "$pf" | tr ' ' '\n' | grep . | sort) | tr '\n' ' ')
             pair_rdma "$role" "$peth" "$common"
         else
-            warn '양쪽에 perftest(ib_write_bw)가 있어야 측정할 수 있어요. 서버 관리 팀에 perftest 설치를 요청하세요'
+            warn '양쪽에 perftest(ib_write_bw)가 있어야 측정할 수 있어요. 설치 방법: docs/4_네트워크.md 의 "InfiniBand 도구"'
             SUM+=("RDMA: perftest가 없어 측정 못 함")
         fi
         : | put "$R/$ME.netdone"; wait_file "$R/$peer.netdone" "$pf" 180 || true
@@ -393,7 +403,7 @@ all_body() {
             echo "    장비: $(echo "$devs" | tr '\n' ' ')"
         done
     elif [ "$(id -u)" = 0 ]; then
-        warn 'ibhosts(infiniband-diags)가 없어서 InfiniBand 망은 못 봐요. 필요하면 서버 관리 팀에 infiniband-diags 설치를 요청하세요'
+        warn 'ibhosts(infiniband-diags)가 없어서 InfiniBand 망은 못 봐요. 설치 방법: docs/4_네트워크.md 의 "InfiniBand 도구"'
     fi
 
     head_ '요약'
@@ -415,8 +425,11 @@ share_copy() {
     perl -Mutf8 -CSDA -ne '
         BEGIN { for (@ARGV) { my ($k, $v) = split /=/, $_, 2; $m{$k} //= $v if length($k) >= 2 }
                 @ARGV = (); $re = join "|", map { quotemeta } sort { length($b) <=> length($a) } keys %m; $n = 0 }
+        sub w { my $n = 0; $n += $_ =~ /[\x{1100}-\x{115F}\x{2E80}-\x{A4CF}\x{AC00}-\x{D7A3}\x{F900}-\x{FAFF}\x{FF00}-\x{FF60}]/ ? 2 : 1 for split //, $_[0]; $n }   # 화면 폭(한글 두 칸)
+        sub max { $_[0] > $_[1] ? $_[0] : $_[1] }
         next if /^\s*장비: /;                                  # InfiniBand 망의 장비 이름(다른 팀 장비일 수 있음)
-        s/($re)/$m{$1}/g if length $re;                         # 한 번에 바꾼다(바꾼 말을 다시 바꾸지 않게)
+        # 한 번에 바꾼다(바꾼 말을 다시 바꾸지 않게). 뒤에 칸을 맞춘 빈칸이 있으면 원래 칸 너비로 다시 채워 원래 이름 길이가 드러나지 않게 한다
+        s{($re)(\(\d+\))?( {2,})?}{ my ($k, $u, $sp) = ($1, $2 // "", $3); $m{$k} . $u . (defined $sp ? " " x max(1, w($k) + length($sp) - w($m{$k})) : "") }ge if length $re;
         s{\b[\w.-]+:/[\w./-]*}{NAS주소}g;
         s{\b((?:\d{1,3}\.){3}\d{1,3})(?:/\d+)?\b}{ $ip{$1} //= "IP-" . ++$n }ge;
         print;

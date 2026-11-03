@@ -1,5 +1,5 @@
 ﻿<#
-[접근 PC · 관리자 전용] B200 서버에 설치할 rootless Docker 묶음(pack_docker\b200-docker.tar)을 만든다.
+[접근 PC · 관리자 전용] GPU 서버에 설치할 rootless Docker 묶음(pack_docker\b200-docker.tar)을 만든다.
 점검 → 받기 → 검사 → 묶기까지 한 번에 한다. 끊기면 다시 실행하면 이어서 한다.
 Ubuntu 버전이 정해지지 않아도 된다(22.04, 24.04 용 패키지를 모두 넣는다).
 
@@ -212,12 +212,12 @@ Write-Host ''
 Write-Host '############################ 완료 ############################' -ForegroundColor Green
 Write-Host " 묶은 버전: Docker $dv, NVIDIA Container Toolkit $nv"
 Write-Host ''
-Write-Host ' 접근 PC에서 할 일은 끝났어요. B200 서버에 올릴 파일(하나):' -ForegroundColor Green
+Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 파일(하나):' -ForegroundColor Green
 Write-Host "   $tar"
 Write-Host ''
 Save-Fingerprint 'b200-docker.tar' (Get-Fingerprint @($tar))
 Write-Host ''
-Write-Host ' 1) 공용 계정의 FileZilla로 B200 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
+Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/shared/bin/b200 fetch b200-docker.tar'
 Write-Host ' 3) 같으면 풀어서 실행하세요. admin_setup.sh 를 먼저 실행해 둬야 해요.' -ForegroundColor Green

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [B200 서버] OS를 새로 설치한 직후, 반입 전에 서버 상태를 점검한다. root 없이 되고 아무것도 바꾸지 않는다.
+# [GPU 서버] OS를 새로 설치한 직후, 반입 전에 서버 상태를 점검한다. root 없이 되고 아무것도 바꾸지 않는다.
 #   bash check_server.sh
 # 결과의 [문제] 줄은 서버 관리 팀에 요청할 내용이다.
 # 결과는 /app/inbox/reports/server_report_<서버>_<시각>.txt(원본)와 사내 정보를 가린 server_공유용_….txt 에도 남긴다(root 일 때).
@@ -16,8 +16,20 @@ GLIBC_NEED=2.35   # 접근 PC pack_build.ps1 의 -Glibc 기본값과 같게 둔�
 APP=${APP:-/app}
 ME=$(hostname -s)
 
+# nvidia-smi topo -m 에서 NVLink(NV숫자)로 이어진 GPU 묶음: "[0,1,2,3] [4,5,6,7]". 묶인 것이 없으면 빈 줄
+nvl_groups() {
+    nvidia-smi topo -m 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '
+        function f(x) { while (p[x] != x) x = p[x]; return x }
+        /^GPU[0-9]+[ \t]/ { i = substr($1, 4) + 0; g[i] = 1; p[i] = i
+                            for (k = 2; k <= NF; k++) if ($k ~ /^NV[0-9]+$/) e[i "," (k - 2)] = 1 }
+        END { for (x in e) { split(x, a, ","); if (!(a[2] in g)) continue; r1 = f(a[1]); r2 = f(a[2]); if (r1 != r2) p[r1] = r2 }
+              for (i = 0; i < 64; i++) if (i in g) { r = f(i); m[r] = c[r]++ ? m[r] "," i : i }
+              out = ""; for (i = 0; i < 64; i++) if (i in g) { r = f(i); if (c[r] > 1 && !(r in done)) { done[r] = 1; out = out (out == "" ? "" : " ") "[" m[r] "]" } }
+              print out }'
+}
+
 body() {
-echo "${c_c}[B200 서버] 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))${c_0}"
+echo "${c_c}[GPU 서버] 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))${c_0}"
 
 echo; echo "${c_c}== 운영체제 ==${c_0}"
 os=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")
@@ -34,25 +46,39 @@ echo; echo "${c_c}== GPU ==${c_0}"
 if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
     drv=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
     ngpu=$(nvidia-smi -L | wc -l)
-    echo "  $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1) × $ngpu, 드라이버 $drv"
+    gname=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)
+    echo "  $gname × $ngpu, 드라이버 $drv"
     if ver_ge "$drv" 580; then ok "드라이버 $drv (CUDA 13 이미지도 돌아가요)"
     else bad "드라이버 $drv: 580보다 낮아요" "NVIDIA 드라이버 580 이상(open 커널 모듈, 예: nvidia-driver-580-open)으로 설치해 주세요"; fi
     [ "$ngpu" -eq 8 ] && ok "GPU 8장이 보여요" || warn "GPU가 ${ngpu}장만 보여요(8장이어야 해요). 서버 관리 팀에 확인하세요"
-    # HGX B200 은 Fabric Manager 가 NVLink 를 초기화해야 CUDA 가 GPU를 쓸 수 있다
-    fab=$(nvidia-smi -q 2>/dev/null | awk '/^ *Fabric/{f=1} f && /State/{print $3; exit}')
-    case "$fab" in
-        Completed) ok "NVLink Fabric 초기화가 끝났어요" ;;
-        ""|N/A)    warn "NVLink Fabric 상태를 읽지 못했어요(HGX 보드가 아니면 상관없어요)" ;;
-        *)         bad "NVLink Fabric 상태: $fab (Completed여야 GPU를 써요)" "드라이버와 같은 버전의 nvidia-fabricmanager와 B200용 nvlsm을 설치하고 서비스를 켜 주세요" ;;
+    case "$gname" in
+    *NVL*|*PCIe*)
+        # PCIe 카드(H200 NVL 등)는 NVSwitch 가 없어 Fabric Manager 가 필요 없다. NVLink 는 브리지로 2장·4장씩 묶인다
+        ok "PCIe 카드라 Fabric Manager가 필요 없어요"
+        groups=$(nvl_groups)
+        if [ -n "$groups" ]; then
+            ok "NVLink 브리지로 묶인 GPU: $groups"
+            echo "      여러 장을 한 작업에 쓸 때는 같은 묶음 안에서 고르면 GPU끼리 빠르게 주고받아요(묶음 밖은 PCIe)"
+        else
+            warn "NVLink 브리지로 묶인 GPU가 없어요(GPU끼리 PCIe로만 주고받아요). 브리지를 끼웠는지 서버 관리 팀에 확인하세요"
+        fi ;;
+    *)
+        # HGX(SXM) 보드는 Fabric Manager 가 NVLink 를 초기화해야 CUDA 가 GPU를 쓸 수 있다(B200 이후는 nvlsm 도)
+        fab=$(nvidia-smi -q 2>/dev/null | awk '/^ *Fabric/{f=1} f && /State/{print $3; exit}')
+        case "$fab" in
+            Completed) ok "NVLink Fabric 초기화가 끝났어요" ;;
+            ""|N/A)    warn "NVLink Fabric 상태를 읽지 못했어요(HGX 보드가 아니면 상관없어요)" ;;
+            *)         bad "NVLink Fabric 상태: $fab (Completed여야 GPU를 써요)" "드라이버와 같은 버전의 nvidia-fabricmanager(B200 이후 세대는 nvlsm 도)를 설치하고 서비스를 켜 주세요" ;;
+        esac
+        if command -v systemctl >/dev/null; then
+            st=$(systemctl is-active nvidia-fabricmanager 2>/dev/null)
+            [ "$st" = active ] && ok "nvidia-fabricmanager 서비스가 돌고 있어요" || warn "nvidia-fabricmanager 서비스: ${st:-없음}. 서버 관리 팀에 확인하세요"
+        fi ;;
     esac
-    if command -v systemctl >/dev/null; then
-        st=$(systemctl is-active nvidia-fabricmanager 2>/dev/null)
-        [ "$st" = active ] && ok "nvidia-fabricmanager 서비스가 돌고 있어요" || warn "nvidia-fabricmanager 서비스: ${st:-없음}. 서버 관리 팀에 확인하세요"
-    fi
     pm=$(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader | sort -u | tr '\n' ' ')
     [ "${pm% }" = Enabled ] && ok "Persistence mode가 켜져 있어요" || warn "Persistence mode: ${pm% }. nvidia-persistenced를 켜 두면 GPU를 처음 쓸 때 기다리지 않아요"
 else
-    bad "nvidia-smi가 없거나 GPU를 못 봐요" "NVIDIA 드라이버 580 이상(open 커널 모듈)과 nvidia-fabricmanager를 설치해 주세요"
+    bad "nvidia-smi가 없거나 GPU를 못 봐요" "NVIDIA 드라이버 580 이상(open 커널 모듈)을 설치해 주세요(HGX 보드면 nvidia-fabricmanager 도)"
 fi
 
 echo; echo "${c_c}== 저장 공간 ==${c_0}"
@@ -119,8 +145,11 @@ share_copy() {
     perl -Mutf8 -CSDA -ne '
         BEGIN { for (@ARGV) { my ($k, $v) = split /=/, $_, 2; $m{$k} //= $v if length($k) >= 2 }
                 @ARGV = (); $re = join "|", map { quotemeta } sort { length($b) <=> length($a) } keys %m; $n = 0 }
+        sub w { my $n = 0; $n += $_ =~ /[\x{1100}-\x{115F}\x{2E80}-\x{A4CF}\x{AC00}-\x{D7A3}\x{F900}-\x{FAFF}\x{FF00}-\x{FF60}]/ ? 2 : 1 for split //, $_[0]; $n }   # 화면 폭(한글 두 칸)
+        sub max { $_[0] > $_[1] ? $_[0] : $_[1] }
         next if /^\s*장비: /;                                  # InfiniBand 망의 장비 이름(다른 팀 장비일 수 있음)
-        s/($re)/$m{$1}/g if length $re;                         # 한 번에 바꾼다(바꾼 말을 다시 바꾸지 않게)
+        # 한 번에 바꾼다(바꾼 말을 다시 바꾸지 않게). 뒤에 칸을 맞춘 빈칸이 있으면 원래 칸 너비로 다시 채워 원래 이름 길이가 드러나지 않게 한다
+        s{($re)(\(\d+\))?( {2,})?}{ my ($k, $u, $sp) = ($1, $2 // "", $3); $m{$k} . $u . (defined $sp ? " " x max(1, w($k) + length($sp) - w($m{$k})) : "") }ge if length $re;
         s{\b[\w.-]+:/[\w./-]*}{NAS주소}g;
         s{\b((?:\d{1,3}\.){3}\d{1,3})(?:/\d+)?\b}{ $ip{$1} //= "IP-" . ++$n }ge;
         print;

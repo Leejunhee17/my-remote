@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# [B200 서버 · 관리자(root)] 접근 PC에서 올린 models 폴더를 /app/shared/models/<만든 곳>/<모델> 아래 둔다(admin_setup.sh 다음).
+# [GPU 서버 · 관리자(root)] 접근 PC에서 올린 models 폴더를 /app/shared/models/<만든 곳>/<모델> 아래 둔다(admin_setup.sh 다음).
 # 점검(체크섬) → 옮기기 → 가중치 파일을 열어 보는 검사까지 한 번에 한다.
 #   bash /app/inbox/models/models_install.sh
 # 다시 실행해도 된다. 이미 옮긴 것은 건너뛴다.
 set -uo pipefail
-if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행해요. 접근 PC에서는 pc 폴더의 .ps1 을 쓰세요."; exit 1; fi
+if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 GPU 서버(리눅스)에서 실행해요. 접근 PC에서는 pc 폴더의 .ps1 을 쓰세요."; exit 1; fi
 cd "$(dirname "$0")"
 SRC=$PWD
 # root 는 공용 계정이 올린 폴더를 /app/inbox 로 새로 복사한 뒤 실행한다. 복사본에 링크가 있으면 누가 심은 것이라 멈춘다
@@ -43,7 +43,7 @@ stop() {
     exit 1
 }
 
-echo "[B200 서버] 사전학습 모델 설치  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))"
+echo "[GPU 서버] 사전학습 모델 설치  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))"
 echo "가져올 곳: $SRC"
 echo "두는 곳: $D"
 

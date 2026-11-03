@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# [B200 서버] 홈의 ~/shared, ~/inbox (있으면 ~/tools 도) 를 큰 디스크로 옮기고, 홈에는 같은 이름의 링크를 둔다.
+# [GPU 서버] 홈의 ~/shared, ~/inbox (있으면 ~/tools 도) 를 큰 디스크로 옮기고, 홈에는 같은 이름의 링크를 둔다.
 # 링크를 두기 때문에 지금까지의 경로(~/shared/venv 등)와 설치된 환경은 그대로 쓸 수 있다.
 #   bash move_shared.sh /app/$USER
 # 점검 → 복사 → 복사본 확인 → 링크로 바꾸기 → 동작 검사 → (물어본 뒤) 홈의 옛 폴더 지우기
 set -uo pipefail
-if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행해요."; exit 1; fi
+if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 GPU 서버(리눅스)에서 실행해요."; exit 1; fi
 TARGET=${1:-}
 LOG="$HOME/b200_move_$(date +%Y%m%d_%H%M%S).log"
 exec > >(tee -a "$LOG") 2>&1
@@ -23,7 +23,7 @@ stop() {
     exit 1
 }
 
-echo "[B200 서버] 공용 폴더를 큰 디스크로 옮기기  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))"
+echo "[GPU 서버] 공용 폴더를 큰 디스크로 옮기기  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))"
 [ -n "$TARGET" ] || stop "옮길 곳을 붙이지 않았어요" "옮길 폴더를 붙여 실행하세요: bash move_shared.sh /app"
 TARGET=$(realpath -m "$TARGET")
 

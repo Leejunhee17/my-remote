@@ -113,7 +113,7 @@ def main(cmd, repo, d):
         with open(os.path.join(d, STATE), "w", encoding="utf-8") as f:
             json.dump(state, f)
 
-    # B200 서버에서 확인할 체크섬 목록(경로는 받는 곳 기준 상대 경로)
+    # GPU 서버에서 확인할 체크섬 목록(경로는 받는 곳 기준 상대 경로)
     base = os.path.basename(os.path.normpath(d))
     with open(os.path.join(d, SUMS), "w", encoding="utf-8", newline="\n") as f:
         for s in files:

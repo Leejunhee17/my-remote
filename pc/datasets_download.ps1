@@ -1,6 +1,6 @@
 ﻿<#
 [접근 PC] 세그멘테이션 데이터셋을 받는다. 설명은 docs\6_데이터셋.md.
-점검 → 받기(끊기면 이어받기) → 검사 → B200 서버에 올릴 목록 만들기까지 한 번에 한다.
+점검 → 받기(끊기면 이어받기) → 검사 → GPU 서버에 올릴 목록 만들기까지 한 번에 한다.
 끊기거나 실패하면 같은 명령을 다시 실행한다. 받은 것은 건너뛴다.
 
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1               # WildScenes 빼고
@@ -627,8 +627,8 @@ foreach ($set in $Manual) {
     }
 }
 
-# ------------------------------------------------------------------ 3. B200 서버에 올릴 목록
-Write-Step 3 $T 'B200 서버에서 확인할 체크섬 목록 만들기'
+# ------------------------------------------------------------------ 3. GPU 서버에 올릴 목록
+Write-Step 3 $T 'GPU 서버에서 확인할 체크섬 목록 만들기'
 $oks = @(Get-ChildItem $Dest -Recurse -Filter '*.ok' -File | Where-Object { $_.Name -ne 'wildscenes.ok' })
 $lines = @($oks | ForEach-Object { (Get-Content -Raw -Encoding UTF8 $_.FullName).Trim() })
 # WildScenes 는 압축이 아니라 파일 수만 개라, 파일마다 체크섬을 따로 적어 두고 목록에 넣는다(서버가 하나하나 확인)
@@ -668,7 +668,7 @@ if ($failed.Count) {
     Write-Host '################ 일부 못 받음 ################' -ForegroundColor Yellow
     Write-Host " 못 받은 것: $($failed -join ', ')"
     Write-Host ' 같은 명령을 다시 실행하면 못 받은 것만 이어서 받아요.'
-    Write-Host ' 받은 것만 먼저 B200 서버에 올려도 돼요(B200 서버 스크립트는 올라온 것만 설치해요).'
+    Write-Host ' 받은 것만 먼저 GPU 서버에 올려도 돼요(GPU 서버 스크립트는 올라온 것만 설치해요).'
     Write-Host " 계속 안 되면 이 기록 파일을 담당자에게 보내 주세요: $script:LogPath"
 } else {
     Write-Host '############################ 완료 ############################' -ForegroundColor Green
@@ -678,7 +678,7 @@ if ($skipped.Count) {
     Write-Host '   이유는 위 결과 표에 있어요. 준비되면 같은 명령을 다시 실행하세요(받은 것은 건너뛰어요).'
 }
 Write-Host ''
-Write-Host ' 접근 PC에서 할 일은 끝났어요. B200 서버에 올릴 폴더(통째로):' -ForegroundColor Green
+Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 폴더(통째로):' -ForegroundColor Green
 Write-Host "   $Dest  ($(Format-Size $total))"
 if ((Split-Path -Leaf $Dest) -ne 'datasets') { Write-Host '   폴더 이름이 datasets 가 아니면, 올리기 전에 datasets 로 바꾸세요(서버 명령이 이 이름만 받아요).' -ForegroundColor Yellow }
 Write-Host ''
@@ -686,7 +686,7 @@ Save-Fingerprint 'datasets 폴더' (Get-Fingerprint @((Join-Path $Dest 'MANIFEST
 Write-Host '   (MANIFEST.sha256과 datasets_install.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
 Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @('wildscenes/')
 Write-Host ''
-Write-Host ' 1) 공용 계정의 FileZilla로 B200 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
+Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/shared/bin/b200 fetch datasets'
 Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/datasets 는 지워 공간을 비우세요(서버 2도 쓸 거면 먼저 NAS에 보관: docs\9_NAS.md).' -ForegroundColor Green

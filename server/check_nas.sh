@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [B200 서버] NAS 구조·권한·용량을 점검해요. NAS 계획(docs/9_NAS.md)을 정하기 전에 두 서버에서 각각 한 번씩 실행해요.
+# [GPU 서버] NAS 구조·권한·용량을 점검해요. NAS 계획(docs/9_NAS.md)을 정하기 전에 두 서버에서 각각 한 번씩 실행해요.
 #   bash check_nas.sh                 NAS(nfs 등)로 연결된 폴더를 모두 봐요
 #   bash check_nas.sh <우리 팀 폴더>   그 폴더(예: /data/우리팀)의 주인·권한·용량도 봐요
 # 바꾸는 것은 없어요. root 로 실행하면 root squash 를 알아보려고 NAS 의 tmp 폴더(스티키 비트가 있을 때만)에
@@ -31,7 +31,7 @@ who_writes() {
 }
 
 body() {
-    echo "${c_c}[B200 서버] NAS 점검  ($(date '+%Y-%m-%d %H:%M'), $ME, $(id -un))${c_0}"
+    echo "${c_c}[GPU 서버] NAS 점검  ($(date '+%Y-%m-%d %H:%M'), $ME, $(id -un))${c_0}"
 
     head_ '연결된 NAS'
     mapfile -t mounts < <(findmnt -rn -t nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs -o TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null)
@@ -53,13 +53,13 @@ body() {
     df -iP "$NAS" 2>/dev/null | awk 'NR==2 && $2 > 0 {printf "  파일 수: 전체 %s, 쓴 것 %s (%s)\n", $2, $3, $5}'
     echo "  (NAS에 폴더별 할당량(quota)이 있으면 그 폴더에서 df 를 하면 할당량이 '전체'로 보여요)"
 
-    head_ "$NAS 바로 아래 폴더 (주인·권한)"
+    head_ "$NAS 바로 아래 (주인·권한)"
     local n=0 d st uid gid mode
     while IFS= read -r -d '' d; do
         n=$((n + 1)); [ "$n" -le 60 ] || continue
         st=$(stat -c '%u %g %a' "$d" 2>/dev/null) || continue
         read -r uid gid mode <<< "$st"
-        echo "  $(pad "$(basename "$d")$([ -L "$d" ] && echo ' (링크)')" 26) 주인 $(pad "$(who_uid "$uid")" 24) 그룹 $(pad "$(grp_name "$gid")" 10) $(pad "$mode" 5) $(who_writes "$mode")"
+        echo "  $(pad "$(basename "$d")$([ -L "$d" ] && echo ' (링크)')$([ ! -L "$d" ] && [ ! -d "$d" ] && echo ' (파일)')" 26) 주인 $(pad "$(who_uid "$uid")" 24) 그룹 $(pad "$(grp_name "$gid")" 10) $(pad "$mode" 5) $(who_writes "$mode")"
     done < <(find "$NAS" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | sort -z)
     [ "$n" -le 60 ] || echo "  ... 모두 ${n}개 중 60개만 보였어요"
     [ "$n" -gt 0 ] || warn "$NAS 아래를 읽지 못했어요(권한이 없거나 비어 있어요)"
@@ -110,6 +110,13 @@ body() {
                 ok "root 가 NAS에서는 $(who_uid "$owner") 로 바뀌어요(root squash). root 는 NAS에 root 소유 폴더를 만들 수 없어요"
             fi
         else warn "$NAS/tmp 에 시험 파일을 만들지 못해 확인하지 못했어요"; fi
+    elif [ "$(stat -c %u "$NAS")" = 0 ] && [ $(( 8#$(stat -c %a "$NAS") & 8#0022 )) -eq 0 ]; then
+        # 시험 파일을 만들 곳이 없으면, root 소유이고 남은 못 쓰는 NAS 최상위에 root 가 쓸 수 있는지만 NAS 에 물어본다(만들지 않음)
+        if [ -w "$NAS" ]; then
+            warn "root 가 NAS에서도 root 예요(no_root_squash. root 소유 $NAS 에 root 가 쓸 수 있어요). 팀원이 쓸 수 있는 NAS 폴더에서는 root 로 작업하지 마세요"
+        else
+            ok "root 가 NAS에서는 다른 계정으로 바뀌어요(root squash. root 소유 $NAS 에 root 가 쓸 수 없어요)"
+        fi
     else
         echo "  $NAS/tmp(스티키 폴더)가 없어서 확인하지 않았어요. 서버 관리 팀에 root squash 설정을 물어보세요."
     fi
@@ -157,8 +164,11 @@ share_copy() {
     perl -Mutf8 -CSDA -ne '
         BEGIN { for (@ARGV) { my ($k, $v) = split /=/, $_, 2; $m{$k} //= $v if length($k) >= 2 }
                 @ARGV = (); $re = join "|", map { quotemeta } sort { length($b) <=> length($a) } keys %m; $n = 0 }
+        sub w { my $n = 0; $n += $_ =~ /[\x{1100}-\x{115F}\x{2E80}-\x{A4CF}\x{AC00}-\x{D7A3}\x{F900}-\x{FAFF}\x{FF00}-\x{FF60}]/ ? 2 : 1 for split //, $_[0]; $n }   # 화면 폭(한글 두 칸)
+        sub max { $_[0] > $_[1] ? $_[0] : $_[1] }
         next if /^\s*장비: /;                                  # InfiniBand 망의 장비 이름(다른 팀 장비일 수 있음)
-        s/($re)/$m{$1}/g if length $re;                         # 한 번에 바꾼다(바꾼 말을 다시 바꾸지 않게)
+        # 한 번에 바꾼다(바꾼 말을 다시 바꾸지 않게). 뒤에 칸을 맞춘 빈칸이 있으면 원래 칸 너비로 다시 채워 원래 이름 길이가 드러나지 않게 한다
+        s{($re)(\(\d+\))?( {2,})?}{ my ($k, $u, $sp) = ($1, $2 // "", $3); $m{$k} . $u . (defined $sp ? " " x max(1, w($k) + length($sp) - w($m{$k})) : "") }ge if length $re;
         s{\b[\w.-]+:/[\w./-]*}{NAS주소}g;
         s{\b((?:\d{1,3}\.){3}\d{1,3})(?:/\d+)?\b}{ $ip{$1} //= "IP-" . ++$n }ge;
         print;

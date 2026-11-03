@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# [B200 서버] b200-pack.tar 의 기초 프로그램(tmux, nvtop, rsync 등)을 공용 폴더에 설치한다.
+# [GPU 서버] b200-pack.tar 의 기초 프로그램(tmux, nvtop, rsync 등)을 공용 폴더에 설치한다.
 # 팀원은 Python 패키지를 도커 이미지에 넣어 오므로 공용 휠·공용 Python 환경은 만들지 않는다.
 # 점검 → 설치 → 검사까지 한 번에 한다. 실패하면 고친 뒤 다시 실행하면 된다.
 #   bash pack_install.sh /app/shared   관리자(root). admin_setup.sh 다음에 실행한다(지금 방식)
 #   bash pack_install.sh               공용 계정으로 ~/shared 에 설치(예전 방식, 관리자 설정 전)
 #   공용 계정으로 경로를 주면 ~/shared 를 그곳을 가리키는 링크로 만들고, 작업 폴더와 링크 ~/workspace 도 없으면 만든다
 set -uo pipefail
-if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 B200 서버(리눅스)에서 실행해요. 접근 PC에서는 pc 폴더의 .ps1 을 쓰세요."; exit 1; fi
+if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 GPU 서버(리눅스)에서 실행해요. 접근 PC에서는 pc 폴더의 .ps1 을 쓰세요."; exit 1; fi
 cd "$(dirname "$0")"
 HERE=$PWD
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
@@ -70,7 +70,7 @@ stop() {
 info() { sed -n "s/^$1=//p" pack_info.txt; }
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
 
-echo "[B200 서버] 기초 프로그램 설치  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))"
+echo "[GPU 서버] 기초 프로그램 설치  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))"
 echo "  운영체제: $(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")"
 
 # ------------------------------------------------------------------ 1. 점검
@@ -96,9 +96,9 @@ ok "파일 $(grep -cvE '  ((pack_install|move_shared|check_server|check_network|
 
 glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
 if ver_ge "$glibc" "$(info glibc)"; then
-    ok "B200 서버 glibc $glibc (묶음 기준 $(info glibc) 이상)"
+    ok "GPU 서버 glibc $glibc (묶음 기준 $(info glibc) 이상)"
 else
-    stop "B200 서버의 glibc($glibc)가 묶음 기준($(info glibc))보다 낮아서 안 맞아요" \
+    stop "GPU 서버의 glibc($glibc)가 묶음 기준($(info glibc))보다 낮아서 안 맞아요" \
          "접근 PC에서 -Glibc $glibc 를 붙여 pack_build.ps1 을 다시 실행하고, 새 묶음 파일을 올리세요."
 fi
 

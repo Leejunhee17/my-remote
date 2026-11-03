@@ -37,7 +37,15 @@ mkdir -p "$T/fake" && chmod 777 "$T/fake"
 cat > "$T/fake/nvidia-smi" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
-    -L) for i in 0 1 2 3 4 5 6 7; do echo "GPU $i: NVIDIA B200 (UUID: GPU-$i)"; done ;;
+    -L) for i in 0 1 2 3 4 5 6 7; do echo "GPU $i: ${FAKE_GPU_NAME:-NVIDIA B200} (UUID: GPU-$i)"; done ;;
+    --query-gpu=name\ *) for i in 0 1 2 3 4 5 6 7; do echo "${FAKE_GPU_NAME:-NVIDIA B200}"; done ;;
+    --query-gpu=driver_version\ *) for i in 0 1 2 3 4 5 6 7; do echo 595.58.03; done ;;
+    --query-gpu=persistence_mode\ *) for i in 0 1 2 3 4 5 6 7; do echo Enabled; done ;;
+    'topo -m')   # NVLink 브리지 4장씩 두 묶음(H200 NVL 모양)
+        printf '\tGPU0\tGPU1\tGPU2\tGPU3\tGPU4\tGPU5\tGPU6\tGPU7\tNIC0\tCPU Affinity\n'
+        for i in 0 1 2 3 4 5 6 7; do printf 'GPU%s' $i; for j in 0 1 2 3 4 5 6 7; do
+            if [ $i = $j ]; then printf '\t X '; elif [ $((i / 4)) = $((j / 4)) ]; then printf '\tNV18'; else printf '\tSYS'; fi; done; printf '\tSYS\t0-55\n'; done
+        printf 'NIC0\tSYS\n\nLegend:\n  NV#  = Connection traversing a bonded set of # NVLinks\n' ;;
     *index,uuid*) for i in 0 1 2 3 4 6 7; do echo "$i, GPU-0000000$i-1111"; done; echo "5, GPU-bbbbbbbb-2222" ;;
     *index,memory.used,memory.total,utilization.gpu*) for i in 0 1 2 3 4 5 6 7; do echo "$i, 0, 179000, 0"; done ;;
     *index,utilization.gpu,memory.used*) for i in 0 1 2 3 4 5 6 7; do echo "$i, 0, 0"; done ;;
@@ -270,6 +278,18 @@ t_reports() {
         ok '서버 점검: 원본과 공유용 사본을 만들어요'
         t '서버 점검: 공유용 사본에 서버·계정 이름이 없어요' bash -c "! sed 's/(…[^)]*)//g' '$share' | grep -qwE -- '$host|nobody'"
     else no '서버 점검: 보고서가 없어요' "$(tail -5 "$LOG")"; fi
+    # 같은 줄에 칸을 맞춘 이름은 바꾼 뒤에도 같은 칸 너비여서, 원래 이름의 길이가 드러나지 않는다
+    local sc=$T/rep/sc; printf '  alice(1000)          그룹 alice      755\n  bo(1001)             그룹 bo         755\n' > "$sc.in"
+    bash -c "$(sed -n '/^share_copy() {/,/^}/p' server/check_nas.sh)"'; share_copy "$1" "$2" alice=계정1 bo=계정2' _ "$sc.in" "$sc.out"
+    cols() { local l; while IFS= read -r l; do printf '%s,%s ' "$(printf '%s' "${l%%그룹*}" | wc -L)" "$(printf '%s' "${l%%755*}" | wc -L)"; done < "$1"; }
+    t '공유용 사본: 이름을 바꿔도 칸 너비가 그대로예요' test "$(cols "$sc.in")" = "$(cols "$sc.out")"
+    mkdir -p "$T/rep/nvl"
+    # PCIe 카드(H200 NVL)면 Fabric Manager 를 찾지 않고 NVLink 브리지 묶음을 보여 준다
+    PATH=$T/fake:$PATH FAKE_GPU_NAME='NVIDIA H200 NVL' B200_INBOX=$T/rep/nvl B200_ACCOUNT=nobody timeout 60 bash server/check_server.sh > "$LOG" 2>&1 < /dev/null
+    t 'H200 NVL: NVLink 브리지 묶음을 보여 줘요' has "$LOG" 'NVLink 브리지로 묶인 GPU: [0,1,2,3] [4,5,6,7]'
+    t 'H200 NVL: Fabric Manager를 찾지 않아요' lacks "$LOG" 'fabricmanager'
+    FAKE_GPU_NAME='NVIDIA B200' PATH=$T/fake:$PATH B200_INBOX=$T/rep/nvl B200_ACCOUNT=nobody timeout 60 bash server/check_server.sh > "$LOG" 2>&1 < /dev/null
+    t 'HGX 보드(B200): Fabric 상태를 확인해요' has "$LOG" 'NVLink Fabric'
     B200_INBOX=$ib timeout 120 bash server/check_network.sh all > "$LOG" 2>&1 < /dev/null
     share=$(ls "$ib"/reports/network_공유용_*.txt 2>/dev/null | head -1)
     if [ -n "$share" ]; then

@@ -3,7 +3,7 @@
 팀원은 패키지를 도커 이미지에 넣어 오므로 공용 휠은 만들지 않는다.
 점검 → 받기 → 묶기 → 검사까지 한 번에 한다. 끊기면 다시 실행하면 이어서 한다.
 
-  powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1              # B200 서버 Ubuntu 22.04 이상 (glibc 2.35)
+  powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1              # GPU 서버 Ubuntu 22.04 이상 (glibc 2.35)
   powershell -ExecutionPolicy Bypass -File .\pc\pack_build.ps1 -Glibc 2.31  # 서버 glibc 가 더 낮을 때만(check_server.sh 가 알려 준다)
 #>
 param(
@@ -19,7 +19,7 @@ $T = 4
 New-Item -ItemType Directory -Force $out | Out-Null
 Start-Log (Join-Path $out 'build.log')
 Stop-Sleep
-Write-Host "[접근 PC] 기초 프로그램 묶음 만들기  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'), B200 서버 glibc $Glibc, CUDA $Cuda)"
+Write-Host "[접근 PC] 기초 프로그램 묶음 만들기  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'), GPU 서버 glibc $Glibc, CUDA $Cuda)"
 
 # 줄 끝을 LF 로 써야 서버(리눅스)에서 문제가 없다
 function Write-Lf($path, $lines) {
@@ -60,7 +60,7 @@ if ($script:Fails) {
 }
 
 # ------------------------------------------------------------------ 2. 기초 프로그램 목록
-Write-Step 2 $T '기초 프로그램 버전 정하기 (B200 서버 linux-64 기준)'
+Write-Step 2 $T '기초 프로그램 버전 정하기 (GPU 서버 linux-64 기준)'
 $env:CONDA_OVERRIDE_GLIBC = $Glibc
 $env:CONDA_OVERRIDE_CUDA  = $Cuda
 $tools = (Get-Content -Encoding UTF8 (Join-Path $root 'lists\tools.txt')) -split '\s+' | Where-Object { $_ }
@@ -116,9 +116,9 @@ Write-Ok "$($pkgs.Count)개를 받고 체크섬을 확인했어요"
 Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $out 'micromamba')   # 새 버전에 이어붙지 않게 매번 새로
 if (-not (Get-File 'https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-linux-64' `
         (Join-Path $out 'micromamba') $null $MaxTries)) {
-    Stop-Run 'B200 서버용 micromamba를 받지 못했어요' 'github.com 접속을 확인하고 다시 실행하세요.'
+    Stop-Run 'GPU 서버용 micromamba를 받지 못했어요' 'github.com 접속을 확인하고 다시 실행하세요.'
 }
-Write-Ok 'B200 서버용 micromamba를 받았어요'
+Write-Ok 'GPU 서버용 micromamba를 받았어요'
 
 # 예전 버전이 받아 둔 공용 휠은 이제 쓰지 않으니 지운다(공간 확보)
 foreach ($d in 'wheels', 'lock.txt') {
@@ -159,14 +159,14 @@ $size = Format-Size (Get-Item $tar).Length
 Allow-Sleep
 Write-Host ''
 Write-Host '############################ 완료 ############################' -ForegroundColor Green
-Write-Host " 기초 프로그램 패키지 $($pkgs.Count)개(함께 필요한 패키지 포함)와 B200 서버 설치 스크립트를 묶었어요."
+Write-Host " 기초 프로그램 패키지 $($pkgs.Count)개(함께 필요한 패키지 포함)와 GPU 서버 설치 스크립트를 묶었어요."
 Write-Host ''
-Write-Host ' 접근 PC에서 할 일은 끝났어요. B200 서버에 올릴 파일(하나):' -ForegroundColor Green
+Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 파일(하나):' -ForegroundColor Green
 Write-Host "   $tar  ($size)"
 Write-Host ''
 Save-Fingerprint 'b200-pack.tar' (Get-Fingerprint @($tar))
 Write-Host ''
-Write-Host ' 1) 공용 계정의 FileZilla로 B200 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
+Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   cp /app/upload/b200-pack.tar /app/inbox/ && sha256sum /app/inbox/b200-pack.tar'
 Write-Host ' 3) 같으면 풀어서 실행하세요. admin_setup.sh 는 처음 설치할 때 맨 먼저 실행해요(/app 잠금).' -ForegroundColor Green

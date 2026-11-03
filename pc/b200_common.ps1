@@ -289,7 +289,7 @@ function Save-Fingerprint($what, $fp) {
     Write-Host "   (이 값은 $f 에도 적어 뒀어요)"
 }
 
-# 올릴 폴더 안에서 B200 서버가 쓰지 않는 큰 파일(받다 만 파일, 목록에서 뺀 모델 등)을 알려 준다. HIWARE로 올리는 시간을 아낀다
+# 올릴 폴더 안에서 GPU 서버가 쓰지 않는 큰 파일(받다 만 파일, 목록에서 뺀 모델 등)을 알려 준다. HIWARE로 올리는 시간을 아낀다
 function Show-NotNeeded($dest, $manifest, [string[]]$keepPrefix) {
     $base = (Resolve-Path $dest).Path.TrimEnd('\')
     $keep = @{}
@@ -302,13 +302,13 @@ function Show-NotNeeded($dest, $manifest, [string[]]$keepPrefix) {
     })
     if (-not $extra.Count) { return }
     $sum = ($extra | Measure-Object -Property Length -Sum).Sum
-    Write-Host " 이 폴더 안에서 B200 서버가 쓰지 않는 큰 파일이 $($extra.Count)개($(Format-Size $sum)) 있어요. 올릴 때 빼면 시간을 아껴요:" -ForegroundColor Yellow
+    Write-Host " 이 폴더 안에서 GPU 서버가 쓰지 않는 큰 파일이 $($extra.Count)개($(Format-Size $sum)) 있어요. 올릴 때 빼면 시간을 아껴요:" -ForegroundColor Yellow
     $extra | Sort-Object Length -Descending | Select-Object -First 8 | ForEach-Object {
         Write-Host "   $($_.FullName.Substring($base.Length + 1))  ($(Format-Size $_.Length))" }
     if ($extra.Count -gt 8) { Write-Host "   ... 외 $($extra.Count - 8)개" }
 }
 
-# B200 서버에서 root 가 확인할 지문(sha256, 소문자).
+# GPU 서버에서 root 가 확인할 지문(sha256, 소문자).
 # 파일 하나면 그 파일의 sha256(서버: sha256sum 파일), 여러 개면 이어 붙인 내용의 sha256(서버: cat 파일들 | sha256sum)
 function Get-Fingerprint([string[]]$files) {
     if ($files.Count -eq 1) { return (Get-FileHash $files[0] -Algorithm SHA256).Hash.ToLower() }

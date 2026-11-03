@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# B200 서버 도우미. 관리자가 /app/shared/bin/b200 에 설치한다(admin_setup.sh). 팀원이 외울 명령이 아니다.
+# GPU 서버 도우미. 관리자가 /app/shared/bin/b200 에 설치한다(admin_setup.sh). 팀원이 외울 명령이 아니다.
 # 팀원은 docker, nvidia-smi 를 평소처럼 쓰고, 이 파일은 그 뒤에서 다음을 맡는다.
 #   - 접속 인사: 이름 고르기, GPU별 쓰는 사람, 나에게 온 알림
 #   - nvidia-smi 아래 "GPU별 사용자" 표, docker run 의 GPU 겹침 경고
@@ -261,7 +261,7 @@ push_tty() {
         [ "$n" = "$who" ] || { tr '\0' '\n' < "$p/environ"; } 2>/dev/null | grep -qxF "B200_USER=$who" || continue
         echo "$t"
     done | sort -u | while read -r t; do
-        timeout 2 bash -c 'printf "\r\n\e[33m[B200 알림]\e[0m %s\r\n" "$1" > "$2"' _ "$msg" "$t" 2>/dev/null
+        timeout 2 bash -c 'printf "\r\n\e[33m[서버 알림]\e[0m %s\r\n" "$1" > "$2"' _ "$msg" "$t" 2>/dev/null
     done
 }
 # 접속할 때: 아직 안 본 알림을 보여 준다(최근 14일, 많아도 5줄)
@@ -284,7 +284,7 @@ cmd__notices() {
 # ------------------------------------------------------------------ 접속 인사
 cmd__hello() {
     echo
-    echo "${c_b}B200 서버 ($(hostname -s))${c_0}  팀원 모두가 공용 계정으로 써요. 이름을 고르면 GPU·컨테이너 옆에 이름이 보여요."
+    echo "${c_b}GPU 서버 ($(hostname -s))${c_0}  팀원 모두가 공용 계정으로 써요. 이름을 고르면 GPU·컨테이너 옆에 이름이 보여요."
     cmd_who
 }
 cmd__names() {   # 고르기 쉽게 번호를 붙인다
@@ -390,7 +390,7 @@ image_table() {
 # ------------------------------------------------------------------ 주간 보고서(root, 월요일 아침)
 cmd__report() {
     local since; since=$(date -d '7 days ago' '+%F %T')
-    echo "B200 주간 보고서  $(date -d '7 days ago' +%F) ~ $(date +%F)"
+    echo "GPU 서버 주간 보고서  $(date -d '7 days ago' +%F) ~ $(date +%F)"
     echo
     echo "== 사람별 GPU 사용 시간 (10분마다 남긴 기록으로 계산)"
     cat "$ST/gpu_log/$(date -d '7 days ago' +%Y-%m).tsv" "$ST/gpu_log/$(date +%Y-%m).tsv" 2>/dev/null | sort -u |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [B200 서버 · 관리자(root) 전용] 공용 계정으로 여럿이 쓰는 서버의 기본 규칙을 시스템에 건다. 여러 번 실행해도 된다.
+# [GPU 서버 · 관리자(root) 전용] 공용 계정으로 여럿이 쓰는 서버의 기본 규칙을 시스템에 건다. 여러 번 실행해도 된다.
 #   bash admin_setup.sh          적용
 #   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. 공용 폴더 잠금·b200 명령·기록·드라이버 고정은 그대로 둔다)
 # 하는 일 (팀원에게 새 명령을 외우게 하지 않고, 막기보다 알린다)
@@ -37,7 +37,7 @@ if [ "${1:-}" = --undo ]; then
     exit 0
 fi
 
-echo "[B200 서버] 관리자 기본 설정  ($(date '+%Y-%m-%d %H:%M'), 공용 계정 $ACC)"
+echo "[GPU 서버] 관리자 기본 설정  ($(date '+%Y-%m-%d %H:%M'), 공용 계정 $ACC)"
 
 # ------------------------------------------------------------------ 1. 공용 계정 권한 (확인만)
 # 공용 계정이 sudo 나 docker 그룹을 가지면 누구든 root 가 될 수 있어, 아래 잠금이 모두 무의미해진다.
@@ -208,7 +208,7 @@ ok 'docker ps 에 이름(USER)과 GPU(GPUS) 열을 넣었어요'
 # ------------------------------------------------------------------ 4. 접속 설정
 step '4. 접속 설정 (/etc/profile.d/b200.sh)'
 cat > /etc/profile.d/b200.sh <<EOF
-# B200 서버 공용 설정. admin_setup.sh 가 만든다. 관리자만 고칠 수 있다.
+# GPU 서버 공용 설정. admin_setup.sh 가 만든다. 관리자만 고칠 수 있다.
 [ -n "\${BASH_VERSION:-}" ] || return 0
 # 우리 공용 계정에만 건다. 다른 계정(서버 2의 다른 팀, root)의 docker·nvidia-smi·PATH 는 건드리지 않는다
 # 한글이 깨지지 않게 UTF-8 로 맞춘다(HIWARE 접속은 언어 설정이 비어 올 수 있다). root 도 team.txt 에 한글을 적는다
@@ -270,12 +270,16 @@ ok '접속 설정: 이름 고르기(번호), 이름별 캐시·명령 기록, �
 
 # ------------------------------------------------------------------ 5. GPU 서비스
 step '5. GPU 서비스와 드라이버 고정'
-for svc in nvidia-persistenced nvidia-fabricmanager nvlsm; do
+# PCIe 카드(H200 NVL 등)는 NVSwitch 가 없어 Fabric Manager 가 필요 없다(켜면 시작하지 못하고 실패만 남긴다)
+gname=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+svcs=(nvidia-persistenced nvidia-fabricmanager nvlsm)
+case "$gname" in *NVL*|*PCIe*) svcs=(nvidia-persistenced); ok "PCIe 카드($gname)라 Fabric Manager는 켜지 않아요" ;; esac
+for svc in "${svcs[@]}"; do
     if systemctl list-unit-files "$svc.service" 2>/dev/null | grep -q "$svc"; then
         systemctl enable --now "$svc" >/dev/null 2>&1 && ok "$svc 서비스를 켰어요(부팅할 때도 자동으로 켜져요)" || warn "$svc 를 켜지 못했어요. 원인 확인: systemctl status $svc"
     else
         [ "$svc" = nvidia-persistenced ] && warn "$svc 서비스가 없어요(보통 드라이버와 함께 설치돼요). 서버 관리 팀에 확인하세요"
-        [ "$svc" = nvidia-fabricmanager ] && warn "$svc 서비스가 없어요. HGX B200은 이게 있어야 GPU를 써요. 서버 관리 팀에 드라이버와 같은 버전으로 요청하세요"
+        [ "$svc" = nvidia-fabricmanager ] && warn "$svc 서비스가 없어요. HGX(SXM) 보드는 이게 있어야 GPU를 써요. 서버 관리 팀에 드라이버와 같은 버전으로 요청하세요"
     fi
 done
 mapfile -t held < <(dpkg-query -W -f='${Package} ${Status}\n' 2>/dev/null |

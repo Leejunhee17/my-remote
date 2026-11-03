@@ -1,6 +1,6 @@
 ﻿<#
 [접근 PC] Hugging Face 사전학습 모델을 받는다. 목록은 lists\models.txt, 설명은 docs\7_모델.md.
-점검 → 받기(끊기면 이어받기) → 크기·sha256 검사 → B200 서버에 올릴 목록 만들기까지 한 번에 한다.
+점검 → 받기(끊기면 이어받기) → 크기·sha256 검사 → GPU 서버에 올릴 목록 만들기까지 한 번에 한다.
 끊기거나 실패하면 같은 명령을 다시 실행한다. 받은 것은 건너뛴다.
 
   powershell -ExecutionPolicy Bypass -File .\pc\models_download.ps1                    # models.txt 에서 # 없는 줄 전부
@@ -166,10 +166,10 @@ foreach ($m in @($Models | Where-Object { $_.Code })) {
     }
 }
 
-# ------------------------------------------------------------------ 3. B200 서버에 올릴 목록
-Write-Step 3 $T 'B200 서버에서 확인할 체크섬 목록 만들기'
+# ------------------------------------------------------------------ 3. GPU 서버에 올릴 목록
+Write-Step 3 $T 'GPU 서버에서 확인할 체크섬 목록 만들기'
 # 목록에서 빠진 예전 모델(예: 레드햇 때 받은 Cityscapes 모델)은 지우고,
-# 앞에 # 을 붙여 둔 선택 모델은 남겨 두되 B200 서버에 올릴 목록에서 뺀다
+# 앞에 # 을 붙여 둔 선택 모델은 남겨 두되 GPU 서버에 올릴 목록에서 뺀다
 $active = @($AllModels | ForEach-Object { Split-Path -Leaf (Get-Dir $_.Repo) })
 $known  = @($Listed | ForEach-Object { Split-Path -Leaf (Get-Dir $_) })
 foreach ($d in @(Get-ChildItem $Dest -Directory | Where-Object { $_.Name -like '*__*' })) {
@@ -177,7 +177,7 @@ foreach ($d in @(Get-ChildItem $Dest -Directory | Where-Object { $_.Name -like '
         Remove-Item -Recurse -Force $d.FullName
         Write-Info "목록에서 빠진 예전 모델을 지웠어요: $($d.Name -replace '__', '/')"
     } elseif ($active -notcontains $d.Name -and (Test-Path (Join-Path $d.FullName 'b200_model.json'))) {
-        Write-Info "선택 모델(앞에 #)이라 B200 서버에 올릴 목록에서 뺐어요: $($d.Name -replace '__', '/')"
+        Write-Info "선택 모델(앞에 #)이라 GPU 서버에 올릴 목록에서 뺐어요: $($d.Name -replace '__', '/')"
     }
 }
 $lines = @(Get-ChildItem $Dest -Directory | Where-Object { $active -contains $_.Name } | ForEach-Object {
@@ -214,7 +214,7 @@ if ($skipped.Count) {
     Write-Host '   방법: docs\7_모델.md 의 "승인이 필요한 모델(gated) 받기"'
 }
 Write-Host ''
-Write-Host ' 접근 PC에서 할 일은 끝났어요. B200 서버에 올릴 폴더(통째로):' -ForegroundColor Green
+Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 폴더(통째로):' -ForegroundColor Green
 Write-Host "   $Dest  ($(Format-Size $total))"
 if ((Split-Path -Leaf $Dest) -ne 'models') { Write-Host '   폴더 이름이 models 가 아니면, 올리기 전에 models 로 바꾸세요(서버 명령이 이 이름만 받아요).' -ForegroundColor Yellow }
 Write-Host ''
@@ -222,7 +222,7 @@ Save-Fingerprint 'models 폴더' (Get-Fingerprint @((Join-Path $Dest 'MANIFEST.s
 Write-Host '   (MANIFEST.sha256과 models_install.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
 Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @()
 Write-Host ''
-Write-Host ' 1) 공용 계정의 FileZilla로 B200 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
+Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/shared/bin/b200 fetch models'
 Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/models 는 지워 공간을 비우세요(서버 2도 쓸 거면 먼저 NAS에 보관: docs\9_NAS.md).' -ForegroundColor Green

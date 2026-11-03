@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [B200 서버 · 관리자(root) 전용] b200-docker.tar 로 공용 계정 전용 rootless Docker 를 설치한다.
+# [GPU 서버 · 관리자(root) 전용] b200-docker.tar 로 공용 계정 전용 rootless Docker 를 설치한다.
 #   cd /app/inbox && tar xf b200-docker.tar && bash docker_install.sh            # 공용 계정은 /etc/b200/account
 # 도커 데몬은 root 가 아니라 공용 계정 권한으로 돈다. 그래서 컨테이너 안에서 무엇을 해도 서버 root 권한은 얻지 못한다.
 # 데몬은 root 가 관리하는 서비스(b200-docker)라 팀원이 끄거나 설정을 바꿀 수 없다.
@@ -25,7 +25,7 @@ stop() {
 }
 info() { sed -n "s/^$1=//p" docker_info.txt; }
 
-echo "[B200 서버] rootless Docker 설치  ($(date '+%Y-%m-%d %H:%M'), 공용 계정 $ACC)"
+echo "[GPU 서버] rootless Docker 설치  ($(date '+%Y-%m-%d %H:%M'), 공용 계정 $ACC)"
 
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
@@ -152,7 +152,7 @@ ok "이미지·컨테이너 저장 위치 $DATA, 설정 $CONF/daemon.json (설�
 
 cat > /etc/systemd/system/b200-docker.service <<EOF
 [Unit]
-Description=B200 rootless Docker ($ACC)
+Description=GPU 서버 rootless Docker ($ACC)
 After=network.target user@$UID_A.service
 Requires=user@$UID_A.service
 
