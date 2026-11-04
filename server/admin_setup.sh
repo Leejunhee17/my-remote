@@ -4,16 +4,18 @@
 #   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. 공용 폴더 잠금·gpu 명령·기록은 그대로 둔다)
 # 하는 일 (팀원에게 새 명령을 외우게 하지 않고, 막기보다 알린다)
 #   - 공용 계정(/etc/gpu/account)에 관리자 권한(sudo, docker·disk·lxd 등 그룹)이 없는지 확인한다(있으면 알려만 준다)
-#   - /app/shared(기초 프로그램·데이터셋·모델)와 /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
+#   - /app/admin(도우미·명단·설정), /app/datasets, /app/models, /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠근다
 #   - 접속할 때 이름을 고르게 하고, 이름별 작업 폴더·캐시·명령 기록을 나눈다(/etc/profile.d/gpu.sh)
-#   - docker, nvidia-smi 도우미를 /app/shared/bin 에 설치한다(이름표, GPU 겹침 경고, "GPU별 사용자" 표)
+#   - docker, nvidia-smi 도우미를 /app/admin/bin 에 설치한다(이름표, GPU 겹침 경고, "GPU별 사용자" 표)
 #   - GPU 서비스(persistenced, HGX 보드면 Fabric Manager)를 켠다. 드라이버 버전은 고정하지 않는다(업데이트는 서버 관리 팀이 정한다)
 #   - 10분마다 GPU 사용 기록과 알림, 월요일 아침 주간 보고서(/etc/cron.d/gpu)
 set -uo pipefail
 cd "$(dirname "$0")"
 HERE=$PWD
 ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
-S=/app/shared
+S=/app/admin          # 도우미(bin)·명단·GPU 배분·알림 설정. root 만 고친다
+DS=/app/datasets     # 데이터셋. root 만 고치고 팀원은 읽는다
+MD=/app/models       # 사전학습 모델. 위와 같음
 W=/app/autonomy_sw
 ST=/app/state
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
@@ -53,7 +55,7 @@ sudo -l -U "$ACC" 2>/dev/null | grep -q 'may run' && warn "공용 계정($ACC)�
 step '2. 폴더와 잠금'
 [ -d /app ] || stop '/app 폴더가 없어요' '서버 관리 팀에 2 TB SSD를 /app에 연결해 달라고 요청하세요.'
 [ -L /app ] && stop '/app이 링크예요' 'ls -l /app 으로 어디를 가리키는지 보고, 서버 관리 팀에 실제 디스크로 연결해 달라고 요청하세요.'
-# /app 은 root 만 고칠 수 있게 한다. 공용 계정이 /app 에 쓸 수 있으면 shared·state 같은 이름으로 시스템 폴더 링크를 심어 두고,
+# /app 은 root 만 고칠 수 있게 한다. 공용 계정이 /app 에 쓸 수 있으면 admin·state 같은 이름으로 시스템 폴더 링크를 심어 두고,
 # 아래 chown·chmod(링크를 따라간다)를 시스템 폴더에 하게 만들 수 있다. 잠근 뒤에 링크가 있는지 본다
 # 서버 2처럼 다른 팀과 같이 쓰는 서버에서 다른 계정이 /app 에 폴더를 두고 있으면, 잠그면 그 계정이 /app 에 새 폴더를 못 만든다
 others=$(find /app -mindepth 1 -maxdepth 1 ! -user root ! -user "$ACC" -printf '%u %p\n' 2>/dev/null)
@@ -64,21 +66,34 @@ if [ -n "$others" ] && [ "$(stat -c '%U %a' /app)" != "root 755" ]; then
     else stop '/app 을 다른 계정도 써요' 'PuTTY 화면에서 직접 실행해 확인 질문에 답하세요: bash admin_setup.sh'; fi
 fi
 chown root:root /app && chmod 755 /app
-for d in "$S" "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty}; do
+for d in "$S" "$DS" "$MD" /app/shared "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty}; do
     [ -L "$d" ] && stop "링크가 있어요(누가 만들었는지 몰라요): $d" "ls -l $d 로 어디를 가리키는지 보고, 직접 만든 게 아니면 rm $d 로 링크만 지운 뒤 다시 실행하세요."
 done
-# 잠그기 전(예전 설치)에 공용 계정이 만든 /app/shared 는 안을 믿지 않는다. 설정(gpu.conf)이나 프로그램(tools, mamba)을
-# 미리 바꿔 두면 root(설치 스크립트)가 그것을 실행하게 된다. 데이터(데이터셋·모델)와 읽기만 하는 설정 파일만 새 폴더로 옮기고
-# 프로그램(tools, mamba, bin 등)은 치운다. 설정 파일은 gpu 이 실행하지 않고 값만 꺼내 확인한다.
-# root 가 잠근 폴더에는 표시 파일(.gpu_root)을 남긴다. 공용 계정은 root 소유 파일을 만들 수 없다
-if [ -d "$S" ] && ! { [ "$(stat -c %U "$S")" = root ] && [ "$(stat -c %U "$S/.gpu_root" 2>/dev/null)" = root ]; }; then
+# 예전 설치의 /app/shared(기초 프로그램·데이터셋·모델·설정을 한곳에 두던 방식)를 나눈다.
+# 데이터셋·모델은 /app/datasets·/app/models 로, 명단·배분·알림 설정은 /app/admin 으로 옮기고, 나머지(기초 프로그램 등)는 치운다.
+# 공용 계정이 만들었을 수 있는 폴더라 프로그램은 믿지 않는다. 설정 파일은 gpu 가 실행하지 않고 값만 꺼내 확인한다
+if [ -d /app/shared ]; then
     old="/app/.shared_old_$(date +%Y%m%d_%H%M%S)"
+    mv /app/shared "$old" && chown root:root "$old" && chmod 700 "$old" || stop "예전 /app/shared 를 치우지 못했어요" "ls -la /app 으로 상태를 확인하세요."
+    for n in datasets models; do
+        t=/app/$n
+        if [ -d "$old/$n" ] && [ ! -L "$old/$n" ]; then
+            if [ ! -e "$t" ]; then mv "$old/$n" "$t"
+            else warn "$t 가 이미 있어서 예전 $n 은 옮기지 않았어요: $old/$n (확인한 뒤 직접 옮기세요)"; fi
+        fi
+    done
+    mkdir -p "$S"
+    for n in team.txt gpu_alloc.txt gpu.conf; do [ -f "$old/$n" ] && [ ! -L "$old/$n" ] && [ ! -e "$S/$n" ] && mv "$old/$n" "$S/$n"; done
+    warn "예전 /app/shared 를 나눴어요: 데이터셋 → $DS, 모델 → $MD, 명단·배분·알림 설정 → $S. 나머지(기초 프로그램 등)는 $old 로 치웠어요(root만 볼 수 있어요)"
+    echo "    치운 폴더는 확인한 뒤 지워도 돼요: rm -rf $old"
+fi
+# /app/admin 은 root 가 잠근 표시 파일(.gpu_root)이 있어야 믿는다. 공용 계정은 root 소유 파일을 만들 수 없다.
+# 잠그기 전에 공용 계정이 만든 /app/admin 이면 설정 파일만 남기고 치운다(도우미를 바꿔 두면 root 가 그것을 실행하게 된다)
+if [ -d "$S" ] && ! { [ "$(stat -c %U "$S")" = root ] && [ "$(stat -c %U "$S/.gpu_root" 2>/dev/null)" = root ]; }; then
+    old="/app/.admin_old_$(date +%Y%m%d_%H%M%S)"
     mv "$S" "$old" && chown root:root "$old" && chmod 700 "$old" && mkdir -p "$S" || stop "예전 $S 를 치우지 못했어요" "ls -la /app 으로 상태를 확인하세요."
-    for n in datasets models; do [ -d "$old/$n" ] && [ ! -L "$old/$n" ] && mv "$old/$n" "$S/$n"; done
     for n in team.txt gpu_alloc.txt gpu.conf; do [ -f "$old/$n" ] && [ ! -L "$old/$n" ] && mv "$old/$n" "$S/$n"; done
-    chown -R root:root "$S" && find "$S" -type l -delete   # 링크는 누가 심었는지 모른다(root 가 나중에 그 너머에 쓰게 된다)
-    warn "예전 $S 는 공용 계정이 만든 것이라 그대로 믿지 않아요. 데이터셋·모델과 명단·배분·알림 설정만 옮기고, 나머지(기초 프로그램 등)는 $old 로 치웠어요(root만 볼 수 있어요)"
-    echo "    기초 프로그램은 다시 설치하세요(마지막 '남은 일' 3번). 치운 폴더는 확인한 뒤 지워도 돼요: rm -rf $old"
+    [ -n "$(ls -A "$old" 2>/dev/null)" ] && warn "root 가 잠그기 전에 만든 $S 라 명단·배분·알림 설정만 남기고 나머지는 $old 로 치웠어요" || rmdir "$old"
 fi
 # 예전 작업 폴더 이름(/app/workspace)을 쓰던 서버: 안의 파일은 그대로 두고 폴더 이름만 바꾼다(같은 디스크라 바로 끝난다)
 if [ -d /app/workspace ] && [ ! -L /app/workspace ] && [ ! -e "$W" ]; then
@@ -86,10 +101,12 @@ if [ -d /app/workspace ] && [ ! -L /app/workspace ] && [ ! -e "$W" ]; then
 elif [ -e /app/workspace ] && [ -e "$W" ]; then
     warn "/app/workspace 와 $W 가 둘 다 있어요. /app/workspace 안의 파일을 확인해 $W 로 옮긴 뒤 지우세요"
 fi
-mkdir -p "$S/bin" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty} /app/inbox
+mkdir -p "$S/bin" "$S/logs" "$DS" "$MD" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty} /app/inbox
 # 공용: root 만 쓰고 모두 읽는다
 chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S" && touch "$S/.gpu_root"
-ok "$S: root만 고치고 팀원은 읽기만 해요"
+# 데이터셋·모델: root 만 고치고 모두 읽는다. 예전에 공용 계정이 넣은 링크는 누가 심었는지 몰라서 지운다(root 가 나중에 그 너머에 쓰게 된다)
+for d in "$DS" "$MD"; do find "$d" -type l -delete; chown -R root:root "$d" && chmod -R u+rwX,go+rX,go-w "$d"; done
+ok "$S(도우미·설정), $DS, $MD: root만 고치고 팀원은 읽기만 해요"
 # 작업 공간과 기록: 공용 계정이 쓴다(보고서만 root)
 chown "$ACC:$ACC" "$W" && chmod 755 "$W"
 # 기록 폴더: 공용 계정이 쓰는 곳(history, images, notice_seen)과 root 만 쓰는 곳(reports, gpu_log, notice)을 나눈다.
@@ -105,8 +122,10 @@ chown root:root /app/inbox && chmod 755 /app/inbox
 mkdir -p /app/upload && chown "$ACC:$ACC" /app/upload && chmod 755 /app/upload
 ok "$W: 팀원 작업 공간,  $ST: 기록·알림,  /app/upload: 설치 파일 올리는 곳(공용 계정),  /app/inbox: root가 지문을 확인한 설치 파일"
 # 홈에서도 보이게 링크(홈은 10 GB 라 실제 파일은 /app 에)
-[ -L "$HOME_A/workspace" ] && [ "$(readlink "$HOME_A/workspace")" = /app/workspace ] && setsid -w runuser -u "$ACC" -- rm -f "$HOME_A/workspace"   # 예전 이름의 링크
-for n in shared autonomy_sw; do
+for n in workspace shared; do   # 예전 방식의 링크
+    [ -L "$HOME_A/$n" ] && case "$(readlink "$HOME_A/$n")" in /app/workspace|/app/shared) setsid -w runuser -u "$ACC" -- rm -f "$HOME_A/$n" ;; esac
+done
+for n in autonomy_sw datasets models; do
     [ -e "$HOME_A/$n" ] || [ -L "$HOME_A/$n" ] || setsid -w runuser -u "$ACC" -- ln -sn "/app/$n" "$HOME_A/$n"   # 공용 계정 홈이라 그 권한으로
 done
 # 팀원 명단과 GPU 배분: 관리자가 고치고, gpu 명령이 읽는다(엑셀 '팀원', 'GPU 배분' 시트와 같게)
@@ -174,10 +193,10 @@ MAX_GPUS=4            # docker run 때 내 GPU가 이보다 많아지면 경고
 IDLE_HOURS=12         # GPU를 잡고 이 시간 내내 사용률 0%면 그 사람에게 알림(하루 한 번)
 DISK_ALERT=85         # /app 이 이 % 를 넘으면 많이 쓰는 3명과 관리자에게 알림(주 한 번)
 IMAGE_NOTICE_DAYS=30  # 이 일수 동안 안 쓴 도커 이미지는 들여온 사람에게 알림(주 한 번)
-NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)
+NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/8_NAS.md)
 EOF
 grep -q '^NAS_DIR=' "$S/gpu.conf" ||   # 예전 버전으로 만든 설정에는 없다
-    echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/9_NAS.md)' >> "$S/gpu.conf"
+    echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/8_NAS.md)' >> "$S/gpu.conf"
 chmod 644 "$S/gpu.conf"
 # NAS 팀 폴더를 정했으면(NAS_DIR) 팀원별 backup·docker_images 폴더도 공용 계정 권한으로 만든다(root 는 NAS에 쓰지 않는다)
 NAS_DIR=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$S/gpu.conf" | tail -1)
@@ -188,13 +207,13 @@ if [ -n "$NAS_DIR" ]; then
             setsid -w runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/docker_images/$name" "$NAS_DIR/tmp_transfer"
         done
         ok "NAS 팀 폴더($NAS_DIR)에 팀원별 backup·docker_images 폴더를 맞췄어요"
-    else warn "NAS 팀 폴더($NAS_DIR)가 없거나 공용 계정이 쓸 수 없어요(docs/9_NAS.md 의 '처음 만들기')"; fi
+    else warn "NAS 팀 폴더($NAS_DIR)가 없거나 공용 계정이 쓸 수 없어요(docs/8_NAS.md 의 '처음 만들기')"; fi
 fi
 
 # ------------------------------------------------------------------ 3. 도우미
 step '3. 도우미 설치 (docker, nvidia-smi, gpu)'
 for f in gpu docker nvidia-smi; do
-    [ -f "bin/$f" ] || stop "도우미 파일이 없어요: $HERE/bin/$f" "묶음을 다시 푸세요: cd $HERE && tar xf gpu-pack.tar"
+    [ -f "bin/$f" ] || stop "도우미 파일이 없어요: $HERE/bin/$f" "묶음을 다시 푸세요: cd $HERE && tar xf gpu-setup.tar"
     install -m 755 "bin/$f" "$S/bin/$f"
 done
 rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"   # 예전 버전의 파일
@@ -226,8 +245,8 @@ if [ "\$(id -u)" = 0 ]; then
     return 0
 fi
 [ "\$(id -un)" = "$ACC" ] || return 0
-# 도우미(docker, nvidia-smi)가 진짜 명령보다 먼저 오게 맨 앞에, 기초 프로그램은 맨 뒤에
-case ":\$PATH:" in *":$S/bin:"*) ;; *) PATH="$S/bin:\$PATH:$S/tools/bin"; export PATH ;; esac
+# 도우미(docker, nvidia-smi)가 진짜 명령보다 먼저 오게 맨 앞에
+case ":\$PATH:" in *":$S/bin:"*) ;; *) PATH="$S/bin:\$PATH"; export PATH ;; esac
 [ -n "\${GPU_PROFILE_DONE:-}" ] && return 0
 GPU_PROFILE_DONE=1
 # 서버에는 인터넷이 없으니 Hugging Face 가 접속을 시도하지 않게 한다
@@ -306,8 +325,7 @@ echo "${c_g}############################ 완료 ############################${c_
 echo " 남은 일"
 echo "  1) $S/team.txt 에 팀원을 한 줄에 '이름 그룹'으로 적고 이 스크립트를 한 번 더 실행하세요(작업 폴더가 생겨요)"
 echo "  2) GPU 배분은 $S/gpu_alloc.txt, 알림 기준은 $S/gpu.conf 에서 바꿔요(team/ 규칙 문서·엑셀도 같이)"
-echo "  3) 기초 프로그램: cd $HERE && bash pack_install.sh /app/shared"
-echo "  4) 도커: gpu-docker.tar 를 /app/upload 에 올린 뒤 $S/bin/gpu fetch gpu-docker.tar (지문 확인) → cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh"
-echo "  5) 데이터셋·모델: $S/bin/gpu fetch datasets / models → 설치(docs/1_처음_설치.md 4·5단계)"
+echo "  3) 도커: gpu-docker.tar 를 /app/upload 에 올린 뒤 $S/bin/gpu fetch gpu-docker.tar (지문 확인) → cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh"
+echo "  4) 데이터셋·모델: $S/bin/gpu fetch datasets / models → 설치(docs/1_처음_설치.md 3·4단계)"
 echo " 확인: 공용 계정으로 다시 접속하면 이름 목록이 나오고, nvidia-smi 아래에 'GPU별 사용자' 표가 붙어요."
 echo "${c_g}##############################################################${c_0}"

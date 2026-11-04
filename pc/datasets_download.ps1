@@ -1,5 +1,5 @@
 ﻿<#
-[접근 PC] 세그멘테이션 데이터셋을 받는다. 설명은 docs\6_데이터셋.md.
+[접근 PC] 세그멘테이션 데이터셋을 받는다. 설명은 docs\5_데이터셋.md.
 점검 → 받기(끊기면 이어받기) → 검사 → GPU 서버에 올릴 목록 만들기까지 한 번에 한다.
 끊기거나 실패하면 같은 명령을 다시 실행한다. 받은 것은 건너뛴다.
 
@@ -280,7 +280,7 @@ function Show-DriveDiag($d, $label) {
     }
     if ($d.Kind -ne 'ok' -and $d.Kind -ne 'confirm') {
         Write-Info "    진단 기록: $($d.Saved) (파일 ID마다 .report.txt). 해결되지 않으면 이 폴더를 담당자에게 보내 주세요."
-        Write-Info '    직접 받아 넣을 폴더와 파일 ID: docs\6_데이터셋.md 의 "Google Drive 데이터셋 받기"'
+        Write-Info '    직접 받아 넣을 폴더와 파일 ID: docs\5_데이터셋.md 의 "Google Drive 데이터셋 받기"'
     }
 }
 
@@ -445,7 +445,7 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
         Write-Host "  포털: $WsPortal"
         Write-Host '  포털에서 Download → Download files via S3 Client 를 고르고, 화면에 나온 네 값을 차례로 복사해 붙여 넣으세요.'
         Write-Host '  두 키는 입력해도 화면과 기록 파일에 남지 않아요. .env 에 적어 두면 묻지 않아요.'
-        Write-Host '  (자세한 설명: docs\6_데이터셋.md 의 "WildScenes 접속 정보 받기")'
+        Write-Host '  (자세한 설명: docs\5_데이터셋.md 의 "WildScenes 접속 정보 받기")'
         $open = Read-Host '  포털 페이지를 브라우저로 열까요? [Y/n]'
         if ($open -notmatch '^[nN]') { Start-Process $WsPortal }
         $server = (Read-Host '  Server (예: s3.data.csiro.au)').Trim()
@@ -463,12 +463,12 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     Test-Site 'CSIRO S3 저장소' $script:WsEndpoint | Out-Null
     if ($script:Fails -gt $f0) {
         Stop-Run 'CSIRO S3 저장소에 접속되지 않아요' ('위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면(401, AccessDenied 같은 오류가 떠도 열린 거예요) ' +
-            'docs\6_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요.')
+            'docs\5_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요.')
     }
     $pa = $script:HostArgs[([uri]$script:WsEndpoint).Host]
     if ($pa -and $pa.Count -gt 2) {
         Stop-Run 'CSIRO S3 저장소는 윈도우 로그인 인증 프록시로만 연결되는데, AWS CLI는 그 인증을 하지 못해요' `
-            'docs\6_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요(curl로 받아서 인증이 돼요).'
+            'docs\5_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요(curl로 받아서 인증이 돼요).'
     }
 
     Write-Info 'AWS CLI를 준비하는 중이에요(처음 한 번만)'
@@ -688,10 +688,10 @@ Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @('wildscenes/')
 Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
-Write-Host '   /app/shared/bin/gpu fetch datasets'
-Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/datasets 는 지워 공간을 비우세요(서버 2도 쓸 거면 먼저 NAS에 보관: docs\9_NAS.md).' -ForegroundColor Green
+Write-Host '   /app/admin/bin/gpu fetch datasets'
+Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/datasets 는 지워 공간을 비우세요(서버 2도 쓸 거면 먼저 NAS에 보관: docs\8_NAS.md).' -ForegroundColor Green
 Write-Host '   bash /app/inbox/datasets/datasets_install.sh'
-Write-Host ' 자세한 순서: docs\6_데이터셋.md'
+Write-Host ' 자세한 순서: docs\5_데이터셋.md'
 Write-Host '##############################################################'
 Stop-Transcript | Out-Null
 if ($failed.Count) { exit 1 }

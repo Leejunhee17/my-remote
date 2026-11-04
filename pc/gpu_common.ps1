@@ -1,8 +1,8 @@
-﻿# pack_build.ps1, datasets_download.ps1 이 같이 쓰는 함수. 직접 실행하지 않는다.
+﻿# pc 폴더의 스크립트(setup_pack.ps1, datasets_download.ps1 등)가 같이 쓰는 함수. 직접 실행하지 않는다.
 
 $script:Fails = 0
 
-# micromamba, uv 등이 내는 UTF-8 출력을 깨지지 않게 읽는다(한국어 윈도우 기본은 CP949)
+# uv 등이 내는 UTF-8 출력을 깨지지 않게 읽는다(한국어 윈도우 기본은 CP949)
 try {
     [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false
     $OutputEncoding = [Console]::OutputEncoding
@@ -62,16 +62,10 @@ function Stop-Run($what, $fix) {
 }
 
 # 실제 exe 경로를 찾는다. PowerShell 별칭·함수는 건너뛴다
-# (micromamba shell init 을 하면 micromamba 가 'Mamba' 모듈의 별칭이 되어 exe 경로가 아니다)
 function Find-Exe($name, $root) {
     $c = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($c) { return $c.Source }
     $cand = @((Join-Path $root "$name.exe"))
-    if ($name -eq 'micromamba') {
-        $cand += $env:MAMBA_EXE                                              # shell init 이 정해 둔 경로
-        $cand += Join-Path $env:LOCALAPPDATA 'micromamba\micromamba.exe'     # 공식 설치 스크립트 기본 위치
-        $cand += Join-Path $env:USERPROFILE 'micromamba\micromamba.exe'
-    }
     if ($name -eq 'uv') {
         $cand += Join-Path $env:USERPROFILE '.local\bin\uv.exe'              # 공식 설치 스크립트 기본 위치
         $cand += Join-Path $env:USERPROFILE '.cargo\bin\uv.exe'

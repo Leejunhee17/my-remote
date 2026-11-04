@@ -1,5 +1,0 @@
-python=3.12 uv git git-lfs git-delta lazygit tmux screen vim nvim nano micro less direnv zoxide fzf
-tree ripgrep fd-find bat eza ncdu dust duf jq yq dos2unix entr parallel just hyperfine
-zip unzip p7zip pigz zstd htop btop nvtop lsof strace gdb
-make cmake ninja pkg-config gcc gxx ccache patchelf clang-format shellcheck
-ffmpeg imagemagick sqlite rsync bc

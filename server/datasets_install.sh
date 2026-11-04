@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# [GPU 서버 · 관리자(root)] 접근 PC에서 올린 datasets 폴더를 /app/shared/datasets 아래 푼다(admin_setup.sh 다음).
-# 점검(체크섬) → 풀기 → 학습 코드가 찾는 라벨이 있는지 검사까지 한 번에 한다.
+# [GPU 서버 · 관리자(root)] 접근 PC에서 올린 datasets 폴더를 /app/datasets 아래 푼다(admin_setup.sh 다음).
+# 점검(체크섬) → 풀기 → 라벨 파일이 있는지 검사까지 한 번에 한다.
 #   bash /app/inbox/datasets/datasets_install.sh
 # 다시 실행해도 된다. 이미 푼 것은 건너뛴다.
 set -uo pipefail
@@ -9,21 +9,20 @@ cd "$(dirname "$0")"
 SRC=$PWD
 # root 는 공용 계정이 올린 폴더를 /app/inbox 로 새로 복사한 뒤 실행한다. 복사본에 링크가 있으면 누가 심은 것이라 멈춘다
 if [ "$(id -u)" = 0 ] && [ -n "$(find "$SRC" -type l -print -quit)" ]; then
-    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/datasets 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/shared/bin/gpu fetch datasets"; exit 1
+    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/datasets 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/admin/bin/gpu fetch datasets"; exit 1
 fi
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
 APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
-if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/shared" ] || [ -L "$APP/autonomy_sw" ]; }; then
+if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/datasets" ] || [ -L "$APP/admin" ] || [ -L "$APP/autonomy_sw" ]; }; then
     echo "멈춤: /app이 아직 잠기지 않았어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
 fi
-# 공용 폴더 실제 위치. 관리자 설정(admin_setup.sh) 뒤에는 /app/shared 이고 root 만 고칠 수 있다
-SH=$(realpath -m "$HOME/shared"); [ -d "$APP/shared" ] && SH=$APP/shared
-if [ -d "$SH" ] && [ ! -w "$SH" ]; then
-    echo "멈춤: 공용 폴더($SH)는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/datasets_install.sh"; exit 1
+# 설치할 곳: /app/datasets(root 만 고치고 팀원은 읽는다). 기록은 /app/admin/logs
+if [ -d "$APP/datasets" ] && [ ! -w "$APP/datasets" ]; then
+    echo "멈춤: $APP/datasets 는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/datasets_install.sh"; exit 1
 fi
-D="$SH/datasets"
-LOG="$SH/logs/datasets_install_$(date +%Y%m%d_%H%M%S).log"
-mkdir -p "$D" "$SH/logs"
+D="$APP/datasets"
+LOG="$APP/admin/logs/datasets_install_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p "$D" "$APP/admin/logs"
 exec > >(tee -a "$LOG") 2>&1
 T=3
 FAILS=0
@@ -39,7 +38,7 @@ stop() {
     echo "${c_r}멈춘 이유: $1${c_0}"
     echo "할 일: $2"
     echo "고친 뒤 같은 명령을 다시 실행하세요: bash $SRC/datasets_install.sh"
-    echo "기록 파일: $LOG  (해결이 안 되면 docs/8_문제_해결.md)"
+    echo "기록 파일: $LOG  (해결이 안 되면 docs/7_문제_해결.md)"
     exit 1
 }
 
@@ -49,10 +48,9 @@ echo "푸는 곳: $D"
 
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
-[ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 파일이 없어요" "접근 PC의 datasets 폴더를 통째로 /app/upload 에 올리고 /app/inbox 로 복사했는지 확인하세요(docs/6_데이터셋.md)."
-command -v unzip >/dev/null || [ -x "$SH/tools/bin/unzip" ] ||
-    stop "unzip 명령이 없어요" "기초 프로그램을 먼저 설치하세요: cd /app/inbox && bash pack_install.sh /app/shared"
-export PATH="$PATH:$SH/tools/bin"
+[ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 파일이 없어요" "접근 PC의 datasets 폴더를 통째로 /app/upload 에 올리고 /app/inbox 로 복사했는지 확인하세요(docs/5_데이터셋.md)."
+command -v unzip >/dev/null ||
+    stop "unzip 명령이 없어요" "서버 관리 팀에 unzip 설치를 요청하세요(docs/1_처음_설치.md 의 '서버 관리 팀에 요청할 것')."
 
 # 목록이 비었거나 모양이 다른 줄이 있으면 sha256sum 은 그 줄을 건너뛰고 "맞음"이 될 수 있어 따로 본다
 [ "$(grep -c . MANIFEST.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
@@ -124,7 +122,7 @@ fi
 ok "다 풀었어요"
 
 # ------------------------------------------------------------------ 3. 검사
-step 3 '검사 (학습 코드 data/catalog.py 가 찾는 라벨이 있는지)'
+step 3 '검사 (데이터셋마다 라벨 파일이 있는지)'
 check() {   # 이름 폴더 find-path 패턴 파일이름패턴
     local name=$1 dir=$2 path=$3 pat=$4
     if [ ! -d "$D/$dir" ]; then printf '  %-11s %s\n' "$name" "${c_y}올리지 않음${c_0}"; return; fi
@@ -156,14 +154,14 @@ if [ "$FAILS" -eq 0 ]; then
     echo "${c_g}############################ 완료 ############################${c_0}"
     echo " 올린 데이터셋이 모두 정상이에요. 위치: $D"
     echo " 엑셀 '데이터셋 목록' 시트의 진행 상황을 '서버 반입'으로 바꾸세요."
-    echo " 다음 단계: 사전학습 모델(docs/1_처음_설치.md 5단계)"
-    echo " 서버 2로 옮길 거면 지우기 전에 NAS에 먼저 보관하세요(docs/9_NAS.md 의 \"쓰는 법\")."
+    echo " 다음 단계: 사전학습 모델(docs/1_처음_설치.md 4단계)"
+    echo " 서버 2로 옮길 거면 지우기 전에 NAS에 먼저 보관하세요(docs/8_NAS.md 의 \"쓰는 법\")."
     echo " 공간 정리(보관한 뒤): rm -rf /app/inbox/datasets /app/upload/datasets"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"
     echo " 빨간 줄을 확인하세요. '라벨을 못 찾음'은 압축 안 폴더가 한 단계 더 있거나 없는 경우가 많아요."
-    echo " '지금 구조'를 보고 학습 코드가 찾는 위치로 폴더를 옮기세요(docs/6_데이터셋.md 의 \"학습 코드가 읽는 라벨 위치\")."
+    echo " '지금 구조'를 보고 라벨 위치에 맞게 폴더를 옮기세요(docs/5_데이터셋.md 의 \"라벨 위치\")."
     echo " 기록 파일: $LOG"
     echo " /app/inbox/datasets 는 문제가 풀릴 때까지 지우지 마세요."
     exit 1

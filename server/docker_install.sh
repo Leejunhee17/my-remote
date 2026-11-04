@@ -20,7 +20,7 @@ warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() {
     echo; echo "${c_r}################ 멈춤 ################${c_0}"
     echo "${c_r}멈춘 이유: $1${c_0}"; echo "할 일: $2"
-    echo "고친 뒤 같은 명령을 다시 실행하세요: cd $HERE && bash docker_install.sh"; echo "기록 파일: $LOG  (해결이 안 되면 docs/8_문제_해결.md)"
+    echo "고친 뒤 같은 명령을 다시 실행하세요: cd $HERE && bash docker_install.sh"; echo "기록 파일: $LOG  (해결이 안 되면 docs/7_문제_해결.md)"
     exit 1
 }
 info() { sed -n "s/^$1=//p" docker_info.txt; }
@@ -178,7 +178,7 @@ EOF
 # 팀원 셸에서 docker 명령이 이 데몬을 쓰게 한다. 우리 공용 계정에만 건다(다른 계정의 docker 는 그대로)
 cat > /etc/profile.d/gpu-docker.sh <<EOF
 # gpu docker_install.sh 가 만든 파일
-# 뒤에 붙인다. 앞에는 /app/shared/bin/docker(이름표를 붙이고 GPU 겹침을 경고하는 docker)가 온다
+# 뒤에 붙인다. 앞에는 /app/admin/bin/docker(이름표를 붙이고 GPU 겹침을 경고하는 docker)가 온다
 if [ "\$(id -un)" = "$ACC" ]; then
     case ":\$PATH:" in *":$OPT/current:"*) ;; *) PATH="\$PATH:$OPT/current" ;; esac
     export DOCKER_HOST=unix:///run/user/$UID_A/docker.sock
@@ -213,7 +213,7 @@ step 6 '검사 (공용 계정으로)'
 as_acc() { setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$UID_A/docker.sock" DOCKER_CONFIG=/etc/gpu/docker/cli PATH="$OPT/current:/usr/bin:/bin" "$@" </dev/null; }
 as_acc docker info --format '{{.SecurityOptions}} {{.DockerRootDir}}' | grep -q rootless &&
     ok "rootless로 동작해요. 저장 위치 $(as_acc docker info --format '{{.DockerRootDir}}')" ||
-    stop 'rootless로 동작하지 않아요' "공용 계정 도커 정보를 확인하세요: /app/shared/bin/gpu docker info"
+    stop 'rootless로 동작하지 않아요' "공용 계정 도커 정보를 확인하세요: /app/admin/bin/gpu docker info"
 as_acc docker info --format '{{json .Runtimes}}' | grep -q nvidia && ok 'GPU 런타임(nvidia)이 등록됐어요' || warn "GPU 런타임(nvidia)이 보이지 않아요. $CONF/daemon.json 의 runtimes 항목과 nvidia-container-runtime 설치를 확인하세요"
 echo "  GPU 컨테이너는 PyTorch 이미지를 처음 들여온 뒤 공용 계정으로 확인해요: gpu doctor <이미지>"
 
@@ -222,6 +222,6 @@ echo "${c_g}############################ 완료 ############################${c_
 echo " 공용 계정($ACC) 전용 rootless Docker $(info docker)를 설치했어요."
 echo " 팀원은 다시 접속하면 docker 명령을 바로 써요. 컨테이너에는 --gpus 로 정한 GPU만 보여요."
 echo " 관리: systemctl status gpu-docker (다시 켜기: systemctl restart gpu-docker),  기록: journalctl -u gpu-docker"
-echo " 다음 단계: 데이터셋·모델(docs/1_처음_설치.md 4·5단계), 그다음 공용 계정으로 gpu doctor <PyTorch 이미지>"
+echo " 다음 단계: 데이터셋·모델(docs/1_처음_설치.md 3·4단계), 그다음 공용 계정으로 gpu doctor <PyTorch 이미지>"
 echo " 공간 정리(묶음 파일만): rm -f $HERE/gpu-docker.tar /app/upload/gpu-docker.tar"
 echo "${c_g}##############################################################${c_0}"

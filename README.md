@@ -1,6 +1,6 @@
 # GPU 서버 관리 (관리자 전용)
 
-인터넷이 안 되는 GPU 서버 2대에 기초 프로그램·데이터셋·모델·도커를 반입하고, 팀원 여럿이 공용 계정 하나로 같이 쓰도록 관리하는 저장소예요.
+인터넷이 안 되는 GPU 서버 2대에 도커·데이터셋·모델과 관리 스크립트를 반입하고, 팀원 여럿이 공용 계정 하나로 같이 쓰도록 관리하는 저장소예요.
 **이 저장소의 대부분은 관리자(나)만 써요.** 팀원에게 줄 것은 `team/` 폴더뿐이에요.
 
 이 저장소로 할 수 있는 일이에요.
@@ -23,10 +23,10 @@ cd D:\gpu
 git config core.hooksPath .githooks                                   # 커밋 검사 켜기(한 번)
 copy .env.example .env                                                # 접근 PC 설정 만들기(한 번)
 notepad .env                                                          # HF_TOKEN, 필요하면 HTTPS_PROXY 적기
-powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 기초 프로그램·도커·데이터셋·모델 받기
+powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 설치 스크립트·도커·데이터셋·모델 받기
 ```
 
-받은 것은 `pack\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요. 서버에 올리고 설치하는 일은 각 작업 끝의 안내와 `docs/1_처음_설치.md` 의 "전체 흐름" 을 따라요.
+받은 것은 `setup\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요. 서버에 올리고 설치하는 일은 각 작업 끝의 안내와 `docs/1_처음_설치.md` 의 "전체 흐름" 을 따라요.
 
 ## 서버 구성
 
@@ -37,8 +37,8 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 기초 
 | 운영체제 | 윈도우 | 지금은 RHEL 9. 2026-11-12까지 Ubuntu 24.04 LTS 로 다시 설치할 예정이에요. 문서는 Ubuntu 기준이에요 |
 | 인터넷 | 돼요. 여기서 내려받아요 | 안 돼요 |
 | 접속 | | HIWARE 를 거쳐요. 팀원은 모두 공용 계정 하나(PuTTY, FileZilla). 관리자는 root(PuTTY만 돼요). 파일은 공용 계정 FileZilla로 올려요 |
-| 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD, NAS `/data`(다른 팀과 같이 써요. 계획: `docs/9_NAS.md`) |
-| 주요 위치 | `D:\gpu` | 공용 `/app/shared`(root 만 고침), 작업 `/app/autonomy_sw/<이름>`, 기록·알림 `/app/state`, 설치 파일 올리는 곳 `/app/upload`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
+| 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD, NAS `/data`(다른 팀과 같이 써요. 계획: `docs/8_NAS.md`) |
+| 주요 위치 | `D:\gpu` | 데이터셋 `/app/datasets`, 모델 `/app/models`, 도우미·명단·설정 `/app/admin`(셋 다 root 만 고침), 작업 `/app/autonomy_sw/<이름>`, 기록·알림 `/app/state`, 설치 파일 올리는 곳 `/app/upload`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
 
 ## 문서 지도
 
@@ -48,11 +48,10 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 기초 
 | 팀원 추가, GPU 배분, 알림 기준, 도커·드라이버 관리 | `docs/2_서버_운영.md` |
 | 잠금·알림·사람 구분이 왜 이렇게 생겼는지 알고 싶어요 | `docs/3_구조와_보안.md` |
 | 두 서버와 NAS 사이 속도, 큰 파일 옮기는 방법, 점검 결과 올리기 | `docs/4_네트워크.md` |
-| 서버의 기초 프로그램(tmux, nvtop 등) 목록을 보거나 바꿔요 | `docs/5_기초프로그램.md` |
-| 데이터셋을 받거나 폴더 구조를 확인해요 | `docs/6_데이터셋.md` |
-| 사전학습 모델을 받거나 목록을 바꿔요. 주행 영상 의사 라벨도 만들어요 | `docs/7_모델.md` |
-| 스크립트가 멈췄거나 `[문제]` 가 나왔어요 | `docs/8_문제_해결.md` |
-| NAS에 무엇을 어디에 두고(`originals`, `backup`, `docker_images`, `tmp_transfer`), 누가 쓰고, 얼마나 필요한지 | `docs/9_NAS.md` |
+| 데이터셋을 받거나 폴더 구조를 확인해요 | `docs/5_데이터셋.md` |
+| 사전학습 모델을 받거나 목록을 바꿔요. 주행 영상 의사 라벨도 만들어요 | `docs/6_모델.md` |
+| 스크립트가 멈췄거나 `[문제]` 가 나왔어요 | `docs/7_문제_해결.md` |
+| NAS에 무엇을 어디에 두고(`originals`, `backup`, `docker_images`, `tmp_transfer`), 누가 쓰고, 얼마나 필요한지 | `docs/8_NAS.md` |
 | 팀원에게 줄 규칙(한눈에 보기) | `team/서버_사용_규칙.md`, `team/서버_사용_규칙.xlsx` |
 | 팀원에게 줄 사용법(코드·이미지 반입 → 도커에서 실행) | `team/사용_안내.md` |
 
@@ -63,14 +62,15 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 기초 
 | 단계 | 접근 PC | GPU 서버 (root) |
 |---|---|---|
 | 0. 서버 점검 | | `check_server.sh`, `check_network.sh all`, `check_nas.sh` |
-| 1. 관리자 기본 설정 | `pc\pack_build.ps1` | `admin_setup.sh` (**맨 먼저**: `/app` 잠금) |
-| 2. 기초 프로그램 | (1단계 묶음) | `pack_install.sh /app/shared` |
-| 3. 도커 | `pc\docker_pack.ps1` | `docker_install.sh` |
-| 4. 데이터셋 | `pc\datasets_download.ps1` | `datasets_install.sh` |
-| 5. 사전학습 모델 | `pc\models_download.ps1` | `models_install.sh` |
-| 6. 팀원 입장에서 확인 | | 공용 계정으로 접속 |
+| 1. 관리자 기본 설정 | `pc\setup_pack.ps1` | `admin_setup.sh` (**맨 먼저**: `/app` 잠금) |
+| 2. 도커 | `pc\docker_pack.ps1` | `docker_install.sh` |
+| 3. 데이터셋 | `pc\datasets_download.ps1` | `datasets_install.sh` |
+| 4. 사전학습 모델 | `pc\models_download.ps1` | `models_install.sh` |
+| 5. 팀원 입장에서 확인 | | 공용 계정으로 접속 |
 
-접근 PC의 토큰·프록시 같은 설정은 `.env` 하나에 적어 두고(`copy .env.example .env`), 1·3·4·5단계에서 받는 일은 `pc\run_all.ps1` 하나로 한 번에 할 수 있어요(`docs/1_처음_설치.md` 의 "접근 PC 설정(.env)").
+서버 화면(컨테이너 밖)에서 쓰는 tmux, nvtop, rsync 같은 프로그램은 OS를 설치할 때 서버 관리 팀에 함께 설치해 달라고 해요(`docs/1_처음_설치.md` 의 "서버에 설치해 달라고 할 패키지"). 학습 도구는 팀원이 도커 이미지에 넣어 와요.
+
+접근 PC의 토큰·프록시 같은 설정은 `.env` 하나에 적어 두고(`copy .env.example .env`), 1~4단계에서 받는 일은 `pc\run_all.ps1` 하나로 한 번에 할 수 있어요(`docs/1_처음_설치.md` 의 "접근 PC 설정(.env)").
 
 ## 폴더 구성
 
@@ -81,8 +81,8 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 기초 
 | `pc/` | 접근 PC에서 실행하는 받기·묶기 스크립트(`run_all.ps1` 은 한 번에) |
 | `.env.example` | 접근 PC 설정 예시. 복사해 `.env` 를 만들고 토큰·프록시를 적어요(`.env` 는 git에 올라가지 않아요) |
 | `server/` | GPU 서버에서 root 로 실행하는 점검·설치 스크립트 |
-| `server/bin/` | 팀원이 쓰는 `docker`, `nvidia-smi` 뒤에서 이름표·경고·"GPU별 사용자" 표를 붙이는 도우미와 정기 점검(`gpu`). `admin_setup.sh` 가 `/app/shared/bin` 에 설치해요 |
-| `lists/` | 받을 목록(기초 프로그램, 모델) |
+| `server/bin/` | 팀원이 쓰는 `docker`, `nvidia-smi` 뒤에서 이름표·경고·"GPU별 사용자" 표를 붙이는 도우미와 정기 점검(`gpu`). `admin_setup.sh` 가 `/app/admin/bin` 에 설치해요 |
+| `lists/` | 받을 모델 목록 |
 | `reports/` | 서버 점검 결과 중 사내 정보를 가린 공유용만 올리는 곳 |
 | `.githooks/` | 커밋 전에 사내 정보·`.env`·토큰이 들어가지 않았는지 보는 검사(`git config core.hooksPath .githooks`) |
 | `tests/` | 자동 시험(`bash tests/run.sh`). 가짜 `/app`·docker·nvidia-smi 로 스크립트를 실제로 돌려 봐요 |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [GPU 서버] NAS 구조·권한·용량을 점검해요. NAS 계획(docs/9_NAS.md)을 정하기 전에 두 서버에서 각각 한 번씩 실행해요.
+# [GPU 서버] NAS 구조·권한·용량을 점검해요. NAS 계획(docs/8_NAS.md)을 정하기 전에 두 서버에서 각각 한 번씩 실행해요.
 #   bash check_nas.sh                 NAS(nfs 등)로 연결된 폴더를 모두 봐요
 #   bash check_nas.sh <우리 팀 폴더>   그 폴더(예: /data/우리팀)의 주인·권한·용량도 봐요
 # 바꾸는 것은 없어요. root 로 실행하면 root squash 를 알아보려고 NAS 의 tmp 폴더(스티키 비트가 있을 때만)에
@@ -140,12 +140,12 @@ body() {
             df -hP "$TEAM_DIR" | awk 'NR==2 {printf "  여기서 본 용량: 전체 %s, 쓴 것 %s, 남은 것 %s (할당량이 있으면 할당량이에요)\n", $2, $3, $4}'
             echo "  바로 아래:"; find "$TEAM_DIR" -mindepth 1 -maxdepth 1 -printf '    %f  (주인 uid %U, 권한 %m)\n' 2>/dev/null | sort | head -30
         else
-            echo "  아직 없어요. 만들 수 있는지는 위 '쓸 수 있는 곳'을 보세요(docs/9_NAS.md 의 '처음 만들기')."
+            echo "  아직 없어요. 만들 수 있는지는 위 '쓸 수 있는 곳'을 보세요(docs/8_NAS.md 의 '처음 만들기')."
         fi
     fi
 
     echo
-    echo "다음: 두 서버에서 모두 실행한 뒤, 이 화면(보고서 파일)으로 docs/9_NAS.md 의 '정해야 할 것'을 채워요."
+    echo "다음: 두 서버에서 모두 실행한 뒤, 이 화면(보고서 파일)으로 docs/8_NAS.md 의 '정해야 할 것'을 채워요."
 }
 
 # 보고서 둘 곳: root 는 /app/inbox/reports(root 만 고치고 공용 계정 FileZilla로 내려받을 수 있음),

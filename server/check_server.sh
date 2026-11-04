@@ -12,7 +12,6 @@ bad()  { echo "  ${c_r}[문제]${c_0} $1"; ASK+=("$2"); }    # 서버 관리 팀
 mine() { echo "  ${c_r}[문제]${c_0} $1"; MINE+=("$2"); }   # 관리자가 직접 할 것
 ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
-GLIBC_NEED=2.35   # 접근 PC pack_build.ps1 의 -Glibc 기본값과 같게 둔다
 APP=${APP:-/app}
 ME=$(hostname -s)
 
@@ -33,14 +32,11 @@ echo "${c_c}[GPU 서버] 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -
 
 echo; echo "${c_c}== 운영체제 ==${c_0}"
 os=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")
-glibc=$(ldd --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+$')
-echo "  $os, 커널 $(uname -r), glibc $glibc"
+echo "  $os, 커널 $(uname -r)"
 case "$os" in Ubuntu*) ;; *) warn "Ubuntu가 아니에요($os). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)" ;; esac
 if [ -z "$ACC" ]; then mine "공용 계정 이름을 알 수 없어요" "서버에 한 번 적어 두기: mkdir -p /etc/gpu && echo <계정이름> > /etc/gpu/account"
 elif id "$ACC" >/dev/null 2>&1; then ok "공용 계정($ACC)이 있어요"; else
     bad "공용 계정이 없어요: $ACC (이름을 잘못 적었으면 /etc/gpu/account 를 고치세요)" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"; fi
-if ver_ge "$glibc" "$GLIBC_NEED"; then ok "glibc $glibc (묶음 기준 $GLIBC_NEED 이상)"
-else mine "glibc $glibc: 묶음 기준($GLIBC_NEED)보다 낮아요" "접근 PC에서 묶음을 다시 만들기: pack_build.ps1 -Glibc $glibc"; fi
 
 echo; echo "${c_c}== GPU ==${c_0}"
 if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
@@ -97,20 +93,32 @@ if [ -d "$APP" ]; then
     if [ -d "$APP/autonomy_sw" ] && [ ! -w "$APP/autonomy_sw" ]; then
         mine "$APP/autonomy_sw 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
     fi
-    if [ -e "$APP/shared" ] && [ "$(stat -c %U "$APP/shared/.gpu_root" 2>/dev/null)" != root ]; then
-        warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 데이터셋·모델과 설정 파일만 남기고 기초 프로그램 등은 치워요(2단계에서 다시 설치)"
+    if [ -e "$APP/shared" ]; then
+        warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 데이터셋·모델은 $APP/datasets·$APP/models 로, 명단·설정은 $APP/admin 으로 옮기고 나머지는 치워요"
+        [ -d "$APP/shared/datasets" ] && ok "예전 데이터셋이 남아 있어요: $APP/shared/datasets (옮겨 쓰니 다시 올리지 않아도 돼요)"
+        [ -d "$APP/shared/models" ] && ok "예전 모델이 남아 있어요: $APP/shared/models (옮겨 쓰니 다시 올리지 않아도 돼요)"
     fi
-    [ -d "$APP/shared/datasets" ] && ok "예전 데이터셋이 남아 있어요: $APP/shared/datasets (다시 올리지 않아도 돼요)"
-    [ -d "$APP/shared/models" ] && ok "예전 모델이 남아 있어요: $APP/shared/models (다시 올리지 않아도 돼요)"
+    [ -d "$APP/datasets" ] && ok "데이터셋이 있어요: $APP/datasets (다시 올리지 않아도 돼요)"
+    [ -d "$APP/models" ] && ok "모델이 있어요: $APP/models (다시 올리지 않아도 돼요)"
 else
     bad "$APP 폴더가 없어요" "2 TB SSD를 $APP 에 연결해 주세요(주인은 root 그대로)"
 fi
 
-echo; echo "${c_c}== 기본 명령 ==${c_0}"
-miss=()
-for b in bash tar sha256sum awk sed grep df du realpath sort; do command -v "$b" >/dev/null || miss+=("$b"); done
-[ ${#miss[@]} -eq 0 ] && ok "설치 스크립트에 필요한 명령이 모두 있어요" ||
-    bad "없는 명령: ${miss[*]}" "기본 명령(coreutils, tar 등)을 설치해 주세요: ${miss[*]}"
+echo; echo "${c_c}== 서버 프로그램 ==${c_0}"
+# "명령:Ubuntu 패키지". 서버 화면(컨테이너 밖)에서 쓰는 프로그램은 OS 에 설치해 달라고 한다. docs/1_처음_설치.md 의 요청 목록과 같게 둔다
+NEED=(bash:bash tar:tar sha256sum:coreutils awk:gawk sed:sed grep:grep perl:perl python3:python3 unzip:unzip
+      runuser:util-linux setsid:util-linux findmnt:util-linux script:bsdutils)
+WANT=(tmux:tmux screen:screen vim:vim nano:nano micro:micro less:less htop:htop btop:btop nvtop:nvtop iotop:iotop iostat:sysstat
+      lsof:lsof strace:strace tree:tree ncdu:ncdu jq:jq bc:bc file:file rsync:rsync zip:zip 7z:p7zip-full pigz:pigz zstd:zstd
+      xz:xz-utils pv:pv git:git git-lfs:git-lfs curl:curl wget:wget iperf3:iperf3 ethtool:ethtool ib_write_bw:perftest
+      ibhosts:infiniband-diags ibv_devinfo:ibverbs-utils)
+lack() { local p m=(); for p in "$@"; do command -v "${p%%:*}" >/dev/null || m+=("${p#*:}"); done; printf '%s\n' "${m[@]}" | grep . | sort -u | tr '\n' ' '; }
+miss=$(lack "${NEED[@]}")
+[ -z "$miss" ] && ok "설치 스크립트에 필요한 명령이 모두 있어요" ||
+    bad "설치 스크립트에 필요한 패키지가 없어요: $miss" "패키지 설치: apt install $miss"
+miss=$(lack "${WANT[@]}")
+[ -z "$miss" ] && ok "서버 화면에서 쓰는 프로그램(tmux, nvtop, rsync 등)이 모두 있어요" ||
+    bad "서버 화면에서 쓰는 프로그램 중 없는 것: $miss" "패키지 설치: apt install $miss"
 
 echo
 if [ ${#ASK[@]} -eq 0 ] && [ ${#MINE[@]} -eq 0 ]; then

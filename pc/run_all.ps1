@@ -7,14 +7,14 @@
   powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1 -Run models,datasets   # 이번에만 고른 것
 #>
 param(
-    [string[]]$Run = @()   # pack, docker, datasets, models 중에서(쉼표로 여러 개)
+    [string[]]$Run = @()   # setup, docker, datasets, models 중에서(쉼표로 여러 개)
 )
 $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $here 'gpu_common.ps1')
 
 $Jobs = [ordered]@{
-    pack     = @{ File = 'pack_build.ps1';        Title = '기초 프로그램 묶음(pack\gpu-pack.tar)' }
+    setup    = @{ File = 'setup_pack.ps1';        Title = '서버 설치 스크립트 묶음(setup\gpu-setup.tar)' }
     docker   = @{ File = 'docker_pack.ps1';       Title = 'rootless Docker 묶음(pack_docker\gpu-docker.tar)' }
     datasets = @{ File = 'datasets_download.ps1'; Title = '데이터셋(datasets\)' }
     models   = @{ File = 'models_download.ps1';   Title = '사전학습 모델(models\)' }

@@ -43,7 +43,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 ├── originals/                    반입 원본. 지울 일이 거의 없어요
 │   ├── datasets/                 접근 PC의 datasets 폴더 그대로(MANIFEST.sha256 포함)
 │   ├── models/                   접근 PC의 models 폴더 그대로
-│   └── server_setup/<날짜>/       gpu-pack.tar, gpu-docker.tar
+│   └── server_setup/<날짜>/       gpu-setup.tar, gpu-docker.tar
 ├── docker_images/<이름>/          팀원이 만든 도커 이미지 .tar
 ├── backup/<이름>/                 실험 결과·체크포인트
 └── tmp_transfer/                 서버 사이 임시 전달. 14일 지나면 지워요
@@ -65,9 +65,9 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 
 | 폴더 | 크기 | 근거 |
 |---|---|---|
-| `originals/datasets` | 약 112 GB | 데이터셋 7개(`docs/6_데이터셋.md`) |
-| `originals/models` | 약 334 GB | 기본 모델(`docs/7_모델.md`). 선택 모델을 받으면 늘어요(`vlmxl` 의 Qwen3.5-397B만 406 GB) |
-| `originals/server_setup` | 버전마다 몇 GB | 접근 PC의 `pack\gpu-pack.tar` 크기. 최근 3판만 둬요 |
+| `originals/datasets` | 약 112 GB | 데이터셋 7개(`docs/5_데이터셋.md`) |
+| `originals/models` | 약 334 GB | 기본 모델(`docs/6_모델.md`). 선택 모델을 받으면 늘어요(`vlmxl` 의 Qwen3.5-397B만 406 GB) |
+| `originals/server_setup` | 버전마다 1 GB 안팎 | 접근 PC의 `setup\gpu-setup.tar`(아주 작아요)와 `pack_docker\gpu-docker.tar` 크기. 최근 3판만 둬요 |
 | `docker_images/` | N × 약 40 GB | PyTorch 기반 이미지 하나 15~25 GB × 사람마다 2개 |
 | `backup/` | N × B | 체크포인트가 가장 커요. 예: ViT-L 체크포인트 하나 1~3 GB |
 | `tmp_transfer/` | 약 450 GB | 데이터셋과 기본 모델을 한 번에 옮길 때 |
@@ -88,7 +88,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
    ```
 
 3. 만들 수 없으면 아래 "서버 관리 팀에 물어볼 것" 을 보고 물어봐요.
-4. `/app/shared/gpu.conf` 에 `NAS_DIR=/data/<팀 폴더>` 를 적고 `cd /app/inbox && bash admin_setup.sh` 를 다시 실행해요. 팀원별 `backup/<이름>`, `docker_images/<이름>` 폴더가 생기고, 주간 보고서에 폴더별 사용량과 오래된 `tmp_transfer/` 파일이 나와요. 나중에 팀원을 명단에 추가하면 그때도 다시 실행해요.
+4. `/app/admin/gpu.conf` 에 `NAS_DIR=/data/<팀 폴더>` 를 적고 `cd /app/inbox && bash admin_setup.sh` 를 다시 실행해요. 팀원별 `backup/<이름>`, `docker_images/<이름>` 폴더가 생기고, 주간 보고서에 폴더별 사용량과 오래된 `tmp_transfer/` 파일이 나와요. 나중에 팀원을 명단에 추가하면 그때도 다시 실행해요.
 
 ## 쓰는 법
 
@@ -101,7 +101,7 @@ cd /app/inbox && bash check_nas.sh                 # 우리 팀 폴더를 정했
 A=$(cat /etc/gpu/account); T=/data/<팀 폴더>/originals
 P=$T/server_setup/$(date +%F)                          # 묶음은 만든 날짜 폴더마다 따로 둬요
 runuser -u "$A" -- mkdir -p $P
-runuser -u "$A" -- cp /app/inbox/gpu-pack.tar /app/inbox/gpu-docker.tar $P/
+runuser -u "$A" -- cp /app/inbox/gpu-setup.tar /app/inbox/gpu-docker.tar $P/
 runuser -u "$A" -- ls $T/server_setup                 # 날짜 폴더가 4개 이상이면 가장 오래된 것을 지워요(최근 3판만)
 runuser -u "$A" -- cp -r /app/inbox/datasets /app/inbox/models $T/
 ```
@@ -115,23 +115,23 @@ runuser -u "$A" -- cp -r /app/inbox/datasets /app/inbox/models $T/
 A=$(cat /etc/gpu/account); T=/data/<팀 폴더>/originals
 runuser -u "$A" -- ls $T/server_setup                 # 날짜 폴더 목록. 가장 최근 날짜를 아래 <날짜> 에 적어요
 P=$T/server_setup/<날짜>
-runuser -u "$A" -- cp $P/gpu-pack.tar $P/gpu-docker.tar /app/upload/
+runuser -u "$A" -- cp $P/gpu-setup.tar $P/gpu-docker.tar /app/upload/
 runuser -u "$A" -- cp -r $T/datasets $T/models /app/upload/
 ```
 
 그다음은 **지문을 보는 줄과 실행하는 줄을 나눠서** 해요. 지문이 `지문_기록.txt` 와 같을 때만 다음 줄을 실행해요.
 
 ```bash
-# 1·2단계: 아직 gpu 명령이 없어서 직접 복사해요
-cp /app/upload/gpu-pack.tar /app/inbox/ && sha256sum /app/inbox/gpu-pack.tar          # 지문 확인
-cd /app/inbox && tar xf gpu-pack.tar && bash admin_setup.sh && bash pack_install.sh /app/shared
+# 1단계: 아직 gpu 명령이 없어서 직접 복사해요
+cp /app/upload/gpu-setup.tar /app/inbox/ && sha256sum /app/inbox/gpu-setup.tar          # 지문 확인
+cd /app/inbox && tar xf gpu-setup.tar && bash admin_setup.sh
 
-# 3~5단계: 여기부터는 gpu fetch 를 써요
-/app/shared/bin/gpu fetch gpu-docker.tar                                               # 지문 확인
+# 2~4단계: 여기부터는 gpu fetch 를 써요
+/app/admin/bin/gpu fetch gpu-docker.tar                                               # 지문 확인
 cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh
-/app/shared/bin/gpu fetch datasets                                                      # 지문 확인
+/app/admin/bin/gpu fetch datasets                                                      # 지문 확인
 bash /app/inbox/datasets/datasets_install.sh
-/app/shared/bin/gpu fetch models                                                        # 지문 확인
+/app/admin/bin/gpu fetch models                                                        # 지문 확인
 bash /app/inbox/models/models_install.sh
 ```
 

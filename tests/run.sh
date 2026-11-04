@@ -121,21 +121,26 @@ t_docs() {
         [ -n "$(find server pc tests -name "$n" -print -quit)" ] || bad+=" $n"
     done
     [ -z "$bad" ] && ok '문서에 나온 스크립트가 모두 있어요' || no "없는 스크립트:$bad"
-    # docs/… 를 가리키는 곳(문서·스크립트)이 실제 파일이고, 같이 적은 "절 이름" 이 그 파일의 제목에 있다
-    bad=$(git grep -hoIE 'docs[/\\][0-9]_[^ )`"'"'"'\\]+\.md( 의 \\?"[^"\\]+\\?")?' -- . ':!tests' | sed 's/\\"/"/g' | sort -u | while IFS= read -r ref; do
+    # docs/… 를 가리키는 곳(문서·스크립트)이 실제 파일이고, 같이 적은 "절 이름" 이 그 파일의 제목에 있다. 점검 보고서(reports/*.txt)는 그때 화면 그대로라 뺀다
+    bad=$(git grep -hoIE 'docs[/\\][0-9]_[^ )`"'"'"'\\]+\.md( 의 \\?"[^"\\]+\\?")?' -- . ':!tests' ':!reports/*.txt' | sed 's/\\"/"/g' | sort -u | while IFS= read -r ref; do
         f=${ref%%.md*}.md; f=${f//\\//}
         [ -f "$f" ] || { echo "없는 문서: $ref"; continue; }
         case "$ref" in *'"'*) s=${ref#*\"}; s=${s%\"}; grep -E '^#+ ' "$f" | tr -d '`' | grep -qF -- "$s" || echo "제목 없음: $ref" ;; esac
     done)
     [ -z "$bad" ] && ok '문서 이름과 절 이름이 모두 있어요' || no '가리키는 문서·절이 없어요' "$bad"
     # 문제 해결 표에 적은 화면 메시지가 스크립트에 실제로 있다(… 는 바뀌는 부분, '습니다' 는 Windows 메시지)
-    bad=$(grep -oP '^\| `\K[^`]+' docs/8_문제_해결.md | while IFS= read -r m; do
+    bad=$(grep -oP '^\| `\K[^`]+' docs/7_문제_해결.md | while IFS= read -r m; do
         case "$m" in *습니다*) continue ;; esac
         IFS='…' read -ra parts <<< "$m"
         for p in "${parts[@]}"; do p=$(echo "$p" | sed 's/^ *//; s/ *$//'); [ ${#p} -ge 3 ] || continue
             grep -rqF -- "$p" server pc || echo "$m  (못 찾은 부분: $p)"; done
     done)
     [ -z "$bad" ] && ok '문제 해결 표의 메시지가 스크립트에 있어요' || no '문제 해결 표의 메시지가 스크립트에 없어요' "$bad"
+    # check_server.sh 가 찾는 패키지와 docs/1 의 "서버에 설치해 달라고 할 패키지" 명령이 같다(빠진 것을 요청 목록에 적어 주므로)
+    local want doc; want=$(sed -n '/^NEED=(/,/^lack()/p' server/check_server.sh | grep -oE '[a-z0-9_.-]+:[a-z0-9.+-]+' | cut -d: -f2 | grep -vxE 'bash|tar|coreutils|sed|grep|util-linux|bsdutils' | sort -u)
+    doc=$(sed -n '/^apt install -y/,/^```/p' docs/1_처음_설치.md | tr -s ' \\\n' '\n' | grep -vE '^(apt|install|-y|```)$' | sort -u)
+    bad=$(comm -3 <(echo "$want") <(echo "$doc"))
+    [ -n "$want" ] && [ -z "$bad" ] && ok '점검 스크립트와 문서의 서버 패키지 목록이 같아요' || no '점검 스크립트와 문서의 서버 패키지 목록이 달라요(왼쪽: 스크립트만, 오른쪽: 문서만)' "$bad"
     # README 의 폴더 표에 있는 경로가 있다
     bad=$(grep -oP '^\| `\K[^`]+(?=`)' README.md | while read -r p; do [ -e "${p%/}" ] || echo "$p"; done)
     [ -z "$bad" ] && ok 'README 폴더 표의 경로가 모두 있어요' || no 'README 폴더 표에 없는 경로' "$bad"
@@ -150,7 +155,7 @@ mk_datasets() {   # $1 폴더. 압축 1개 + wildscenes 파일 2개와 맞는 �
       echo 'files=2 bytes=6' > wildscenes.ok )
     cp server/datasets_install.sh "$d/"
 }
-# GPU_APP 을 없는 폴더로 둬서, 시험하는 곳에 /app 이 있어도(admin_setup 시험 뒤) 홈의 shared 에 설치하게 한다
+# GPU_APP 을 시험 폴더로 둬서, 시험하는 곳에 /app 이 있어도(admin_setup 시험 뒤) 그 아래 datasets·models 에 설치하게 한다
 run_ds() { HOME=$1 GPU_APP=$T/no-app bash "$2/datasets_install.sh" > "$LOG" 2>&1; }
 t_installers() {
     head_ '데이터셋·모델 설치'
@@ -158,21 +163,21 @@ t_installers() {
     mkdir -p "$H"
     mk_datasets "$D"
     run_ds "$H" "$D"; t '데이터셋: 정상 설치' has "$LOG" '파일 3개의 체크섬이 맞아요'
-    t '데이터셋: wildscenes 는 목록의 파일만 옮겨요' test -f "$H/shared/datasets/wildscenes/a/1.png" -a -f "$H/shared/datasets/wildscenes/.gpu_done"
-    t '데이터셋: wildscenes 파일을 압축 풀기 목록에 넣지 않아요' test ! -e "$H/shared/datasets/wildscenes/1.png"
-    rm -rf "$H/shared" "$D"; mk_datasets "$D"; echo bad > "$D/wildscenes/2.png"
+    t '데이터셋: wildscenes 는 목록의 파일만 옮겨요' test -f "$T/no-app/datasets/wildscenes/a/1.png" -a -f "$T/no-app/datasets/wildscenes/.gpu_done"
+    t '데이터셋: wildscenes 파일을 압축 풀기 목록에 넣지 않아요' test ! -e "$T/no-app/datasets/wildscenes/1.png"
+    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; echo bad > "$D/wildscenes/2.png"
     run_ds "$H" "$D"; t '데이터셋: 바뀐 wildscenes 파일을 잡아요' has "$LOG" '깨졌거나 없는 파일: wildscenes/2.png'
-    rm -rf "$H/shared" "$D"; mk_datasets "$D"; echo x > "$D/wildscenes/a/evil.sh"
+    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; echo x > "$D/wildscenes/a/evil.sh"
     run_ds "$H" "$D"; t '데이터셋: 목록에 없는 wildscenes 파일이 있으면 멈춰요' has "$LOG" 'wildscenes 파일이 3개예요'
-    rm -rf "$H/shared" "$D"; mk_datasets "$D"; : > "$D/MANIFEST.sha256"
+    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; : > "$D/MANIFEST.sha256"
     run_ds "$H" "$D"; t '데이터셋: 빈 체크섬 목록이면 멈춰요' has "$LOG" '비었거나 모양이 이상해요'
-    rm -rf "$H/shared" "$D"; mk_datasets "$D"; echo 'garbage' >> "$D/MANIFEST.sha256"
+    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; echo 'garbage' >> "$D/MANIFEST.sha256"
     run_ds "$H" "$D"; t '데이터셋: 모양이 다른 줄이 있으면 멈춰요' has "$LOG" '비었거나 모양이 이상해요'
-    rm -rf "$H/shared" "$D"; mk_datasets "$D"; grep -v wildscenes "$D/MANIFEST.sha256" > "$D/m" && mv "$D/m" "$D/MANIFEST.sha256"
+    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; grep -v wildscenes "$D/MANIFEST.sha256" > "$D/m" && mv "$D/m" "$D/MANIFEST.sha256"
     run_ds "$H" "$D"; t '데이터셋: 예전 목록(wildscenes 체크섬 없음)이면 멈춰요' has "$LOG" '체크섬 목록에 wildscenes 파일이 없어요'
 
     # 모델: 목록에 있는 파일만 옮기고, 올린 폴더의 json.py 같은 파일이 실행되지 않는다
-    local M=$T/inst/models; rm -rf "$H/shared"; mkdir -p "$M/org__m"
+    local M=$T/inst/models; rm -rf "$T/no-app"; mkdir -p "$M/org__m"
     ( cd "$M" && echo '{"a":1}' > org__m/config.json && echo '{"repo":"org/m","license":"mit"}' > org__m/gpu_model.json
       echo extra > org__m/extra.py
       python3 -I -c "
@@ -185,29 +190,29 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
     HOME=$H GPU_APP=$T/no-app bash "$M/models_install.sh" > "$LOG" 2>&1
     t '모델: 정상 설치' has "$LOG" '모델 1개가 모두 정상이에요'
     t '모델: 올린 폴더의 json.py 등이 실행되지 않아요(python -I)' test ! -e "$T/inst/PWNED"
-    t '모델: 목록에 없는 파일은 옮기지 않아요' test ! -e "$H/shared/models/org/m/extra.py"
-    t '모델: 코드 묶음을 풀어요' test -f "$H/shared/models/org/m/code/ok/a.py"
-    t '모델: 코드 묶음이 폴더 밖에 쓰지 않아요' test ! -e "$T/inst/escaped" -a ! -e "$T/escaped2" -a ! -e "$H/shared/models/escaped2"
+    t '모델: 목록에 없는 파일은 옮기지 않아요' test ! -e "$T/no-app/models/org/m/extra.py"
+    t '모델: 코드 묶음을 풀어요' test -f "$T/no-app/models/org/m/code/ok/a.py"
+    t '모델: 코드 묶음이 폴더 밖에 쓰지 않아요' test ! -e "$T/inst/escaped" -a ! -e "$T/escaped2" -a ! -e "$T/no-app/models/escaped2"
 }
 
 # ================================================================== 4. gpu (정기 점검·현황·보고서)
 APPT=$T/app
 setup_app() {   # 가짜 /app. gpu 은 root 로 돌 때 자기 파일이 root 소유여야 한다
-    rm -rf "$APPT"; mkdir -p "$APPT"/shared/bin "$APPT"/autonomy_sw/{hong,kim} "$APPT"/state/{gpu_log,notice,reports,images,notice_seen,tty} "$APPT"/upload "$APPT"/inbox
-    install -m 755 server/bin/gpu server/bin/docker server/bin/nvidia-smi "$APPT/shared/bin/"
-    printf '홍길동 인지\nhong 인지\nkim 판단\n관리자 인지\n' > "$APPT/shared/team.txt"
-    printf '# 시험\n  # 들여쓴 주석\n0 다른팀\n1 다른팀\n2 다른팀\n3 다른팀\n4 인지\n5 판단\n6 공용\n7 공용\n' > "$APPT/shared/gpu_alloc.txt"
+    rm -rf "$APPT"; mkdir -p "$APPT"/admin/bin "$APPT"/autonomy_sw/{hong,kim} "$APPT"/state/{gpu_log,notice,reports,images,notice_seen,tty} "$APPT"/upload "$APPT"/inbox
+    install -m 755 server/bin/gpu server/bin/docker server/bin/nvidia-smi "$APPT/admin/bin/"
+    printf '홍길동 인지\nhong 인지\nkim 판단\n관리자 인지\n' > "$APPT/admin/team.txt"
+    printf '# 시험\n  # 들여쓴 주석\n0 다른팀\n1 다른팀\n2 다른팀\n3 다른팀\n4 인지\n5 판단\n6 공용\n7 공용\n' > "$APPT/admin/gpu_alloc.txt"
     : > "$APPT/state/images/loaded.tsv"
     rm -f "$T/fake/inspect" "$T/fake/images" "$T/fake/args.log"
 }
 # 컨테이너 한 줄: pid 이름 이름표(사람) GPU요청 이미지 이름표(GPU) ID  (gpu 이 docker inspect 로 받는 모양)
 ctr() { printf '%s\t%s\t"%s"\t%s\t"%s"\t"%s"\t%s\n' "$@" >> "$T/fake/inspect"; }
-gpu() { env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" GPU_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/shared/bin/gpu" "$@"; }
+gpu() { env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" GPU_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/admin/bin/gpu" "$@"; }
 t_gpu() {
     head_ 'gpu (현황·정기 점검·보고서)'
     is_root || { skip 'root 가 아니라서 건너뛰어요(gpu 정기 점검은 root 로 돌아요)'; return; }
     setup_app
-    printf 'MAX_GPUS=6\nIDLE_HOURS=$(touch %s/PWNED1)\ntouch %s/PWNED2\nNAS_DIR=/data/team\n' "$T" "$T" > "$APPT/shared/gpu.conf"
+    printf 'MAX_GPUS=6\nIDLE_HOURS=$(touch %s/PWNED1)\ntouch %s/PWNED2\nNAS_DIR=/data/team\n' "$T" "$T" > "$APPT/admin/gpu.conf"
     ctr 101 hong-seg hong 4 'hong/seg:v1' '' aaa1
     ctr 102 fake-admin 관리자 6 'x:1' '' aaa2
     ctr 103 uuid-run kim GPU-bbbbbbbb-2222 'kim/y:1' '' aaa3
@@ -221,7 +226,7 @@ t_gpu() {
     t '들여쓴 주석 줄을 GPU 배분으로 읽지 않아요(mawk)' lacks "$LOG" '들여쓴'
     gpu _names > "$LOG" 2>&1; t '팀원 이름 목록에 "관리자" 가 없어요(이름표로 관리자 알림을 꾸미지 못하게)' lacks "$LOG" 관리자
     ln -s / "$APPT/autonomy_sw/zz-link"
-    if timeout 60 env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" GPU_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/shared/bin/gpu" _report > "$LOG" 2>&1; then
+    if timeout 60 env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" GPU_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/admin/bin/gpu" _report > "$LOG" 2>&1; then
         t '주간 보고서가 나와요' has "$LOG" '== 디스크'
     else no '주간 보고서가 60초 안에 끝나지 않아요(작업 폴더의 링크를 따라갔을 수 있어요)'; fi
     rm -f "$APPT/autonomy_sw/zz-link"
@@ -232,7 +237,7 @@ t_wrapper() {
     head_ 'docker 래퍼'
     is_root || { skip 'root 가 아니라서 건너뛰어요(공용 계정 대신 nobody 로 돌려 봐요)'; return; }
     setup_app
-    local dk=(runuser -u nobody -- env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" FAKE_DIR="$T/fake" GPU_USER=hong "$APPT/shared/bin/docker")
+    local dk=(runuser -u nobody -- env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" FAKE_DIR="$T/fake" GPU_USER=hong "$APPT/admin/bin/docker")
     "${dk[@]}" run --gpus '"device=4"' hong/seg:v1 > "$LOG" 2>&1 < /dev/null
     t 'run 에 이름표(사람·GPU)를 붙여요' grep -q 'gpu.USER=hong.*gpu.GPUS=4\|gpu.GPUS=4.*gpu.USER=hong' "$T/fake/args.log"
     : > "$T/fake/args.log"
@@ -341,34 +346,35 @@ t_system() {
     [ -e /etc/gpu/account ] && [ ! -e /app/.gpu_test_sandbox ] && { no '/etc/gpu/account 가 있어요. 서버에서는 돌리지 않아요'; return; }
     id gputest >/dev/null 2>&1 || useradd -m -s /bin/bash gputest
     mkdir -p /etc/gpu && echo gputest > /etc/gpu/account
-    # 잠그기 전에 공용 계정이 만든 /app/shared(예전 설치)
-    mkdir -p /app && touch /app/.gpu_test_sandbox && rm -rf /app/.shared_old_* /app/shared/.gpu_root   # 다시 돌릴 때 앞 시험의 흔적을 지운다
-    mkdir -p /app/shared/{tools/bin,datasets/x}
-    echo evil > /app/shared/tools/bin/git; echo d > /app/shared/datasets/x/f; ln -s /etc/passwd /app/shared/datasets/x/l
+    # 잠그기 전에 공용 계정이 만든 /app/shared(예전 설치: 기초 프로그램·데이터셋·설정을 한곳에)
+    mkdir -p /app && touch /app/.gpu_test_sandbox && rm -rf /app/.shared_old_* /app/.admin_old_* /app/admin /app/datasets /app/models   # 다시 돌릴 때 앞 시험의 흔적을 지운다
+    mkdir -p /app/shared/{tools/bin,datasets/x,models/org/m}
+    echo evil > /app/shared/tools/bin/git; echo d > /app/shared/datasets/x/f; ln -s /etc/passwd /app/shared/datasets/x/l; echo w > /app/shared/models/org/m/w
     printf 'IDLE_HOURS=12\n' > /app/shared/gpu.conf; chown -R gputest /app/shared /app
     rm -rf /app/autonomy_sw; mkdir -p /app/workspace/kim && echo r > /app/workspace/kim/result.txt && chown -R gputest /app/workspace   # 예전 이름의 작업 폴더
     local P=$T/pack; mkdir -p "$P"; cp -r server/. "$P/"
     printf '2\n' | script -qec "bash $P/admin_setup.sh" /dev/null > "$LOG" 2>&1
     t '끝까지 실행돼요' has "$LOG" '완료'
-    t '/app 과 /app/shared 를 root 소유로 잠가요' test "$(stat -c %U /app)$(stat -c %U /app/shared)" = rootroot
-    t '예전 /app/shared 의 프로그램을 치워요' bash -c 'ls -d /app/.shared_old_*/tools/bin/git >/dev/null && [ ! -e /app/shared/tools/bin/git ]'
-    t '예전 데이터셋·설정은 옮기고 링크는 지워요' bash -c '[ -f /app/shared/datasets/x/f ] && [ ! -L /app/shared/datasets/x/l ] && [ -f /app/shared/gpu.conf ]'
+    t '/app, /app/admin, /app/datasets, /app/models 를 root 소유로 잠가요' test "$(stat -c %U /app /app/admin /app/datasets /app/models | sort -u)" = root
+    t '예전 /app/shared 를 없애고 프로그램은 치워요' bash -c 'ls -d /app/.shared_old_*/tools/bin/git >/dev/null && [ ! -e /app/shared ] && [ ! -e /app/admin/tools ]'
+    t '예전 데이터셋·모델·설정을 새 자리로 옮기고 링크는 지워요' bash -c '[ -f /app/datasets/x/f ] && [ ! -L /app/datasets/x/l ] && [ -f /app/models/org/m/w ] && [ -f /app/admin/gpu.conf ]'
+    t '팀원은 데이터셋을 읽기만 해요' bash -c 'runuser -u gputest -- cat /app/datasets/x/f >/dev/null && ! runuser -u gputest -- touch /app/datasets/x/g 2>/dev/null'
     t '예전 작업 폴더(/app/workspace)를 /app/autonomy_sw 로 옮겨요' bash -c '[ -f /app/autonomy_sw/kim/result.txt ] && [ ! -e /app/workspace ]'
-    t '서버 번호 2를 고르면 0~3번이 다른팀이에요' grep -qE '^0[[:space:]]+다른팀' /app/shared/gpu_alloc.txt
+    t '서버 번호 2를 고르면 0~3번이 다른팀이에요' grep -qE '^0[[:space:]]+다른팀' /app/admin/gpu_alloc.txt
     t '접속 설정과 정기 점검을 만들어요' test -f /etc/profile.d/gpu.sh -a -f /etc/cron.d/gpu
     t '정기 점검 파일에 PATH(runuser 위치)가 있어요' grep -q '^PATH=.*/usr/sbin' /etc/cron.d/gpu
     bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
     t '두 번째 실행도 끝까지(질문 없이) 돼요' has "$LOG" '완료'
-    t '두 번째 실행에서는 다시 치우지 않아요' test "$(ls -d /app/.shared_old_* | wc -l)" = 1
-    GPU_ACCOUNT=gputest /app/shared/bin/gpu _check > "$LOG" 2>&1; t '설치된 gpu 정기 점검이 돌아요(도커 없음)' test $? -le 1
+    t '두 번째 실행에서는 다시 치우지 않아요' bash -c '[ "$(ls -d /app/.shared_old_* | wc -l)" = 1 ] && ! ls -d /app/.admin_old_* >/dev/null 2>&1'
+    GPU_ACCOUNT=gputest /app/admin/bin/gpu _check > "$LOG" 2>&1; t '설치된 gpu 정기 점검이 돌아요(도커 없음)' test $? -le 1
     # 팀원 접속: 명단에 넣고 다시 실행 → 공용 계정으로 로그인해 번호로 이름을 고른다
-    printf '홍길동  인지\n' >> /app/shared/team.txt
+    printf '홍길동  인지\n' >> /app/admin/team.txt
     bash "$P/admin_setup.sh" < /dev/null > /dev/null 2>&1
     rm -f /app/state/tty/pts-*
     printf '1\necho "WS=$GPU_WS USER=$GPU_USER"\ntype docker | head -1\nexit\n' | timeout 60 script -qec 'su -l gputest' /dev/null > "$LOG" 2>&1
     t '접속하면 이름 목록이 나와요' has "$LOG" '1 홍길동'
     t '번호로 고르면 이름과 작업 폴더가 정해져요' has "$LOG" 'WS=/app/autonomy_sw/홍길동 USER=홍길동'
-    t '공용 계정의 docker 는 도우미(/app/shared/bin/docker)예요' has "$LOG" 'docker is /app/shared/bin/docker'
+    t '공용 계정의 docker 는 도우미(/app/admin/bin/docker)예요' has "$LOG" 'docker is /app/admin/bin/docker'
     t '알림을 보낼 창(pts)과 이름을 적어 둬요' bash -c 'grep -qx 홍길동 /app/state/tty/pts-*'
 }
 

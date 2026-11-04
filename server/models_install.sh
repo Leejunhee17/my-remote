@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [GPU 서버 · 관리자(root)] 접근 PC에서 올린 models 폴더를 /app/shared/models/<만든 곳>/<모델> 아래 둔다(admin_setup.sh 다음).
+# [GPU 서버 · 관리자(root)] 접근 PC에서 올린 models 폴더를 /app/models/<만든 곳>/<모델> 아래 둔다(admin_setup.sh 다음).
 # 점검(체크섬) → 옮기기 → 가중치 파일을 열어 보는 검사까지 한 번에 한다.
 #   bash /app/inbox/models/models_install.sh
 # 다시 실행해도 된다. 이미 옮긴 것은 건너뛴다.
@@ -9,21 +9,20 @@ cd "$(dirname "$0")"
 SRC=$PWD
 # root 는 공용 계정이 올린 폴더를 /app/inbox 로 새로 복사한 뒤 실행한다. 복사본에 링크가 있으면 누가 심은 것이라 멈춘다
 if [ "$(id -u)" = 0 ] && [ -n "$(find "$SRC" -type l -print -quit)" ]; then
-    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/models 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/shared/bin/gpu fetch models"; exit 1
+    echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/models 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/admin/bin/gpu fetch models"; exit 1
 fi
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
 APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
-if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/shared" ] || [ -L "$APP/autonomy_sw" ]; }; then
+if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/models" ] || [ -L "$APP/admin" ] || [ -L "$APP/autonomy_sw" ]; }; then
     echo "멈춤: /app이 아직 잠기지 않았어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
 fi
-# 공용 폴더 실제 위치. 관리자 설정(admin_setup.sh) 뒤에는 /app/shared 이고 root 만 고칠 수 있다
-SH=$(realpath -m "$HOME/shared"); [ -d "$APP/shared" ] && SH=$APP/shared
-if [ -d "$SH" ] && [ ! -w "$SH" ]; then
-    echo "멈춤: 공용 폴더($SH)는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/models_install.sh"; exit 1
+# 설치할 곳: /app/models(root 만 고치고 팀원은 읽는다). 기록은 /app/admin/logs
+if [ -d "$APP/models" ] && [ ! -w "$APP/models" ]; then
+    echo "멈춤: $APP/models 는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/models_install.sh"; exit 1
 fi
-D="$SH/models"
-LOG="$SH/logs/models_install_$(date +%Y%m%d_%H%M%S).log"
-mkdir -p "$D" "$SH/logs"
+D="$APP/models"
+LOG="$APP/admin/logs/models_install_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p "$D" "$APP/admin/logs"
 exec > >(tee -a "$LOG") 2>&1
 T=3
 FAILS=0
@@ -39,7 +38,7 @@ stop() {
     echo "${c_r}멈춘 이유: $1${c_0}"
     echo "할 일: $2"
     echo "고친 뒤 같은 명령을 다시 실행하세요: bash $SRC/models_install.sh"
-    echo "기록 파일: $LOG  (해결이 안 되면 docs/8_문제_해결.md)"
+    echo "기록 파일: $LOG  (해결이 안 되면 docs/7_문제_해결.md)"
     exit 1
 }
 
@@ -49,7 +48,7 @@ echo "두는 곳: $D"
 
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
-[ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 파일이 없어요" "접근 PC의 models 폴더를 통째로 /app/upload 에 올리고 /app/inbox 로 복사했는지 확인하세요(docs/7_모델.md)."
+[ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 파일이 없어요" "접근 PC의 models 폴더를 통째로 /app/upload 에 올리고 /app/inbox 로 복사했는지 확인하세요(docs/6_모델.md)."
 # 목록이 비었거나 모양이 다른 줄이 있으면 sha256sum 은 그 줄을 건너뛰고 "맞음"이 될 수 있어 따로 본다
 [ "$(grep -c . MANIFEST.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
     stop "체크섬 목록(MANIFEST.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 models_download.ps1 을 다시 실행해 목록을 새로 만든 뒤 models 폴더를 다시 올려 들여오세요."
@@ -70,7 +69,7 @@ ok "남은 공간 ${free} GB (필요한 공간 약 ${need} GB)"
 
 # ------------------------------------------------------------------ 2. 옮기기
 step 2 "옮기기 → $D/<만든 곳>/<모델>"
-PY="$SH/tools/bin/python"; [ -x "$PY" ] || PY=python3   # 표준 라이브러리만 쓴다
+PY=python3   # 표준 라이브러리만 쓴다
 mapfile -t dirs < <(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' MANIFEST.sha256 | sort -u)
 for d in "${dirs[@]}"; do
     repo=${d/__//}
@@ -159,9 +158,9 @@ echo
 if [ "$FAILS" -eq 0 ]; then
     echo "${c_g}############################ 완료 ############################${c_0}"
     echo " 모델 ${#dirs[@]}개가 모두 정상이에요. 위치: $D"
-    echo " 불러오기 예: from_pretrained(\"$D/<만든 곳>/<모델>\")  (docs/7_모델.md)"
-    echo " 다음 단계: 공용 계정으로 접속해 확인(docs/1_처음_설치.md 6단계)"
-    echo " 서버 2로 옮길 거면 지우기 전에 NAS에 먼저 보관하세요(docs/9_NAS.md 의 \"쓰는 법\")."
+    echo " 불러오기 예: from_pretrained(\"$D/<만든 곳>/<모델>\")  (docs/6_모델.md)"
+    echo " 다음 단계: 공용 계정으로 접속해 확인(docs/1_처음_설치.md 5단계)"
+    echo " 서버 2로 옮길 거면 지우기 전에 NAS에 먼저 보관하세요(docs/8_NAS.md 의 \"쓰는 법\")."
     echo " 공간 정리(보관한 뒤): rm -rf /app/inbox/models /app/upload/models"
     echo "${c_g}##############################################################${c_0}"
 else
