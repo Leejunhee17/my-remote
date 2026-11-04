@@ -13,10 +13,23 @@ if [ "$(id -u)" = 0 ] && [ -n "$(find "$SRC" -type l -print -quit)" ]; then
 fi
 # root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
 APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
-if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/datasets" ] || [ -L "$APP/admin" ] || [ -L "$APP/autonomy_sw" ]; }; then
+# 폴더와 그 위의 모든 폴더가 root 소유이고 root 만 쓸 수 있는지(스티키 폴더는 바꿔치기를 못 해서 괜찮다). admin_setup.sh 와 같음
+safe_dir() {
+    local p m; p=$(readlink -f "$1") && [ -d "$p" ] || return 1
+    while :; do
+        m=$(stat -c '%u %a' "$p") || return 1
+        [ "${m%% *}" = 0 ] || return 1
+        [ $(( 8#${m##* } & 8#1000 )) -ne 0 ] || [ $(( 8#${m##* } & 8#022 )) -eq 0 ] || return 1
+        [ "$p" = / ] && return 0; p=$(dirname "$p")
+    done
+}
+if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/admin" ] || [ -L "$APP/autonomy_sw" ]; }; then
     echo "멈춤: /app이 아직 잠기지 않았어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
 fi
-# 설치할 곳: /app/datasets(root 만 고치고 팀원은 읽는다). 기록은 /app/admin/logs
+# 설치할 곳: /app/datasets(root 만 고치고 팀원은 읽는다). NAS 를 쓰면 NAS 팀 폴더를 가리키는 링크다(admin_setup.sh). 기록은 /app/admin/logs
+if [ "$(id -u)" = 0 ] && { [ -L "$APP/datasets" ] || [ -d "$APP/datasets" ]; } && ! safe_dir "$APP/datasets"; then
+    echo "멈춤: $APP/datasets($(readlink -f "$APP/datasets"))를 root 말고도 고칠 수 있어요. 관리자 기본 설정을 다시 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
+fi
 if [ -d "$APP/datasets" ] && [ ! -w "$APP/datasets" ]; then
     echo "멈춤: $APP/datasets 는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/datasets_install.sh"; exit 1
 fi

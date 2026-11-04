@@ -37,8 +37,8 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 | 운영체제 | 윈도우 | 지금은 RHEL 9. 2026-11-12까지 Ubuntu 24.04 LTS 로 다시 설치할 예정이에요. 문서는 Ubuntu 기준이에요 |
 | 인터넷 | 돼요. 여기서 내려받아요 | 안 돼요 |
 | 접속 | | HIWARE 를 거쳐요. 팀원은 모두 공용 계정 하나(PuTTY, FileZilla). 관리자는 root(PuTTY만 돼요). 파일은 공용 계정 FileZilla로 올려요 |
-| 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD, NAS `/data`(다른 팀과 같이 써요. 계획: `docs/8_NAS.md`) |
-| 주요 위치 | `D:\gpu` | 데이터셋 `/app/datasets`, 모델 `/app/models`, 도우미·명단·설정 `/app/admin`(셋 다 root 만 고침), 작업 `/app/autonomy_sw/<이름>`, 기록·알림 `/app/state`, 설치 파일 올리는 곳 `/app/upload`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
+| 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD(작업 폴더·도커), NAS `/data`(다른 팀과 같이 써요). 데이터셋·모델은 NAS의 우리 팀 폴더 `/data/autonomy_sw` 에 한 번만 두고 두 서버가 같이 읽어요(`docs/8_NAS.md`) |
+| 주요 위치 | `D:\gpu` | 데이터셋 `/app/datasets`, 모델 `/app/models`(둘 다 NAS를 가리키는 링크), 도우미·명단·설정 `/app/admin`(셋 다 root 만 고침), 작업 `/app/autonomy_sw/<이름>`, 기록·알림 `/app/state`, 설치 파일 올리는 곳 `/app/upload`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
 
 ## 문서 지도
 
@@ -65,7 +65,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 | 1. 관리자 기본 설정 | `pc\setup_pack.ps1` | `admin_setup.sh` (**맨 먼저**: `/app` 잠금) |
 | 2. 도커 | `pc\docker_pack.ps1` | `docker_install.sh` |
 | 3. 데이터셋 | `pc\datasets_download.ps1` | `datasets_install.sh` |
-| 4. 사전학습 모델 | `pc\models_download.ps1` | `models_install.sh` |
+| 4. 사전학습 모델 | `pc\models_download.ps1` | `models_install.sh` (3·4단계는 서버 1에서만. NAS에 설치돼서 서버 2도 같이 써요) |
 | 5. 팀원 입장에서 확인 | | 공용 계정으로 접속 |
 
 서버 화면(컨테이너 밖)에서 쓰는 tmux, nvtop, rsync 같은 프로그램은 OS를 설치할 때 서버 관리 팀에 함께 설치해 달라고 해요(`docs/1_처음_설치.md` 의 "서버에 설치해 달라고 할 패키지"). 학습 도구는 팀원이 도커 이미지에 넣어 와요.

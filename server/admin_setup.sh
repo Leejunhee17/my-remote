@@ -23,6 +23,17 @@ step() { echo; echo "${c_c}==== $1 ====${c_0}"; }
 ok()   { echo "  ${c_g}[정상]${c_0} $*"; }
 warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() { echo "${c_r}멈춤: $1${c_0}"; echo "할 일: $2"; exit 1; }
+# 폴더와 그 위의 모든 폴더가 root 소유이고 root 만 쓸 수 있는지(스티키 폴더는 남이 써도 바꿔치기를 못 해서 괜찮다).
+# 이런 곳은 공용 계정이 링크를 심거나 폴더를 바꿔치기할 수 없어서 root 가 써도 안전하다
+safe_dir() {
+    local p m; p=$(readlink -f "$1") && [ -d "$p" ] || return 1
+    while :; do
+        m=$(stat -c '%u %a' "$p") || return 1
+        [ "${m%% *}" = 0 ] || return 1
+        [ $(( 8#${m##* } & 8#1000 )) -ne 0 ] || [ $(( 8#${m##* } & 8#022 )) -eq 0 ] || return 1
+        [ "$p" = / ] && return 0; p=$(dirname "$p")
+    done
+}
 
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
 [ -n "$ACC" ] || stop '공용 계정 이름을 알 수 없어요' '서버에 한 번 적어 두세요: mkdir -p /etc/gpu && echo <계정이름> > /etc/gpu/account'
@@ -66,8 +77,12 @@ if [ -n "$others" ] && [ "$(stat -c '%U %a' /app)" != "root 755" ]; then
     else stop '/app 을 다른 계정도 써요' 'PuTTY 화면에서 직접 실행해 확인 질문에 답하세요: bash admin_setup.sh'; fi
 fi
 chown root:root /app && chmod 755 /app
-for d in "$S" "$DS" "$MD" /app/shared "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty}; do
+for d in "$S" /app/shared "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty}; do
     [ -L "$d" ] && stop "링크가 있어요(누가 만들었는지 몰라요): $d" "ls -l $d 로 어디를 가리키는지 보고, 직접 만든 게 아니면 rm $d 로 링크만 지운 뒤 다시 실행하세요."
+done
+# /app/datasets·/app/models 는 NAS 를 쓰면 이 스크립트가 만든 링크다. 가리키는 곳이 root 만 고칠 수 있는 곳이어야 한다
+for d in "$DS" "$MD"; do
+    [ -L "$d" ] && ! safe_dir "$d" && stop "링크가 있어요(가리키는 곳을 root 말고도 고칠 수 있어요): $d → $(readlink "$d")" "ls -l $d 로 확인하고, 직접 만든 게 아니면 rm $d 로 링크만 지운 뒤 다시 실행하세요."
 done
 # 예전 설치의 /app/shared(기초 프로그램·데이터셋·모델·설정을 한곳에 두던 방식)를 나눈다.
 # 데이터셋·모델은 /app/datasets·/app/models 로, 명단·배분·알림 설정은 /app/admin 으로 옮기고, 나머지(기초 프로그램 등)는 치운다.
@@ -101,12 +116,13 @@ if [ -d /app/workspace ] && [ ! -L /app/workspace ] && [ ! -e "$W" ]; then
 elif [ -e /app/workspace ] && [ -e "$W" ]; then
     warn "/app/workspace 와 $W 가 둘 다 있어요. /app/workspace 안의 파일을 확인해 $W 로 옮긴 뒤 지우세요"
 fi
-mkdir -p "$S/bin" "$S/logs" "$DS" "$MD" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty} /app/inbox
+mkdir -p "$S/bin" "$S/logs" "$W" "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty} /app/inbox
 # 공용: root 만 쓰고 모두 읽는다
 chown -R root:root "$S" && chmod -R u+rwX,go+rX,go-w "$S" && touch "$S/.gpu_root"
-# 데이터셋·모델: root 만 고치고 모두 읽는다. 예전에 공용 계정이 넣은 링크는 누가 심었는지 몰라서 지운다(root 가 나중에 그 너머에 쓰게 된다)
-for d in "$DS" "$MD"; do find "$d" -type l -delete; chown -R root:root "$d" && chmod -R u+rwX,go+rX,go-w "$d"; done
-ok "$S(도우미·설정), $DS, $MD: root만 고치고 팀원은 읽기만 해요"
+# 로컬에 있는 데이터셋·모델(예전 설치나 NAS 를 못 쓸 때): root 만 고치고 모두 읽는다.
+# 예전에 공용 계정이 넣은 링크는 누가 심었는지 몰라서 지운다(root 가 나중에 그 너머에 쓰게 된다)
+for d in "$DS" "$MD"; do [ -d "$d" ] && [ ! -L "$d" ] && { find "$d" -type l -delete; chown -R root:root "$d" && chmod -R u+rwX,go+rX,go-w "$d"; }; done
+ok "$S(도우미·명단·설정): root만 고치고 팀원은 읽기만 해요"
 # 작업 공간과 기록: 공용 계정이 쓴다(보고서만 root)
 chown "$ACC:$ACC" "$W" && chmod 755 "$W"
 # 기록 폴더: 공용 계정이 쓰는 곳(history, images, notice_seen)과 root 만 쓰는 곳(reports, gpu_log, notice)을 나눈다.
@@ -193,21 +209,76 @@ MAX_GPUS=4            # docker run 때 내 GPU가 이보다 많아지면 경고
 IDLE_HOURS=12         # GPU를 잡고 이 시간 내내 사용률 0%면 그 사람에게 알림(하루 한 번)
 DISK_ALERT=85         # /app 이 이 % 를 넘으면 많이 쓰는 3명과 관리자에게 알림(주 한 번)
 IMAGE_NOTICE_DAYS=30  # 이 일수 동안 안 쓴 도커 이미지는 들여온 사람에게 알림(주 한 번)
-NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/8_NAS.md)
+NAS_DIR=/data/autonomy_sw   # NAS 팀 폴더. 데이터셋·모델·백업을 여기에 둬요. none 이면 NAS 를 쓰지 않아요(docs/8_NAS.md)
 EOF
 grep -q '^NAS_DIR=' "$S/gpu.conf" ||   # 예전 버전으로 만든 설정에는 없다
-    echo 'NAS_DIR=              # NAS의 우리 팀 폴더(예: /data/<팀 폴더>). 적으면 주간 보고서에 폴더별 사용량(docs/8_NAS.md)' >> "$S/gpu.conf"
+    echo 'NAS_DIR=/data/autonomy_sw   # NAS 팀 폴더. 데이터셋·모델·백업을 여기에 둬요. none 이면 NAS 를 쓰지 않아요(docs/8_NAS.md)' >> "$S/gpu.conf"
 chmod 644 "$S/gpu.conf"
-# NAS 팀 폴더를 정했으면(NAS_DIR) 팀원별 backup·docker_images 폴더도 공용 계정 권한으로 만든다(root 는 NAS에 쓰지 않는다)
+# ------------------------------------------------------------------ NAS 팀 폴더와 데이터셋·모델 자리
+# 데이터셋·모델은 NAS 팀 폴더(gpu.conf 의 NAS_DIR, 기본 /data/autonomy_sw)에 한 번만 두고 두 서버가 같이 읽는다.
+# /app/datasets·/app/models 는 그곳을 가리키는 링크라 팀원 명령과 컨테이너 경로는 그대로다. NAS 를 못 쓰면 /app 에 둔다.
+# 팀 폴더는 root 소유·그룹 공용 계정 750(다른 팀은 못 봄), datasets·models·originals 는 root 소유 755(팀원은 읽기만).
+# /data 가 root 소유라 공용 계정이 이 경로를 바꿔치기할 수 없다
 NAS_DIR=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$S/gpu.conf" | tail -1)
+case "$NAS_DIR" in none) NAS_DIR= ;; '') NAS_DIR=/data/autonomy_sw ;; esac
+[ -z "$NAS_DIR" ] || { [[ "$NAS_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]] && [[ "$NAS_DIR" != *..* ]]; } ||
+    stop "gpu.conf 의 NAS_DIR 이 이상해요: $NAS_DIR" "$S/gpu.conf 에 NAS_DIR=/data/autonomy_sw 처럼 적거나, NAS 를 안 쓰면 NAS_DIR=none 으로 적으세요"
+NAS_OK=
 if [ -n "$NAS_DIR" ]; then
-    if setsid -w runuser -u "$ACC" -- test -d "$NAS_DIR" -a -w "$NAS_DIR"; then
-        grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
-            case "$name" in *-*|*/*|.*) continue ;; esac
-            setsid -w runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/docker_images/$name" "$NAS_DIR/tmp_transfer"
+    up=$(dirname "$NAS_DIR"); fs=$(findmnt -n -o FSTYPE -T "$up" 2>/dev/null)
+    if [ ! -d "$up" ]; then
+        warn "NAS($up)가 없어서 데이터셋·모델은 /app 에 둬요"
+    elif [ -z "${GPU_NAS_ANYFS:-}" ] && ! [[ "$fs" =~ ^(nfs|nfs4|cifs|smb3|lustre|gpfs|beegfs)$ ]]; then   # GPU_NAS_ANYFS: 시험할 때만
+        warn "$up 가 NAS로 연결돼 있지 않아요(지금: ${fs:-모름}). 데이터셋·모델은 /app 에 둬요"
+    elif ! safe_dir "$up"; then
+        warn "$up 를 root 말고도 고칠 수 있어서 그 아래에 데이터셋·모델을 두지 않아요(/app 에 둬요)"
+    elif [ -L "$NAS_DIR" ] || { [ -e "$NAS_DIR" ] && ! safe_dir "$NAS_DIR"; }; then
+        warn "NAS 팀 폴더($NAS_DIR)가 링크이거나, root 소유가 아니거나, 다른 사람이 쓸 수 있어요. 안을 확인하고 chown root:$(id -gn "$ACC") $NAS_DIR && chmod 750 $NAS_DIR 한 뒤 다시 실행하세요(그동안 /app 에 둬요)"
+    elif ! { mkdir -p "$NAS_DIR" && chown root:"$(id -gn "$ACC")" "$NAS_DIR" && chmod 750 "$NAS_DIR"; } 2>/dev/null; then
+        warn "root 가 NAS에 $NAS_DIR 를 만들지 못했어요(root squash 일 수 있어요). 서버 관리 팀에 root 소유 755로 만들어 달라고 하세요(그동안 /app 에 둬요)"
+    else
+        NAS_OK=1
+        for n in datasets models originals; do
+            d=$NAS_DIR/$n
+            if [ -L "$d" ] || { [ -e "$d" ] && [ "$(stat -c %u "$d")" != 0 ]; }; then
+                warn "$d 가 링크이거나 root 소유가 아니에요. 확인하고 고친 뒤 다시 실행하세요(그동안 /app 에 둬요)"; NAS_OK=; break
+            fi
+            mkdir -p "$d" && chown root:root "$d" && chmod 755 "$d"
         done
-        ok "NAS 팀 폴더($NAS_DIR)에 팀원별 backup·docker_images 폴더를 맞췄어요"
-    else warn "NAS 팀 폴더($NAS_DIR)가 없거나 공용 계정이 쓸 수 없어요(docs/8_NAS.md 의 '처음 만들기')"; fi
+    fi
+fi
+for n in datasets models; do
+    d=/app/$n
+    if [ -n "$NAS_OK" ]; then
+        t=$NAS_DIR/$n
+        if [ -d "$d" ] && [ ! -L "$d" ]; then
+            if [ -z "$(ls -A "$d")" ]; then rmdir "$d"
+            else
+                warn "$d 에 파일이 있어서 NAS($t)로 바꾸지 않았어요. 옮기려면(tmux 안에서): rsync -a $d/ $t/ && rm -rf $d && bash $HERE/admin_setup.sh"
+                continue
+            fi
+        fi
+        [ -L "$d" ] && [ "$(readlink "$d")" != "$t" ] && rm -f "$d"
+        [ -L "$d" ] || ln -s "$t" "$d"
+    elif [ -L "$d" ]; then
+        warn "$d 는 $(readlink "$d") 를 가리켜요. 그곳을 쓸 수 없는 동안은 데이터셋·모델을 읽지 못해요"
+    else
+        mkdir -p "$d" && chown root:root "$d" && chmod 755 "$d"
+    fi
+done
+ok "데이터셋 $DS → $(readlink -f "$DS"), 모델 $MD → $(readlink -f "$MD") (root만 고치고 팀원은 읽기만 해요)"
+# 팀원이 쓰는 NAS 폴더: backup·docker_images·tmp_transfer 는 공용 계정 소유, 그 아래 사람별 폴더는 공용 계정 권한으로 만든다
+if [ -n "$NAS_OK" ]; then
+    for n in backup docker_images tmp_transfer; do
+        d=$NAS_DIR/$n
+        [ -L "$d" ] && { warn "$d 가 링크라 건너뛰어요. 확인하고 지운 뒤 다시 실행하세요"; continue; }
+        mkdir -p "$d" && chown "$ACC:$ACC" "$d" && chmod 755 "$d"
+    done
+    grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
+        case "$name" in *-*|*/*|.*) continue ;; esac
+        setsid -w runuser -u "$ACC" -- mkdir -p "$NAS_DIR/backup/$name" "$NAS_DIR/docker_images/$name"
+    done
+    ok "NAS 팀 폴더($NAS_DIR): datasets·models·originals 는 root, backup·docker_images·tmp_transfer 는 팀원이 써요"
 fi
 
 # ------------------------------------------------------------------ 3. 도우미

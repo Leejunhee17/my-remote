@@ -98,8 +98,8 @@ if [ -d "$APP" ]; then
         [ -d "$APP/shared/datasets" ] && ok "예전 데이터셋이 남아 있어요: $APP/shared/datasets (옮겨 쓰니 다시 올리지 않아도 돼요)"
         [ -d "$APP/shared/models" ] && ok "예전 모델이 남아 있어요: $APP/shared/models (옮겨 쓰니 다시 올리지 않아도 돼요)"
     fi
-    [ -d "$APP/datasets" ] && ok "데이터셋이 있어요: $APP/datasets (다시 올리지 않아도 돼요)"
-    [ -d "$APP/models" ] && ok "모델이 있어요: $APP/models (다시 올리지 않아도 돼요)"
+    [ -d "$APP/datasets" ] && ok "데이터셋이 있어요: $APP/datasets$([ -L "$APP/datasets" ] && echo " → $(readlink "$APP/datasets")") (다시 올리지 않아도 돼요)"
+    [ -d "$APP/models" ] && ok "모델이 있어요: $APP/models$([ -L "$APP/models" ] && echo " → $(readlink "$APP/models")") (다시 올리지 않아도 돼요)"
 else
     bad "$APP 폴더가 없어요" "2 TB SSD를 $APP 에 연결해 주세요(주인은 root 그대로)"
 fi

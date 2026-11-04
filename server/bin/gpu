@@ -27,7 +27,8 @@ MAX_GPUS=$(conf MAX_GPUS '^[0-9]{1,3}$');            MAX_GPUS=${MAX_GPUS:-4}
 IDLE_HOURS=$(conf IDLE_HOURS '^[0-9]{1,4}$');        IDLE_HOURS=${IDLE_HOURS:-12}
 DISK_ALERT=$(conf DISK_ALERT '^[0-9]{1,3}$');        DISK_ALERT=${DISK_ALERT:-85}
 IMAGE_NOTICE_DAYS=$(conf IMAGE_NOTICE_DAYS '^[0-9]{1,4}$'); IMAGE_NOTICE_DAYS=${IMAGE_NOTICE_DAYS:-30}
-NAS_DIR=$(conf NAS_DIR '^/[A-Za-z0-9._/-]+$')
+NAS_DIR=$(conf NAS_DIR '^(/[A-Za-z0-9._/-]+|none)$')
+case "$NAS_DIR" in none) NAS_DIR= ;; '') NAS_DIR=/data/autonomy_sw ;; esac   # admin_setup.sh 와 같은 기본값
 NVSMI=${GPU_NVSMI:-/usr/bin/nvidia-smi}
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_b=$'\e[1m'; c_0=$'\e[0m'
 is_root() { [ "$(id -u)" = 0 ]; }
@@ -412,7 +413,7 @@ cmd__report() {
         echo
         echo "== NAS ($NAS_DIR)"
         "${as[@]}" df -hP "$NAS_DIR" 2>/dev/null | awk 'NR==2 {print "  전체 "$2", 쓴 것 "$3", 남은 것 "$4" ("$5")  (할당량이 있으면 할당량 기준)"}'
-        "${as[@]}" timeout 1800 du -sh "$NAS_DIR"/originals "$NAS_DIR"/docker_images/* "$NAS_DIR"/backup/* "$NAS_DIR"/tmp_transfer 2>/dev/null |
+        "${as[@]}" timeout 1800 du -sh "$NAS_DIR"/datasets "$NAS_DIR"/models "$NAS_DIR"/originals "$NAS_DIR"/docker_images/* "$NAS_DIR"/backup/* "$NAS_DIR"/tmp_transfer 2>/dev/null |
             sed "s#$NAS_DIR/##; s/\t/  /; s/[[:cntrl:]]//g; s/^/  /"
         local old; old=$("${as[@]}" find "$NAS_DIR/tmp_transfer" -mindepth 1 -maxdepth 1 -mtime +14 -printf '  %TY-%Tm-%Td  %f\n' 2>/dev/null | sed 's/[[:cntrl:]]//g' | sort | head -20)
         [ -z "$old" ] || { echo "  tmp_transfer/ 에서 14일 넘은 것(옮겼으면 지워 주세요):"; echo "$old"; }

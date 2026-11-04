@@ -176,6 +176,16 @@ t_installers() {
     rm -rf "$T/no-app" "$D"; mk_datasets "$D"; grep -v wildscenes "$D/MANIFEST.sha256" > "$D/m" && mv "$D/m" "$D/MANIFEST.sha256"
     run_ds "$H" "$D"; t '데이터셋: 예전 목록(wildscenes 체크섬 없음)이면 멈춰요' has "$LOG" '체크섬 목록에 wildscenes 파일이 없어요'
 
+    # NAS 를 쓰면 /app/datasets 는 NAS 팀 폴더를 가리키는 링크다. root 만 고칠 수 있는 곳이면 그리로 풀고, 아니면 멈춘다
+    if is_root; then
+        rm -rf "$T/no-app" "$T/nas" "$D"; mkdir -p "$T/no-app" "$T/nas/datasets"; chmod 755 "$T/nas" "$T/nas/datasets"
+        ln -s "$T/nas/datasets" "$T/no-app/datasets"; mk_datasets "$D"
+        run_ds "$H" "$D"; t '데이터셋: NAS 링크(root 만 고침)를 따라 NAS에 풀어요' test -f "$T/nas/datasets/wildscenes/a/1.png"
+        rm -rf "$T/nas/datasets"/* "$D"; mk_datasets "$D"; chmod 777 "$T/nas"
+        run_ds "$H" "$D"; t '데이터셋: 링크가 가리키는 곳을 남도 고칠 수 있으면 멈춰요' has "$LOG" 'root 말고도 고칠 수 있어요'
+        chmod 755 "$T/nas"; rm -rf "$T/no-app" "$T/nas"
+    else skip '데이터셋 NAS 링크: root 가 아니라서 건너뛰어요'; fi
+
     # 모델: 목록에 있는 파일만 옮기고, 올린 폴더의 json.py 같은 파일이 실행되지 않는다
     local M=$T/inst/models; rm -rf "$T/no-app"; mkdir -p "$M/org__m"
     ( cd "$M" && echo '{"a":1}' > org__m/config.json && echo '{"repo":"org/m","license":"mit"}' > org__m/gpu_model.json
@@ -376,6 +386,22 @@ t_system() {
     t '번호로 고르면 이름과 작업 폴더가 정해져요' has "$LOG" 'WS=/app/autonomy_sw/홍길동 USER=홍길동'
     t '공용 계정의 docker 는 도우미(/app/admin/bin/docker)예요' has "$LOG" 'docker is /app/admin/bin/docker'
     t '알림을 보낼 창(pts)과 이름을 적어 둬요' bash -c 'grep -qx 홍길동 /app/state/tty/pts-*'
+    # NAS 팀 폴더: 데이터셋·모델은 NAS 에 두고 /app 에는 링크. 로컬에 파일이 남아 있으면 바꾸지 않고 옮기는 명령을 알려 준다
+    rm -rf /srv/gpunas && mkdir -p /srv/gpunas && chmod 755 /srv/gpunas
+    sed -i 's#^NAS_DIR=.*#NAS_DIR=/srv/gpunas/autonomy_sw#' /app/admin/gpu.conf
+    rm -rf /app/datasets
+    GPU_NAS_ANYFS=1 bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
+    t 'NAS: 팀 폴더(root·공용 계정 그룹 750)와 datasets·models·originals(root 755)를 만들어요' test "$(stat -c '%U %G %a' /srv/gpunas/autonomy_sw)|$(stat -c '%U %a' /srv/gpunas/autonomy_sw/{datasets,models,originals} | sort -u)" = "root $(id -gn gputest) 750|root 755"
+    t 'NAS: 팀원(공용 계정)은 NAS 데이터셋을 읽을 수 있어요' runuser -u gputest -- ls /app/datasets/
+    t 'NAS: /app/datasets 는 NAS 를 가리키는 링크예요' test "$(readlink /app/datasets)" = /srv/gpunas/autonomy_sw/datasets
+    t 'NAS: 로컬 모델이 남아 있으면 바꾸지 않고 옮기는 명령을 알려 줘요' bash -c '[ -d /app/models ] && [ ! -L /app/models ] && grep -q "rsync -a /app/models/" "$1"' _ "$LOG"
+    t 'NAS: 팀원 폴더(backup/<이름>)는 공용 계정 것이에요' test "$(stat -c %U /srv/gpunas/autonomy_sw/backup /srv/gpunas/autonomy_sw/backup/홍길동 | sort -u)" = gputest
+    GPU_NAS_ANYFS=1 bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
+    t 'NAS: 다시 실행해도 끝까지 돼요' has "$LOG" '완료'
+    chmod 777 /srv/gpunas/autonomy_sw/datasets
+    bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
+    t 'NAS: 링크가 가리키는 곳을 남도 고칠 수 있으면 멈춰요' has "$LOG" '가리키는 곳을 root 말고도 고칠 수 있어요'
+    chmod 755 /srv/gpunas/autonomy_sw/datasets
 }
 
 all=(static docs installers gpu wrapper fetch reports hook system)
