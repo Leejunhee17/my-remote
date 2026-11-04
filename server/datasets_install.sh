@@ -101,7 +101,7 @@ fi
 
 need=$(( $(du -sm --exclude=wildscenes . | cut -f1) / 1024 + 10 ))
 free=$(( $(df -Pm "$D" | awk 'NR==2 {print $4}') / 1024 ))
-[ "$free" -ge "$need" ] || stop "남은 공간이 ${free} GB예요(약 ${need} GB 필요)" "/app/upload 의 원본이나 안 쓰는 파일을 지워 공간을 비우세요. 그래도 모자라면 서버 관리 팀에 디스크를 요청하세요."
+[ "$free" -ge "$need" ] || stop "남은 공간이 ${free} GB예요(약 ${need} GB 필요)" "NAS 팀 폴더($(dirname "$D"))의 안 쓰는 파일을 정리하거나 서버 관리 팀에 물어보세요."
 ok "남은 공간 ${free} GB (필요한 공간 약 ${need} GB)"
 
 # ------------------------------------------------------------------ 2. 풀기
@@ -160,7 +160,7 @@ check GO         go         '*/pylon_camera_node_label_id/*' '*.png'
 if [ -d "$D/RUGD" ] && [ ! -f "$D/RUGD/RUGD_annotation-colormap.txt" ]; then
     found=$(find "$D/RUGD" -name 'RUGD_annotation-colormap.txt' | head -1)
     if [ -n "$found" ]; then cp "$found" "$D/RUGD/"; ok "RUGD 색상표를 $D/RUGD 에 복사했어요"
-    else bad "RUGD 색상표(RUGD/RUGD_annotation-colormap.txt)가 없어요. 워크스테이션의 ~/datasets/semantic_segmentation/RUGD/ 에 있는 파일을 올려 $D/RUGD/ 에 복사하세요."; fi
+    else bad "RUGD 색상표(RUGD/RUGD_annotation-colormap.txt)가 없어요. 가지고 있는 RUGD 사본에서 그 파일을 찾아 $D/RUGD/ 에 복사하세요."; fi
 fi
 
 echo
@@ -169,8 +169,7 @@ if [ "$FAILS" -eq 0 ]; then
     echo " 올린 데이터셋이 모두 정상이에요. 위치: $D"
     echo " 엑셀 '데이터셋 목록' 시트의 진행 상황을 '서버 반입'으로 바꾸세요."
     echo " 다음 단계: 사전학습 모델(docs/1_처음_설치.md 4단계)"
-    echo " 서버 2로 옮길 거면 지우기 전에 NAS에 먼저 보관하세요(docs/8_NAS.md 의 \"쓰는 법\")."
-    echo " 공간 정리(보관한 뒤): rm -rf /app/inbox/datasets /app/upload/datasets"
+    echo " NAS에 설치돼서 서버 2도 바로 써요. /app 의 복사본은 지워도 돼요: rm -rf /app/inbox/datasets /app/upload/datasets"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"

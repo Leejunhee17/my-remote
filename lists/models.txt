@@ -88,6 +88,6 @@ vlmseg    ByteDance/Sa2VA-Qwen3-VL-4B                                 # 20.2 SAM
 #vlmseg   ByteDance/Sa2VA-InternVL3-8B                                # 25+
 
 # ---------------------------------------------------------------- vlmxl: 수백 GB 급 VLM. 기본으로 받지 않는다
-# 받으려면 # 을 지우고 -Only vlmxl 로 따로 받는다. 서버에서는 설치하는 동안 같은 모델이 최대 3벌 생기니 docs/6_모델.md "아주 큰 VLM 받기" 순서를 따른다
+# 받으려면 # 을 지우고 -Only vlmxl 로 따로 받는다. 서버의 /app 에는 설치하는 동안 같은 모델이 2벌(upload, inbox) 생기니 docs/6_모델.md "아주 큰 VLM 받기" 순서를 따른다
 #vlmxl    Qwen/Qwen3.5-397B-A17B-FP8                                  # 406  가장 큰 Qwen VLM. 박스·위치 찾기 점수 최고(RefCOCO 92.3). 어려운 장면 판정용. H200 4장
 #vlmxl    Qwen/Qwen3.5-122B-A10B-FP8                                  # 127  중간 크기. H200 2장(한 장이면 KV 캐시 자리가 모자라요)

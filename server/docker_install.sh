@@ -222,6 +222,6 @@ echo "${c_g}############################ 완료 ############################${c_
 echo " 공용 계정($ACC) 전용 rootless Docker $(info docker)를 설치했어요."
 echo " 팀원은 다시 접속하면 docker 명령을 바로 써요. 컨테이너에는 --gpus 로 정한 GPU만 보여요."
 echo " 관리: systemctl status gpu-docker (다시 켜기: systemctl restart gpu-docker),  기록: journalctl -u gpu-docker"
-echo " 다음 단계: 데이터셋·모델(docs/1_처음_설치.md 3·4단계), 그다음 공용 계정으로 gpu doctor <PyTorch 이미지>"
-echo " 공간 정리(묶음 파일만): rm -f $HERE/gpu-docker.tar /app/upload/gpu-docker.tar"
+echo " 다음 단계: 서버 1은 데이터셋·모델(docs/1_처음_설치.md 3·4단계), 서버 2는 5단계(공용 계정으로 gpu doctor <PyTorch 이미지>)"
+echo " 공간 정리: rm -f /app/upload/gpu-docker.tar (서버 1은 $HERE/gpu-docker.tar 를 NAS originals 에 남긴 뒤 지워요. docs/8_NAS.md 의 \"쓰는 법\")"
 echo "${c_g}##############################################################${c_0}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # [GPU 서버 · 관리자(root) 전용] 공용 계정으로 여럿이 쓰는 서버의 기본 규칙을 시스템에 건다. 여러 번 실행해도 된다.
 #   bash admin_setup.sh          적용
-#   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. 공용 폴더 잠금·gpu 명령·기록은 그대로 둔다)
+#   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. /app/admin·/app/inbox 잠금·gpu 명령·기록은 그대로 둔다)
 # 하는 일 (팀원에게 새 명령을 외우게 하지 않고, 막기보다 알린다)
 #   - 공용 계정(/etc/gpu/account)에 관리자 권한(sudo, docker·disk·lxd 등 그룹)이 없는지 확인한다(있으면 알려만 준다)
 #   - /app/admin(도우미·명단·설정), /app/inbox(관리자가 올리는 설치 파일)를 root 소유로 잠그고, NAS 팀 폴더(/data/autonomy_sw)를 만든다
@@ -43,7 +43,7 @@ if [ "${1:-}" = --undo ]; then
     step '되돌리기'
     rm -f /etc/profile.d/gpu.sh /etc/cron.d/gpu
     sed -i '/# gpu admin_setup/d' /etc/bash.bashrc
-    ok '접속 설정과 정기 점검을 지웠어요. gpu 명령, 공용 폴더 잠금, 기록(/app/state)은 그대로 뒀어요.'
+    ok '접속 설정과 정기 점검을 지웠어요. gpu 명령, /app/admin·/app/inbox 잠금, 기록(/app/state)은 그대로 뒀어요.'
     echo "  다시 쓰려면 같은 폴더에서 bash admin_setup.sh 를 실행하세요."
     exit 0
 fi
@@ -135,7 +135,7 @@ done
 # 예:  홍길동  인지
 EOF
 # GPU 배분은 서버마다 다르다. 서버 2는 다른 팀과 같이 써서 0~3번이 다른 팀 것이다.
-# 서버 이름만으로 정하면 이름이 예상과 다를 때 서버 1 배분이 들어가고(다른 팀 GPU 경고가 빠지고 드라이버까지 고정된다),
+# 서버 이름만으로 정하면 이름이 예상과 다를 때 서버 1 배분이 들어가고(다른 팀 GPU 경고가 빠진다),
 # 처음 만들 때는 관리자에게 묻는다. 이름 끝이 p2 면 2를 기본값으로 보여 준다
 if [ ! -f "$S/gpu_alloc.txt" ]; then
     guess=1; case "$(hostname -s)" in *p2) guess=2 ;; esac
@@ -340,6 +340,6 @@ echo " 남은 일"
 echo "  1) $S/team.txt 에 팀원을 한 줄에 '이름 그룹'으로 적고 이 스크립트를 한 번 더 실행하세요(작업 폴더가 생겨요)"
 echo "  2) GPU 배분은 $S/gpu_alloc.txt, 알림 기준은 $S/gpu.conf 에서 바꿔요(team/ 규칙 문서·엑셀도 같이)"
 echo "  3) 도커: gpu-docker.tar 를 /app/upload 에 올린 뒤 $S/bin/gpu fetch gpu-docker.tar (지문 확인) → cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh"
-echo "  4) 데이터셋·모델: $S/bin/gpu fetch datasets / models → 설치(docs/1_처음_설치.md 3·4단계)"
+echo "  4) 데이터셋·모델: $S/bin/gpu fetch datasets / models → 설치(docs/1_처음_설치.md 3·4단계, 서버 1에서만)"
 echo " 확인: 공용 계정으로 다시 접속하면 이름 목록이 나오고, nvidia-smi 아래에 'GPU별 사용자' 표가 붙어요."
 echo "${c_g}##############################################################${c_0}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# [GPU 서버] NAS 구조·권한·용량을 점검해요. NAS 계획(docs/8_NAS.md)을 정하기 전에 두 서버에서 각각 한 번씩 실행해요.
+# [GPU 서버] NAS 구조·권한·용량을 점검해요. 두 서버에서 각각 실행해요(docs/8_NAS.md).
 #   bash check_nas.sh                 NAS(nfs 등)로 연결된 폴더를 모두 봐요
-#   bash check_nas.sh <우리 팀 폴더>   그 폴더(예: /data/우리팀)의 주인·권한·용량도 봐요
+#   bash check_nas.sh <우리 팀 폴더>   그 폴더(예: /data/autonomy_sw)의 주인·권한·용량도 봐요
 # 바꾸는 것은 없어요. root 로 실행하면 root squash 를 알아보려고 NAS 의 tmp 폴더(스티키 비트가 있을 때만)에
 # 빈 파일 하나를 만들었다 바로 지워요. 결과는 /app/inbox/reports/nas_report_<서버>_<시각>.txt 에도 남겨요(root 일 때).
 set -uo pipefail

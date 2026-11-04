@@ -57,7 +57,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 
 ## 설치 순서 한눈에
 
-자세한 명령과 확인 방법은 `docs/1_처음_설치.md` 에 있어요. 서버 2대 모두 같은 순서로 해요.
+자세한 명령과 확인 방법은 `docs/1_처음_설치.md` 에 있어요. 서버 2대 모두 같은 순서로 하되, 3·4단계(데이터셋·모델)는 서버 1에서만 해요. NAS에 설치돼서 서버 2도 같이 써요.
 
 | 단계 | 접근 PC | GPU 서버 (root) |
 |---|---|---|
@@ -102,4 +102,4 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 
 시험하지 못하는 것: 실제 GPU·도커, HIWARE, 접근 PC에서의 받기(인터넷), NAS. 이것들은 서버에서 문서 순서대로 따라 하며 확인해요.
 
-받은 결과는 저장소 맨 위의 `pack\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요(git에는 올라가지 않아요).
+받은 결과는 저장소 맨 위의 `setup\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요(git에는 올라가지 않아요).

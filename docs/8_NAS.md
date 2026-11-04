@@ -13,7 +13,7 @@ NAS는 팀마다 나눠 받는 공간이 아니라 여러 팀이 각자 알아�
 | 연결 방식 | NFSv3 over RDMA(InfiniBand 400 Gbps), `nconnect=24` |
 | 용량 | 전체 414 TB, 쓴 것 2.4 TB(1%). 할당량은 없어요(2026-11-03) |
 | 속도 | 파일 1개 쓰기 1.8 GB/s·읽기 4.3 GB/s, 동시 8개 쓰기 12.7 GB/s·읽기 11 GB/s(`docs/4_네트워크.md`) |
-| root squash | **안 해요(추정).** 서버의 root 가 root 소유 `/data`(755)에 쓸 수 있어요. 그래서 원칙 3을 꼭 지켜요 |
+| root squash | **안 해요.** 서버의 root 가 root 소유 `/data`(755)에 쓸 수 있어요. 그래서 원칙 3을 꼭 지켜요 |
 | `/data/tmp` | root 소유 755(스티키 아님). **팀원(공용 계정)은 여기에 못 써요** |
 | 같이 쓰는 곳 | 다른 팀도 같은 NAS를 써요. 팀별 할당량이나 팀 폴더는 따로 없어요. 우리 팀 폴더는 **`/data/autonomy_sw`** 로 정했어요(`/app/admin/gpu.conf` 의 `NAS_DIR`) |
 | 아직 모르는 것 | 두 서버의 공용 계정 번호가 같은지(서버에 공용 계정 이름을 아직 안 적어서 확인하지 못했어요), 이미지처럼 작은 파일을 많이 읽을 때의 속도 |
@@ -80,7 +80,7 @@ cd /app/inbox && bash check_nas.sh /data/autonomy_sw
 
 `admin_setup.sh` 가 만들어요. 따로 할 일은 없어요.
 
-- `/app/admin/gpu.conf` 의 `NAS_DIR`(기본 `/data/autonomy_sw`)을 읽어요. NAS를 쓰지 않으려면 `NAS_DIR=none` 으로 적어요.
+- `/app/admin/gpu.conf` 의 `NAS_DIR`(기본 `/data/autonomy_sw`)을 읽어요.
 - 그 위 폴더(`/data`)가 NAS로 연결돼 있고 root 만 고칠 수 있으면, 팀 폴더와 `datasets`·`models`·`originals`(root 소유), `backup`·`docker_images`·`tmp_transfer`(공용 계정 소유)와 팀원별 폴더를 만들어요.
 - NAS가 없거나, root squash 로 root 가 쓸 수 없거나, 팀 폴더를 root 말고도 고칠 수 있으면 `[주의]` 를 남기고 만들지 않아요. 그러면 데이터셋·모델 설치도 멈춰요.
 - 예전 `/app/shared` 에 데이터셋·모델이 있으면 NAS로 옮기는 명령을 화면에 보여 줘요. `tmux` 안에서 실행하세요.
@@ -114,19 +114,14 @@ ls /data/autonomy_sw/originals/server_setup                 # 날짜 폴더가 4
 # [서버 2] root. 0단계(/etc/gpu/account, /app/inbox·upload 만들기)는 먼저 해 둬요
 ls /data/autonomy_sw/originals/server_setup                 # 가장 최근 날짜를 아래 <날짜> 에 적어요
 P=/data/autonomy_sw/originals/server_setup/<날짜>
-cp $P/gpu-setup.tar $P/gpu-docker.tar /app/upload/
+cp $P/gpu-setup.tar $P/gpu-docker.tar /app/inbox/ && sha256sum /app/inbox/gpu-*.tar   # root 만 고치는 곳끼리 복사. 지문 확인
 ```
 
-그다음은 **지문을 보는 줄과 실행하는 줄을 나눠서** 해요. 지문이 `지문_기록.txt` 와 같을 때만 다음 줄을 실행해요.
+`originals` 와 `/app/inbox` 는 둘 다 root 만 고칠 수 있어서 `/app/upload` 를 거치지 않아요. 지문이 `지문_기록.txt` 와 같을 때만 다음 줄을 실행해요.
 
 ```bash
-# 1단계: 아직 gpu 명령이 없어서 직접 복사해요
-cp /app/upload/gpu-setup.tar /app/inbox/ && sha256sum /app/inbox/gpu-setup.tar          # 지문 확인
-cd /app/inbox && tar xf gpu-setup.tar && bash admin_setup.sh
-
-# 2단계
-/app/admin/bin/gpu fetch gpu-docker.tar                                               # 지문 확인
-cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh
+cd /app/inbox && tar xf gpu-setup.tar && bash admin_setup.sh       # 1단계
+cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh   # 2단계
 ```
 
 ### 팀원
@@ -148,7 +143,7 @@ cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh
 |---|---|---|
 | 우리 팀 폴더 이름·위치 | 팀 회의 | `/data/autonomy_sw`(정함) |
 | 누가 팀 폴더를 만드는지 | | root 가 만들어요(`admin_setup.sh`). `/data` 가 root 소유 755라 공용 계정은 만들 수 없어요 |
-| root squash | 화면의 "root squash" | 안 해요(추정, root 가 root 소유 755 `/data` 에 쓸 수 있음). 다음 실행부터는 화면에 바로 나와요 |
+| root squash | 화면의 "root squash" | 안 해요(root 가 root 소유 755 `/data` 에 쓸 수 있음) |
 | 두 서버의 공용 계정 번호가 같은지 | 화면의 "계정 번호"(두 서버에서 모두 실행한 뒤 맞춰 봐요) | 일반 계정 4개(uid 1000~1003)는 두 서버에서 같아 보여요. 공용 계정은 이름을 적은 뒤 확인해요 |
 | 전체·남은 용량 | 화면의 "용량" | 전체 414 TB, 남은 것 397 TB(2026-11-03). 계획한 약 8 TB 는 충분해요 |
 | 팀원 수(N), 1인당 백업 몫(B) | 팀 회의 | |

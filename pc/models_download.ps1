@@ -225,7 +225,7 @@ Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/admin/bin/gpu fetch models'
-Write-Host ' 3) 같으면 설치하세요. 다 끝나면 /app/upload/models 는 지워 공간을 비우세요(서버 2도 쓸 거면 먼저 NAS에 보관: docs\8_NAS.md).' -ForegroundColor Green
+Write-Host ' 3) 같으면 설치하세요. 서버 1에서만 하면 돼요(NAS에 설치돼 서버 2도 같이 써요). 다 끝나면 /app/upload/models 는 지워 공간을 비우세요.' -ForegroundColor Green
 Write-Host '   bash /app/inbox/models/models_install.sh'
 Write-Host ' 자세한 순서: docs\6_모델.md'
 Write-Host '##############################################################'

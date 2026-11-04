@@ -47,7 +47,7 @@ case "$*" in
             if [ $i = $j ]; then printf '\t X '; elif [ $((i / 4)) = $((j / 4)) ]; then printf '\tNV18'; else printf '\tSYS'; fi; done; printf '\tSYS\t0-55\n'; done
         printf 'NIC0\tSYS\n\nLegend:\n  NV#  = Connection traversing a bonded set of # NVLinks\n' ;;
     *index,uuid*) for i in 0 1 2 3 4 6 7; do echo "$i, GPU-0000000$i-1111"; done; echo "5, GPU-bbbbbbbb-2222" ;;
-    *index,memory.used,memory.total,utilization.gpu*) for i in 0 1 2 3 4 5 6 7; do echo "$i, 0, 179000, 0"; done ;;
+    *index,memory.used,memory.total,utilization.gpu*) for i in 0 1 2 3 4 5 6 7; do echo "$i, 0, 143000, 0"; done ;;
     *index,utilization.gpu,memory.used*) for i in 0 1 2 3 4 5 6 7; do echo "$i, 0, 0"; done ;;
     *) ;;
 esac
@@ -204,7 +204,7 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
 
 # ================================================================== 4. gpu (정기 점검·현황·보고서)
 APPT=$T/app
-setup_app() {   # 가짜 /app. gpu 은 root 로 돌 때 자기 파일이 root 소유여야 한다
+setup_app() {   # 가짜 /app. gpu 는 root 로 돌 때 자기 파일이 root 소유여야 한다
     rm -rf "$APPT"; mkdir -p "$APPT"/admin/bin "$APPT"/autonomy_sw/{hong,kim} "$APPT"/state/{gpu_log,notice,reports,images,notice_seen,tty} "$APPT"/upload "$APPT"/inbox
     install -m 755 server/bin/gpu server/bin/docker server/bin/nvidia-smi "$APPT/admin/bin/"
     printf '홍길동 인지\nhong 인지\nkim 판단\n관리자 인지\n' > "$APPT/admin/team.txt"
@@ -212,7 +212,7 @@ setup_app() {   # 가짜 /app. gpu 은 root 로 돌 때 자기 파일이 root �
     : > "$APPT/state/images/loaded.tsv"
     rm -f "$T/fake/inspect" "$T/fake/images" "$T/fake/args.log"
 }
-# 컨테이너 한 줄: pid 이름 이름표(사람) GPU요청 이미지 이름표(GPU) ID  (gpu 이 docker inspect 로 받는 모양)
+# 컨테이너 한 줄: pid 이름 이름표(사람) GPU요청 이미지 이름표(GPU) ID  (gpu 가 docker inspect 로 받는 모양)
 ctr() { printf '%s\t%s\t"%s"\t%s\t"%s"\t"%s"\t%s\n' "$@" >> "$T/fake/inspect"; }
 gpu() { env GPU_APP="$APPT" GPU_DOCKER="$T/fake/docker" GPU_NVSMI="$T/fake/nvidia-smi" GPU_ACCOUNT=nobody FAKE_DIR="$T/fake" "$APPT/admin/bin/gpu" "$@"; }
 t_gpu() {

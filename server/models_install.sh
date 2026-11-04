@@ -78,7 +78,7 @@ ok "파일 ${n}개의 체크섬이 맞아요"
 
 need=$(( $(du -sm . | cut -f1) / 1024 + 5 ))
 free=$(( $(df -Pm "$D" | awk 'NR==2 {print $4}') / 1024 ))
-[ "$free" -ge "$need" ] || stop "남은 공간이 ${free} GB예요(약 ${need} GB 필요)" "/app/upload 의 원본이나 안 쓰는 파일을 지워 공간을 비우세요. 그래도 모자라면 서버 관리 팀에 디스크를 요청하세요."
+[ "$free" -ge "$need" ] || stop "남은 공간이 ${free} GB예요(약 ${need} GB 필요)" "NAS 팀 폴더($(dirname "$D"))의 안 쓰는 파일을 정리하거나 서버 관리 팀에 물어보세요."
 ok "남은 공간 ${free} GB (필요한 공간 약 ${need} GB)"
 
 # ------------------------------------------------------------------ 2. 옮기기
@@ -95,7 +95,7 @@ for d in "${dirs[@]}"; do
     echo "  $repo 옮기는 중이에요"
     mkdir -p "$dest"
     # 체크섬 목록(MANIFEST.sha256)에 있는 파일과 gpu_model.json 만 옮긴다.
-    # 올린 폴더는 공용 계정이 고칠 수 있어서, 목록에 없는 파일(예: 몰래 넣은 .py)은 root 소유 공용 폴더로 가져가지 않는다
+    # 올린 폴더는 공용 계정이 고칠 수 있어서, 목록에 없는 파일(예: 몰래 넣은 .py)은 root 소유 NAS 모델 폴더로 가져가지 않는다
     extra=$(comm -23 <(find "$d" -type f ! -path "$d/.cache/*" ! -name '.gpu_*' ! -path "$d/gpu_model.json" | sort) \
                      <(sed -n "s|^[0-9a-f]\{64\}  \($d/.*\)|\1|p" MANIFEST.sha256 | sort))
     [ -z "$extra" ] || warn "$repo: 체크섬 목록에 없는 파일 $(echo "$extra" | grep -c .)개는 옮기지 않아요(예: $(echo "$extra" | head -1))"
@@ -174,8 +174,7 @@ if [ "$FAILS" -eq 0 ]; then
     echo " 모델 ${#dirs[@]}개가 모두 정상이에요. 위치: $D"
     echo " 불러오기 예: from_pretrained(\"$D/<만든 곳>/<모델>\")  (docs/6_모델.md)"
     echo " 다음 단계: 공용 계정으로 접속해 확인(docs/1_처음_설치.md 5단계)"
-    echo " 서버 2로 옮길 거면 지우기 전에 NAS에 먼저 보관하세요(docs/8_NAS.md 의 \"쓰는 법\")."
-    echo " 공간 정리(보관한 뒤): rm -rf /app/inbox/models /app/upload/models"
+    echo " NAS에 설치돼서 서버 2도 바로 써요. /app 의 복사본은 지워도 돼요: rm -rf /app/inbox/models /app/upload/models"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"
