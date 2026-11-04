@@ -155,39 +155,36 @@ mk_datasets() {   # $1 폴더. 압축 1개 + wildscenes 파일 2개와 맞는 �
       echo 'files=2 bytes=6' > wildscenes.ok )
     cp server/datasets_install.sh "$d/"
 }
-# GPU_APP 을 시험 폴더로 둬서, 시험하는 곳에 /app 이 있어도(admin_setup 시험 뒤) 그 아래 datasets·models 에 설치하게 한다
-run_ds() { HOME=$1 GPU_APP=$T/no-app bash "$2/datasets_install.sh" > "$LOG" 2>&1; }
+# GPU_APP·GPU_NAS_DIR 을 시험 폴더로 둬서, 진짜 /app·NAS 대신 시험 폴더의 datasets·models 에 설치하게 한다
+run_ds() { mkdir -p "$T/nas/datasets"; HOME=$1 GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$2/datasets_install.sh" > "$LOG" 2>&1; }
 t_installers() {
     head_ '데이터셋·모델 설치'
     local H=$T/inst/home D=$T/inst/ds
     mkdir -p "$H"
     mk_datasets "$D"
     run_ds "$H" "$D"; t '데이터셋: 정상 설치' has "$LOG" '파일 3개의 체크섬이 맞아요'
-    t '데이터셋: wildscenes 는 목록의 파일만 옮겨요' test -f "$T/no-app/datasets/wildscenes/a/1.png" -a -f "$T/no-app/datasets/wildscenes/.gpu_done"
-    t '데이터셋: wildscenes 파일을 압축 풀기 목록에 넣지 않아요' test ! -e "$T/no-app/datasets/wildscenes/1.png"
-    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; echo bad > "$D/wildscenes/2.png"
+    t '데이터셋: wildscenes 는 목록의 파일만 옮겨요' test -f "$T/nas/datasets/wildscenes/a/1.png" -a -f "$T/nas/datasets/wildscenes/.gpu_done"
+    t '데이터셋: wildscenes 파일을 압축 풀기 목록에 넣지 않아요' test ! -e "$T/nas/datasets/wildscenes/1.png"
+    rm -rf "$T/nas" "$D"; mk_datasets "$D"; echo bad > "$D/wildscenes/2.png"
     run_ds "$H" "$D"; t '데이터셋: 바뀐 wildscenes 파일을 잡아요' has "$LOG" '깨졌거나 없는 파일: wildscenes/2.png'
-    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; echo x > "$D/wildscenes/a/evil.sh"
+    rm -rf "$T/nas" "$D"; mk_datasets "$D"; echo x > "$D/wildscenes/a/evil.sh"
     run_ds "$H" "$D"; t '데이터셋: 목록에 없는 wildscenes 파일이 있으면 멈춰요' has "$LOG" 'wildscenes 파일이 3개예요'
-    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; : > "$D/MANIFEST.sha256"
+    rm -rf "$T/nas" "$D"; mk_datasets "$D"; : > "$D/MANIFEST.sha256"
     run_ds "$H" "$D"; t '데이터셋: 빈 체크섬 목록이면 멈춰요' has "$LOG" '비었거나 모양이 이상해요'
-    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; echo 'garbage' >> "$D/MANIFEST.sha256"
+    rm -rf "$T/nas" "$D"; mk_datasets "$D"; echo 'garbage' >> "$D/MANIFEST.sha256"
     run_ds "$H" "$D"; t '데이터셋: 모양이 다른 줄이 있으면 멈춰요' has "$LOG" '비었거나 모양이 이상해요'
-    rm -rf "$T/no-app" "$D"; mk_datasets "$D"; grep -v wildscenes "$D/MANIFEST.sha256" > "$D/m" && mv "$D/m" "$D/MANIFEST.sha256"
+    rm -rf "$T/nas" "$D"; mk_datasets "$D"; grep -v wildscenes "$D/MANIFEST.sha256" > "$D/m" && mv "$D/m" "$D/MANIFEST.sha256"
     run_ds "$H" "$D"; t '데이터셋: 예전 목록(wildscenes 체크섬 없음)이면 멈춰요' has "$LOG" '체크섬 목록에 wildscenes 파일이 없어요'
 
-    # NAS 를 쓰면 /app/datasets 는 NAS 팀 폴더를 가리키는 링크다. root 만 고칠 수 있는 곳이면 그리로 풀고, 아니면 멈춘다
+    # 설치할 NAS 폴더나 그 위를 남도 고칠 수 있으면 root 는 쓰지 않는다
     if is_root; then
-        rm -rf "$T/no-app" "$T/nas" "$D"; mkdir -p "$T/no-app" "$T/nas/datasets"; chmod 755 "$T/nas" "$T/nas/datasets"
-        ln -s "$T/nas/datasets" "$T/no-app/datasets"; mk_datasets "$D"
-        run_ds "$H" "$D"; t '데이터셋: NAS 링크(root 만 고침)를 따라 NAS에 풀어요' test -f "$T/nas/datasets/wildscenes/a/1.png"
-        rm -rf "$T/nas/datasets"/* "$D"; mk_datasets "$D"; chmod 777 "$T/nas"
-        run_ds "$H" "$D"; t '데이터셋: 링크가 가리키는 곳을 남도 고칠 수 있으면 멈춰요' has "$LOG" 'root 말고도 고칠 수 있어요'
-        chmod 755 "$T/nas"; rm -rf "$T/no-app" "$T/nas"
-    else skip '데이터셋 NAS 링크: root 가 아니라서 건너뛰어요'; fi
+        rm -rf "$T/nas" "$D"; mk_datasets "$D"; mkdir -p "$T/nas/datasets"; chmod 777 "$T/nas"
+        run_ds "$H" "$D"; t '데이터셋: 설치할 곳을 남도 고칠 수 있으면 멈춰요' has "$LOG" 'root 말고도 고칠 수 있어요'
+        chmod 755 "$T/nas"
+    else skip '데이터셋 설치할 곳 권한: root 가 아니라서 건너뛰어요'; fi
 
     # 모델: 목록에 있는 파일만 옮기고, 올린 폴더의 json.py 같은 파일이 실행되지 않는다
-    local M=$T/inst/models; rm -rf "$T/no-app"; mkdir -p "$M/org__m"
+    local M=$T/inst/models; rm -rf "$T/nas"; mkdir -p "$M/org__m" "$T/nas/models"
     ( cd "$M" && echo '{"a":1}' > org__m/config.json && echo '{"repo":"org/m","license":"mit"}' > org__m/gpu_model.json
       echo extra > org__m/extra.py
       python3 -I -c "
@@ -197,12 +194,12 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
       sha256sum org__m/config.json org__m/code.zip > MANIFEST.sha256
       for m in json os zipfile struct sys; do echo "open('$T/inst/PWNED','w')" > $m.py; done )
     cp server/models_install.sh "$M/"
-    HOME=$H GPU_APP=$T/no-app bash "$M/models_install.sh" > "$LOG" 2>&1
+    HOME=$H GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$M/models_install.sh" > "$LOG" 2>&1
     t '모델: 정상 설치' has "$LOG" '모델 1개가 모두 정상이에요'
     t '모델: 올린 폴더의 json.py 등이 실행되지 않아요(python -I)' test ! -e "$T/inst/PWNED"
-    t '모델: 목록에 없는 파일은 옮기지 않아요' test ! -e "$T/no-app/models/org/m/extra.py"
-    t '모델: 코드 묶음을 풀어요' test -f "$T/no-app/models/org/m/code/ok/a.py"
-    t '모델: 코드 묶음이 폴더 밖에 쓰지 않아요' test ! -e "$T/inst/escaped" -a ! -e "$T/escaped2" -a ! -e "$T/no-app/models/escaped2"
+    t '모델: 목록에 없는 파일은 옮기지 않아요' test ! -e "$T/nas/models/org/m/extra.py"
+    t '모델: 코드 묶음을 풀어요' test -f "$T/nas/models/org/m/code/ok/a.py"
+    t '모델: 코드 묶음이 폴더 밖에 쓰지 않아요' test ! -e "$T/inst/escaped" -a ! -e "$T/escaped2" -a ! -e "$T/nas/models/escaped2"
 }
 
 # ================================================================== 4. gpu (정기 점검·현황·보고서)
@@ -357,18 +354,20 @@ t_system() {
     id gputest >/dev/null 2>&1 || useradd -m -s /bin/bash gputest
     mkdir -p /etc/gpu && echo gputest > /etc/gpu/account
     # 잠그기 전에 공용 계정이 만든 /app/shared(예전 설치: 기초 프로그램·데이터셋·설정을 한곳에)
-    mkdir -p /app && touch /app/.gpu_test_sandbox && rm -rf /app/.shared_old_* /app/.admin_old_* /app/admin /app/datasets /app/models   # 다시 돌릴 때 앞 시험의 흔적을 지운다
+    mkdir -p /app && touch /app/.gpu_test_sandbox && rm -rf /app/.shared_old_* /app/.admin_old_* /app/admin /srv/gpunas   # 다시 돌릴 때 앞 시험의 흔적을 지운다
+    mkdir -p /srv/gpunas && chmod 755 /srv/gpunas   # NAS 대신(/data 처럼 root 소유 755)
     mkdir -p /app/shared/{tools/bin,datasets/x,models/org/m}
     echo evil > /app/shared/tools/bin/git; echo d > /app/shared/datasets/x/f; ln -s /etc/passwd /app/shared/datasets/x/l; echo w > /app/shared/models/org/m/w
-    printf 'IDLE_HOURS=12\n' > /app/shared/gpu.conf; chown -R gputest /app/shared /app
+    printf 'IDLE_HOURS=12\nNAS_DIR=/srv/gpunas/autonomy_sw\n' > /app/shared/gpu.conf; chown -R gputest /app/shared /app
     rm -rf /app/autonomy_sw; mkdir -p /app/workspace/kim && echo r > /app/workspace/kim/result.txt && chown -R gputest /app/workspace   # 예전 이름의 작업 폴더
     local P=$T/pack; mkdir -p "$P"; cp -r server/. "$P/"
     printf '2\n' | script -qec "bash $P/admin_setup.sh" /dev/null > "$LOG" 2>&1
     t '끝까지 실행돼요' has "$LOG" '완료'
-    t '/app, /app/admin, /app/datasets, /app/models 를 root 소유로 잠가요' test "$(stat -c %U /app /app/admin /app/datasets /app/models | sort -u)" = root
+    t '/app, /app/admin 을 root 소유로 잠가요' test "$(stat -c %U /app /app/admin | sort -u)" = root
     t '예전 /app/shared 를 없애고 프로그램은 치워요' bash -c 'ls -d /app/.shared_old_*/tools/bin/git >/dev/null && [ ! -e /app/shared ] && [ ! -e /app/admin/tools ]'
-    t '예전 데이터셋·모델·설정을 새 자리로 옮기고 링크는 지워요' bash -c '[ -f /app/datasets/x/f ] && [ ! -L /app/datasets/x/l ] && [ -f /app/models/org/m/w ] && [ -f /app/admin/gpu.conf ]'
-    t '팀원은 데이터셋을 읽기만 해요' bash -c 'runuser -u gputest -- cat /app/datasets/x/f >/dev/null && ! runuser -u gputest -- touch /app/datasets/x/g 2>/dev/null'
+    t '예전 설정은 /app/admin 으로 옮기고, 데이터셋은 NAS로 옮기는 명령을 알려 줘요' bash -c '[ -f /app/admin/gpu.conf ] && [ -f /app/.shared_old_*/datasets/x/f ] && grep -q "rsync -a --no-links /app/.shared_old_.*/datasets/" "$1"' _ "$LOG"
+    t 'NAS 팀 폴더(root·공용 계정 그룹 750)와 datasets·models·originals(root 755)를 만들어요' test "$(stat -c '%U %G %a' /srv/gpunas/autonomy_sw)|$(stat -c '%U %a' /srv/gpunas/autonomy_sw/{datasets,models,originals} | sort -u)" = "root $(id -gn gputest) 750|root 755"
+    t '팀원은 NAS 데이터셋을 읽기만 해요' bash -c 'runuser -u gputest -- ls /srv/gpunas/autonomy_sw/datasets >/dev/null && ! runuser -u gputest -- touch /srv/gpunas/autonomy_sw/datasets/g 2>/dev/null'
     t '예전 작업 폴더(/app/workspace)를 /app/autonomy_sw 로 옮겨요' bash -c '[ -f /app/autonomy_sw/kim/result.txt ] && [ ! -e /app/workspace ]'
     t '서버 번호 2를 고르면 0~3번이 다른팀이에요' grep -qE '^0[[:space:]]+다른팀' /app/admin/gpu_alloc.txt
     t '접속 설정과 정기 점검을 만들어요' test -f /etc/profile.d/gpu.sh -a -f /etc/cron.d/gpu
@@ -386,22 +385,11 @@ t_system() {
     t '번호로 고르면 이름과 작업 폴더가 정해져요' has "$LOG" 'WS=/app/autonomy_sw/홍길동 USER=홍길동'
     t '공용 계정의 docker 는 도우미(/app/admin/bin/docker)예요' has "$LOG" 'docker is /app/admin/bin/docker'
     t '알림을 보낼 창(pts)과 이름을 적어 둬요' bash -c 'grep -qx 홍길동 /app/state/tty/pts-*'
-    # NAS 팀 폴더: 데이터셋·모델은 NAS 에 두고 /app 에는 링크. 로컬에 파일이 남아 있으면 바꾸지 않고 옮기는 명령을 알려 준다
-    rm -rf /srv/gpunas && mkdir -p /srv/gpunas && chmod 755 /srv/gpunas
-    sed -i 's#^NAS_DIR=.*#NAS_DIR=/srv/gpunas/autonomy_sw#' /app/admin/gpu.conf
-    rm -rf /app/datasets
-    GPU_NAS_ANYFS=1 bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
-    t 'NAS: 팀 폴더(root·공용 계정 그룹 750)와 datasets·models·originals(root 755)를 만들어요' test "$(stat -c '%U %G %a' /srv/gpunas/autonomy_sw)|$(stat -c '%U %a' /srv/gpunas/autonomy_sw/{datasets,models,originals} | sort -u)" = "root $(id -gn gputest) 750|root 755"
-    t 'NAS: 팀원(공용 계정)은 NAS 데이터셋을 읽을 수 있어요' runuser -u gputest -- ls /app/datasets/
-    t 'NAS: /app/datasets 는 NAS 를 가리키는 링크예요' test "$(readlink /app/datasets)" = /srv/gpunas/autonomy_sw/datasets
-    t 'NAS: 로컬 모델이 남아 있으면 바꾸지 않고 옮기는 명령을 알려 줘요' bash -c '[ -d /app/models ] && [ ! -L /app/models ] && grep -q "rsync -a /app/models/" "$1"' _ "$LOG"
     t 'NAS: 팀원 폴더(backup/<이름>)는 공용 계정 것이에요' test "$(stat -c %U /srv/gpunas/autonomy_sw/backup /srv/gpunas/autonomy_sw/backup/홍길동 | sort -u)" = gputest
-    GPU_NAS_ANYFS=1 bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
-    t 'NAS: 다시 실행해도 끝까지 돼요' has "$LOG" '완료'
-    chmod 777 /srv/gpunas/autonomy_sw/datasets
+    chmod 777 /srv/gpunas
     bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
-    t 'NAS: 링크가 가리키는 곳을 남도 고칠 수 있으면 멈춰요' has "$LOG" '가리키는 곳을 root 말고도 고칠 수 있어요'
-    chmod 755 /srv/gpunas/autonomy_sw/datasets
+    t 'NAS: 위 폴더를 남도 고칠 수 있으면 NAS 팀 폴더를 손대지 않고 알려 줘요' has "$LOG" 'root 말고도 고칠 수 있어요'
+    chmod 755 /srv/gpunas
 }
 
 all=(static docs installers gpu wrapper fetch reports hook system)

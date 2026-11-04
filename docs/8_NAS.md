@@ -48,7 +48,7 @@ cd /app/inbox && bash check_nas.sh /data/autonomy_sw
 └── tmp_transfer/                 서버 사이 임시 전달. 14일 지나면 지워요. 공용 계정 소유
 ```
 
-서버에서는 `/app/datasets`, `/app/models` 가 이 NAS 폴더를 가리키는 링크예요(`admin_setup.sh` 가 만들어요). 그래서 팀원 명령과 컨테이너 경로(`-v /app/datasets:/app/datasets:ro`)는 NAS를 쓰든 안 쓰든 같아요.
+컨테이너에는 팀 폴더를 같은 경로로 읽기 전용 연결해요(`-v /data/autonomy_sw:/data/autonomy_sw:ro`). 서버 화면과 컨테이너 안에서 경로가 같아요.
 
 | 폴더 | 누가 써요 | 왜 이렇게 |
 |---|---|---|
@@ -82,13 +82,12 @@ cd /app/inbox && bash check_nas.sh /data/autonomy_sw
 
 - `/app/admin/gpu.conf` 의 `NAS_DIR`(기본 `/data/autonomy_sw`)을 읽어요. NAS를 쓰지 않으려면 `NAS_DIR=none` 으로 적어요.
 - 그 위 폴더(`/data`)가 NAS로 연결돼 있고 root 만 고칠 수 있으면, 팀 폴더와 `datasets`·`models`·`originals`(root 소유), `backup`·`docker_images`·`tmp_transfer`(공용 계정 소유)와 팀원별 폴더를 만들어요.
-- `/app/datasets`, `/app/models` 를 NAS 폴더를 가리키는 링크로 만들어요.
-- NAS가 없거나, root squash 로 root 가 쓸 수 없거나, 팀 폴더를 root 말고도 고칠 수 있으면 `[주의]` 를 남기고 데이터셋·모델은 `/app` 에 둬요.
-- `/app/datasets` 에 예전에 설치한 파일이 남아 있으면 링크로 바꾸지 않고, NAS로 옮기는 명령을 화면에 보여 줘요. `tmux` 안에서 그 명령을 실행한 뒤 `admin_setup.sh` 를 다시 실행하세요.
+- NAS가 없거나, root squash 로 root 가 쓸 수 없거나, 팀 폴더를 root 말고도 고칠 수 있으면 `[주의]` 를 남기고 만들지 않아요. 그러면 데이터셋·모델 설치도 멈춰요.
+- 예전 `/app/shared` 에 데이터셋·모델이 있으면 NAS로 옮기는 명령을 화면에 보여 줘요. `tmux` 안에서 실행하세요.
 
 ```bash
 # [서버 1] root. admin_setup.sh 뒤에 확인
-ls -l /app/datasets /app/models                    # -> /data/autonomy_sw/... 가 보이면 NAS를 써요
+ls -ld /data/autonomy_sw /data/autonomy_sw/*                                 # 주인·권한
 bash /app/inbox/check_nas.sh /data/autonomy_sw     # 주인·권한·용량
 ```
 
@@ -96,7 +95,7 @@ bash /app/inbox/check_nas.sh /data/autonomy_sw     # 주인·권한·용량
 
 ### 서버 1: 데이터셋·모델 설치
 
-`docs/1_처음_설치.md` 의 3·4단계 그대로예요. 설치 스크립트가 `/app/datasets`(→ NAS)에 풀어요. 한 번만 하면 서버 2에서도 바로 보여요.
+`docs/1_처음_설치.md` 의 3·4단계 그대로예요. 설치 스크립트가 `/data/autonomy_sw/datasets`, `models` 에 풀어요. 한 번만 하면 서버 2에서도 바로 보여요.
 
 설치가 끝나면 서버 2가 쓸 설치 묶음을 NAS에 남겨 둬요.
 
@@ -123,7 +122,7 @@ cp $P/gpu-setup.tar $P/gpu-docker.tar /app/upload/
 ```bash
 # 1단계: 아직 gpu 명령이 없어서 직접 복사해요
 cp /app/upload/gpu-setup.tar /app/inbox/ && sha256sum /app/inbox/gpu-setup.tar          # 지문 확인
-cd /app/inbox && tar xf gpu-setup.tar && bash admin_setup.sh                             # /app/datasets·models 가 NAS 링크가 돼요
+cd /app/inbox && tar xf gpu-setup.tar && bash admin_setup.sh
 
 # 2단계
 /app/admin/bin/gpu fetch gpu-docker.tar                                               # 지문 확인
@@ -138,7 +137,7 @@ cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh
 | 도커 이미지 보관·다른 서버에서 쓰기 | `docker save -o /data/autonomy_sw/docker_images/<이름>/myseg_v1.tar <이름>/myseg:v1` → 다른 서버에서 `docker load -i` 같은 파일 |
 | 서버 사이 큰 파일 전달 | `tmp_transfer/` 에 두고 다른 서버에서 가져간 뒤 지워요 |
 
-- 데이터셋·모델은 서버 경로 그대로 읽어요: `/app/datasets/...`, `/app/models/...`(컨테이너 안에서도 같아요).
+- 데이터셋·모델은 서버 경로 그대로 읽어요: `/data/autonomy_sw/datasets/...`, `/data/autonomy_sw/models/...`(컨테이너 안에서도 같아요).
 - 설치 묶음은 NAS에서 바로 실행하지 않고 `/app/inbox` 로 복사해 지문을 맞춘 뒤 실행해요(원칙 4).
 
 ## 정해야 할 것

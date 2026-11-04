@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# [GPU 서버 · 관리자(root)] 접근 PC에서 올린 models 폴더를 /app/models/<만든 곳>/<모델> 아래 둔다(admin_setup.sh 다음).
+# [GPU 서버 · 관리자(root)] 접근 PC에서 올린 models 폴더를 NAS 팀 폴더의 /data/autonomy_sw/models/<만든 곳>/<모델> 아래 둔다(admin_setup.sh 다음).
 # 점검(체크섬) → 옮기기 → 가중치 파일을 열어 보는 검사까지 한 번에 한다.
 #   bash /app/inbox/models/models_install.sh
 # 다시 실행해도 된다. 이미 옮긴 것은 건너뛴다.
@@ -26,14 +26,15 @@ safe_dir() {
 if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/admin" ] || [ -L "$APP/autonomy_sw" ]; }; then
     echo "멈춤: /app이 아직 잠기지 않았어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
 fi
-# 설치할 곳: /app/models(root 만 고치고 팀원은 읽는다). NAS 를 쓰면 NAS 팀 폴더를 가리키는 링크다(admin_setup.sh). 기록은 /app/admin/logs
-if [ "$(id -u)" = 0 ] && { [ -L "$APP/models" ] || [ -d "$APP/models" ]; } && ! safe_dir "$APP/models"; then
-    echo "멈춤: $APP/models($(readlink -f "$APP/models"))를 root 말고도 고칠 수 있어요. 관리자 기본 설정을 다시 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
+# 설치할 곳: NAS 팀 폴더의 models(/app/admin/gpu.conf 의 NAS_DIR, 기본 /data/autonomy_sw). root 만 고치고 팀원은 읽는다
+NAS=${GPU_NAS_DIR:-$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$APP/admin/gpu.conf" 2>/dev/null | tail -1)}   # GPU_NAS_DIR: 시험할 때만
+D="${NAS:-/data/autonomy_sw}/models"
+if [ "$(id -u)" = 0 ] && ! safe_dir "$D"; then
+    echo "멈춤: 설치할 곳($D)이 없거나 root 말고도 고칠 수 있어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
 fi
-if [ -d "$APP/models" ] && [ ! -w "$APP/models" ]; then
-    echo "멈춤: $APP/models 는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/models_install.sh"; exit 1
+if [ -d "$D" ] && [ ! -w "$D" ]; then
+    echo "멈춤: $D 는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/models_install.sh"; exit 1
 fi
-D="$APP/models"
 LOG="$APP/admin/logs/models_install_$(date +%Y%m%d_%H%M%S).log"
 mkdir -p "$D" "$APP/admin/logs"
 exec > >(tee -a "$LOG") 2>&1

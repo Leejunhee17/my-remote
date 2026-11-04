@@ -93,16 +93,18 @@ if [ -d "$APP" ]; then
     if [ -d "$APP/autonomy_sw" ] && [ ! -w "$APP/autonomy_sw" ]; then
         mine "$APP/autonomy_sw 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
     fi
-    if [ -e "$APP/shared" ]; then
-        warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 데이터셋·모델은 $APP/datasets·$APP/models 로, 명단·설정은 $APP/admin 으로 옮기고 나머지는 치워요"
-        [ -d "$APP/shared/datasets" ] && ok "예전 데이터셋이 남아 있어요: $APP/shared/datasets (옮겨 쓰니 다시 올리지 않아도 돼요)"
-        [ -d "$APP/shared/models" ] && ok "예전 모델이 남아 있어요: $APP/shared/models (옮겨 쓰니 다시 올리지 않아도 돼요)"
-    fi
-    [ -d "$APP/datasets" ] && ok "데이터셋이 있어요: $APP/datasets$([ -L "$APP/datasets" ] && echo " → $(readlink "$APP/datasets")") (다시 올리지 않아도 돼요)"
-    [ -d "$APP/models" ] && ok "모델이 있어요: $APP/models$([ -L "$APP/models" ] && echo " → $(readlink "$APP/models")") (다시 올리지 않아도 돼요)"
+    [ -e "$APP/shared" ] && warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 명단·설정만 $APP/admin 으로 옮기고 나머지는 치워요. 예전 데이터셋·모델을 NAS로 옮기는 명령도 알려 줘요"
 else
     bad "$APP 폴더가 없어요" "2 TB SSD를 $APP 에 연결해 주세요(주인은 root 그대로)"
 fi
+
+echo; echo "${c_c}== NAS 팀 폴더 ==${c_0}"
+NAS=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$APP/admin/gpu.conf" 2>/dev/null | tail -1); NAS=${NAS:-/data/autonomy_sw}
+if [ ! -d "$(dirname "$NAS")" ]; then bad "NAS($(dirname "$NAS"))가 연결돼 있지 않아요" "두 서버 모두 NAS를 $(dirname "$NAS") 에 연결해 주세요"
+elif [ -d "$NAS" ]; then
+    for n in datasets models; do [ -n "$(ls -A "$NAS/$n" 2>/dev/null)" ] && ok "$NAS/$n 에 설치돼 있어요(두 서버가 같이 써요. 다시 올리지 않아도 돼요)"; done
+    [ -n "$(ls -A "$NAS/datasets" 2>/dev/null)$(ls -A "$NAS/models" 2>/dev/null)" ] || echo "  $NAS 는 있지만 데이터셋·모델은 아직 없어요(3·4단계)"
+else echo "  $NAS 는 아직 없어요. 1단계 admin_setup.sh 가 만들어요"; fi
 
 echo; echo "${c_c}== 서버 프로그램 ==${c_0}"
 # "명령:Ubuntu 패키지". 서버 화면(컨테이너 밖)에서 쓰는 프로그램은 OS 에 설치해 달라고 한다. docs/1_처음_설치.md 의 요청 목록과 같게 둔다
