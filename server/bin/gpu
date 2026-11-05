@@ -447,8 +447,8 @@ cmd_fetch() {
     is_root || { echo "root 전용이에요."; return 1; }
     local n=${1:-} up=$APP/upload in=$APP/inbox
     case "$n" in
-        datasets|models|gpu-setup.tar|gpu-docker.tar) ;;
-        *) echo "쓰는 법: gpu fetch datasets | models | gpu-setup.tar | gpu-docker.tar"; return 1 ;;
+        datasets|models|gpu-setup.tar|gpu-pkgs.tar|gpu-docker.tar) ;;
+        *) echo "쓰는 법: gpu fetch datasets | models | gpu-setup.tar | gpu-pkgs.tar | gpu-docker.tar"; return 1 ;;
     esac
     [ "$(stat -c '%U %a' "$in" 2>/dev/null)" = "root 755" ] && [ ! -L "$in" ] ||
         { echo "${c_r}멈춤:${c_0} $in 이 root 소유(755)가 아니에요. 먼저 실행하세요: cd /app/inbox && bash admin_setup.sh"; return 1; }
@@ -481,6 +481,7 @@ cmd_fetch() {
         case "$n" in
             gpu-setup.tar)  echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash admin_setup.sh"
                             echo "  (admin_setup.sh 를 다시 실행해야 묶음 안의 고친 도우미가 /app/admin/bin 에 설치돼요)" ;;
+            gpu-pkgs.tar)   echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash pkgs_install.sh" ;;
             gpu-docker.tar) echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash docker_install.sh" ;;
         esac
     fi

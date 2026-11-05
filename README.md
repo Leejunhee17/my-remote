@@ -23,10 +23,10 @@ cd D:\gpu
 git config core.hooksPath .githooks                                   # 커밋 검사 켜기(한 번)
 copy .env.example .env                                                # 접근 PC 설정 만들기(한 번)
 notepad .env                                                          # HF_TOKEN, 필요하면 HTTPS_PROXY 적기
-powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 설치 스크립트·도커·데이터셋·모델 받기
+powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 설치 스크립트·기초 프로그램·도커·데이터셋·모델 받기
 ```
 
-받은 것은 `setup\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요. 서버에 올리고 설치하는 일은 각 작업 끝의 안내와 `docs/1_처음_설치.md` 의 "전체 흐름" 을 따라요.
+받은 것은 `setup\`, `pack_pkgs\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요. 서버에 올리고 설치하는 일은 각 작업 끝의 안내와 `docs/1_처음_설치.md` 의 "전체 흐름" 을 따라요.
 
 ## 서버 구성
 
@@ -63,12 +63,13 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 |---|---|---|
 | 0. 서버 점검 | | `check.sh` (서버·NAS·네트워크를 한 번에. 보고서는 공용 계정 홈에) |
 | 1. 관리자 기본 설정 | `pc\setup_pack.ps1` | `admin_setup.sh` (**맨 먼저**: `/app` 잠금) |
+| 1-1. 서버 기초 프로그램 | `pc\pkgs_pack.ps1` | `pkgs_install.sh` (tmux, nvtop, rsync 등. 없는 것만) |
 | 2. 도커 | `pc\docker_pack.ps1` | `docker_install.sh` |
 | 3. 데이터셋 | `pc\datasets_download.ps1` | `datasets_install.sh` |
 | 4. 사전학습 모델 | `pc\models_download.ps1` | `models_install.sh` (3·4단계는 서버 1에서만. NAS에 설치돼서 서버 2도 같이 써요) |
 | 5. 팀원 입장에서 확인 | | 공용 계정으로 접속 |
 
-서버 화면(컨테이너 밖)에서 쓰는 tmux, nvtop, rsync 같은 프로그램은 OS를 설치할 때 서버 관리 팀에 함께 설치해 달라고 해요(`docs/1_처음_설치.md` 의 "서버에 설치해 달라고 할 패키지"). 학습 도구는 팀원이 도커 이미지에 넣어 와요.
+서버 화면(컨테이너 밖)에서 쓰는 tmux, nvtop, rsync 같은 프로그램은 서버에 인터넷이 없어서 관리자가 1-1단계 묶음으로 직접 설치해요(`docs/1_처음_설치.md` 의 "1-1단계: 서버 기초 프로그램"). 학습 도구는 팀원이 도커 이미지에 넣어 와요.
 
 접근 PC의 토큰·프록시 같은 설정은 `.env` 하나에 적어 두고(`copy .env.example .env`), 1~4단계에서 받는 일은 `pc\run_all.ps1` 하나로 한 번에 할 수 있어요(`docs/1_처음_설치.md` 의 "접근 PC 설정(.env)").
 
@@ -102,4 +103,4 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 
 시험하지 못하는 것: 실제 GPU·도커, HIWARE, 접근 PC에서의 받기(인터넷), NAS. 이것들은 서버에서 문서 순서대로 따라 하며 확인해요.
 
-받은 결과는 저장소 맨 위의 `setup\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요(git에는 올라가지 않아요).
+받은 결과는 저장소 맨 위의 `setup\`, `pack_pkgs\`, `pack_docker\`, `datasets\`, `models\` 에 생겨요(git에는 올라가지 않아요).

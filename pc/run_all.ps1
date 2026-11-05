@@ -3,11 +3,11 @@
 하나가 멈춰도 나머지는 이어서 하고, 끝에 결과를 한눈에 보여 준다. 끝난 것은 건너뛰므로 몇 번이고 다시 실행해도 된다.
 서버에 올리기·설치는 하지 않는다. 각 작업이 끝날 때 보여 주는 안내(지문 포함)를 따라 한다.
 
-  powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1                     # .env 의 GPU_RUN(없으면 네 가지 모두)
+  powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1                     # .env 의 GPU_RUN(없으면 다섯 가지 모두)
   powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1 -Run models,datasets   # 이번에만 고른 것
 #>
 param(
-    [string[]]$Run = @()   # setup, docker, datasets, models 중에서(쉼표로 여러 개)
+    [string[]]$Run = @()   # setup, pkgs, docker, datasets, models 중에서(쉼표로 여러 개)
 )
 $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent
@@ -15,6 +15,7 @@ $root = Split-Path $PSScriptRoot -Parent
 
 $Jobs = [ordered]@{
     setup    = @{ File = 'setup_pack.ps1';        Title = '서버 설치 스크립트 묶음(setup\gpu-setup.tar)' }
+    pkgs     = @{ File = 'pkgs_pack.ps1';         Title = '서버 기초 프로그램 묶음(pack_pkgs\gpu-pkgs.tar)' }
     docker   = @{ File = 'docker_pack.ps1';       Title = 'rootless Docker 묶음(pack_docker\gpu-docker.tar)' }
     datasets = @{ File = 'datasets_download.ps1'; Title = '데이터셋(datasets\)' }
     models   = @{ File = 'models_download.ps1';   Title = '사전학습 모델(models\)' }

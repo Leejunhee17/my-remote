@@ -42,7 +42,7 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 ├── datasets/                     데이터셋(설치 스크립트가 풀어요). root 소유 755, 팀원은 읽기만
 ├── models/                       사전학습 모델. root 소유 755, 팀원은 읽기만
 ├── originals/
-│   └── server_setup/<날짜>/       gpu-setup.tar, gpu-docker.tar(서버 2가 가져가요). root 소유
+│   └── server_setup/<날짜>/       gpu-setup.tar, gpu-pkgs.tar, gpu-docker.tar(서버 2가 가져가요). root 소유
 ├── docker_images/<이름>/          팀원이 만든 도커 이미지 .tar. 공용 계정 소유
 ├── backup/<이름>/                 실험 결과·체크포인트. 공용 계정 소유
 └── tmp_transfer/                 서버 사이 임시 전달. 14일 지나면 지워요. 공용 계정 소유
@@ -69,7 +69,7 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 |---|---|---|
 | `datasets` | 약 900 GB | 세그 데이터셋 전부와 RELLIS-3D·GO·ORAD-3D 의 라이다·rosbag(`docs/5_데이터셋.md`). 풀면 조금 더 커져요 |
 | `models` | 약 334 GB | 기본 모델(`docs/6_모델.md`). 선택 모델을 받으면 늘어요(`vlmxl` 의 Qwen3.5-397B만 406 GB) |
-| `originals/server_setup` | 버전마다 1 GB 안팎 | 접근 PC의 `setup\gpu-setup.tar`(아주 작아요)와 `pack_docker\gpu-docker.tar` 크기. 최근 3판만 둬요 |
+| `originals/server_setup` | 버전마다 1 GB 안팎 | 접근 PC의 `setup\gpu-setup.tar`(아주 작아요), `pack_pkgs\gpu-pkgs.tar`(70 MB 안팎), `pack_docker\gpu-docker.tar` 크기. 최근 3판만 둬요 |
 | `docker_images/` | N × 약 40 GB | PyTorch 기반 이미지 하나 15~25 GB × 사람마다 2개 |
 | `backup/` | N × B | 체크포인트가 가장 커요. 예: ViT-L 체크포인트 하나 1~3 GB |
 | `tmp_transfer/` | 약 200 GB | 서버 사이에 큰 결과를 옮길 때 |
@@ -102,25 +102,26 @@ QUICK=1 bash /app/inbox/check.sh                       # 팀 폴더의 주인·�
 ```bash
 # [서버 1] root. originals 는 root 소유라 root 가 바로 복사해요(원칙 3)
 P=/data/autonomy_sw/originals/server_setup/$(date +%F)       # 묶음은 만든 날짜 폴더마다 따로 둬요
-mkdir -p $P && cp /app/inbox/gpu-setup.tar /app/inbox/gpu-docker.tar $P/
+mkdir -p $P && cp /app/inbox/gpu-setup.tar /app/inbox/gpu-pkgs.tar /app/inbox/gpu-docker.tar $P/
 ls /data/autonomy_sw/originals/server_setup                 # 날짜 폴더가 4개 이상이면 가장 오래된 것을 지워요(최근 3판만)
 ```
 
 ### 서버 2: 설치 묶음만 가져와 설치
 
-데이터셋·모델은 서버 1이 NAS에 설치한 것을 그대로 읽어서 할 일이 없어요. 설치 묶음 두 개만 NAS에서 가져와요. 지문은 접근 PC의 `D:\gpu\지문_기록.txt` 와 맞춰요.
+데이터셋·모델은 서버 1이 NAS에 설치한 것을 그대로 읽어서 할 일이 없어요. 설치 묶음 세 개만 NAS에서 가져와요. 지문은 접근 PC의 `D:\gpu\지문_기록.txt` 와 맞춰요.
 
 ```bash
 # [서버 2] root. 0단계(/etc/gpu/account, /app/inbox·upload 만들기)는 먼저 해 둬요
 ls /data/autonomy_sw/originals/server_setup                 # 가장 최근 날짜를 아래 <날짜> 에 적어요
 P=/data/autonomy_sw/originals/server_setup/<날짜>
-cp $P/gpu-setup.tar $P/gpu-docker.tar /app/inbox/ && sha256sum /app/inbox/gpu-*.tar   # root 만 고치는 곳끼리 복사. 지문 확인
+cp $P/gpu-setup.tar $P/gpu-pkgs.tar $P/gpu-docker.tar /app/inbox/ && sha256sum /app/inbox/gpu-*.tar   # root 만 고치는 곳끼리 복사. 지문 확인
 ```
 
 `originals` 와 `/app/inbox` 는 둘 다 root 만 고칠 수 있어서 `/app/upload` 를 거치지 않아요. 지문이 `지문_기록.txt` 와 같을 때만 다음 줄을 실행해요.
 
 ```bash
 cd /app/inbox && tar xf gpu-setup.tar && bash admin_setup.sh       # 1단계
+cd /app/inbox && tar xf gpu-pkgs.tar && bash pkgs_install.sh       # 1-1단계
 cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh   # 2단계
 ```
 

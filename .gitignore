@@ -1,6 +1,7 @@
 setup/
 pack/
 pack_docker/
+pack_pkgs/
 datasets/
 models/
 지문_기록.txt

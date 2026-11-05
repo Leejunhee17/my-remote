@@ -2,7 +2,7 @@
 # 저장소 자동 시험. 임시 폴더에 가짜 /app, 가짜 docker·nvidia-smi 를 만들고 스크립트를 실제로 돌려 본다.
 # 서버에서 돌리지 않는다(실제 /app 이 있으면 멈춘다). 이 저장소를 고친 뒤, 커밋하기 전에 돌린다.
 #   bash tests/run.sh                 전체(root 가 아니면 root 가 필요한 시험은 건너뛴다)
-#   bash tests/run.sh docs gpu       고른 묶음만: static docs installers gpu wrapper fetch reports hook system
+#   bash tests/run.sh docs gpu       고른 묶음만: static docs installers gpu wrapper fetch reports hook pkgs system
 #   GPU_TEST_SYSTEM=1 bash tests/run.sh system
 #                                     admin_setup.sh 를 진짜 /app 과 /etc 에 돌린다. 버리는 가상 머신(GitHub Actions)에서만
 # 시험이 하나라도 실패하면 종료 코드가 1 이다.
@@ -136,11 +136,15 @@ t_docs() {
             grep -rqF -- "$p" server pc || echo "$m  (못 찾은 부분: $p)"; done
     done)
     [ -z "$bad" ] && ok '문제 해결 표의 메시지가 스크립트에 있어요' || no '문제 해결 표의 메시지가 스크립트에 없어요' "$bad"
-    # check.sh 가 찾는 패키지와 docs/1 의 "서버에 설치해 달라고 할 패키지" 명령이 같다(빠진 것을 요청 목록에 적어 주므로)
+    # check.sh 가 찾는 패키지와 docs/1 의 "서버 기초 프로그램" 명령이 같다(빠진 것을 할 일 목록에 적어 주므로)
     local want doc; want=$(sed -n '/local NEED=(/,/local miss/p' server/check.sh | grep -oE '[a-z0-9_.-]+:[a-z0-9.+-]+' | cut -d: -f2 | grep -vxE 'bash|tar|coreutils|sed|grep|util-linux|bsdutils' | sort -u)
     doc=$(sed -n '/^apt install -y/,/^```/p' docs/1_처음_설치.md | tr -s ' \\\n' '\n' | grep -vE '^(apt|install|-y|```)$' | sort -u)
     bad=$(comm -3 <(echo "$want") <(echo "$doc"))
     [ -n "$want" ] && [ -z "$bad" ] && ok '점검 스크립트와 문서의 서버 패키지 목록이 같아요' || no '점검 스크립트와 문서의 서버 패키지 목록이 달라요(왼쪽: 스크립트만, 오른쪽: 문서만)' "$bad"
+    # 기초 프로그램 묶음(pkgs_pack.ps1)에 넣는 패키지도 문서 목록과 같다
+    want=$(sed -n '/^\$Pkgs = @(/,/^)/p' pc/pkgs_pack.ps1 | grep -oE "'[^']+'" | tr -d "'" | sort -u)
+    bad=$(comm -3 <(echo "$want") <(echo "$doc"))
+    [ -n "$want" ] && [ -z "$bad" ] && ok '기초 프로그램 묶음과 문서의 패키지 목록이 같아요' || no '기초 프로그램 묶음과 문서의 패키지 목록이 달라요(왼쪽: pkgs_pack.ps1 만, 오른쪽: 문서만)' "$bad"
     # README 의 폴더 표에 있는 경로가 있다
     bad=$(grep -oP '^\| `\K[^`]+(?=`)' README.md | while read -r p; do [ -e "${p%/}" ] || echo "$p"; done)
     [ -z "$bad" ] && ok 'README 폴더 표의 경로가 모두 있어요' || no 'README 폴더 표에 없는 경로' "$bad"
@@ -387,7 +391,46 @@ t_hook() {
     cp team/서버_사용_규칙.xlsx "$g/"; echo zzzz > "$g/.git/info/gpu-blocklist.txt"; t '저장소의 규칙 엑셀은 통과해요' cm
 }
 
-# ================================================================== 9. admin_setup.sh 를 진짜 /app 에(버리는 가상 머신에서만)
+# ================================================================== 9. 기초 프로그램 설치(pkgs_install.sh)
+# $1 폴더에 시험용 패키지 하나(gpu-test-hello)로 묶음을 만든다. 접근 PC의 pkgs_pack.ps1 이 만드는 모양 그대로
+mk_pkgs() {
+    local d=$1 b=$T/pkgbuild f=gpu-test-hello_1.0_all.deb
+    rm -rf "$d" "$b"; mkdir -p "$d/debs" "$b/DEBIAN" "$b/usr/bin"
+    printf 'Package: gpu-test-hello\nVersion: 1.0\nArchitecture: all\nMaintainer: test <test@example.com>\nDescription: test\n' > "$b/DEBIAN/control"
+    printf '#!/bin/sh\necho hello\n' > "$b/usr/bin/gpu-test-hello"; chmod 755 "$b/usr/bin/gpu-test-hello"
+    dpkg-deb --root-owner-group -b "$b" "$d/debs/$f" > /dev/null
+    ( cd "$d/debs" && { dpkg-deb -f "$f"; echo "Filename: ./$f"; echo "Size: $(stat -c %s "$f")"; echo "SHA256: $(sha256sum "$f" | cut -d' ' -f1)"; echo; } > Packages )
+    printf 'made=test\nubuntu=%s\npkgs=gpu-test-hello\ndebs=1\n' "$(. /etc/os-release && echo "${VERSION_CODENAME:-}")" > "$d/pkgs_info.txt"
+    ( cd "$d" && sha256sum debs/"$f" debs/Packages pkgs_info.txt > MANIFEST_pkgs.sha256 )
+    cp server/pkgs_install.sh "$d/"
+}
+run_pk() { GPU_LOG_DIR=$T/pklog bash "$1/pkgs_install.sh" > "$LOG" 2>&1 < /dev/null; }
+t_pkgs() {
+    head_ '기초 프로그램 설치'
+    is_root || { skip 'root 가 아니라서 건너뛰어요(pkgs_install.sh 는 root 전용)'; return; }
+    command -v dpkg-deb >/dev/null && command -v apt-get >/dev/null || { skip 'dpkg-deb·apt-get 이 없어요(Ubuntu 에서 돌려요)'; return; }
+    local D=$T/pk/inbox; mkdir -p "$T/pk"; chmod 755 "$T/pk"
+    mk_pkgs "$D"; echo x >> "$D/debs/gpu-test-hello_1.0_all.deb"
+    run_pk "$D"; t '바뀐 .deb 를 잡아요' has "$LOG" '깨진 파일: debs/gpu-test-hello_1.0_all.deb'
+    mk_pkgs "$D"; echo x > "$D/debs/evil.deb"
+    run_pk "$D"; t '체크섬 목록에 없는 .deb 가 있으면 멈춰요' has "$LOG" '체크섬 목록에 없는 파일이 debs 폴더에 있어요'
+    mk_pkgs "$D"; : > "$D/MANIFEST_pkgs.sha256"
+    run_pk "$D"; t '빈 체크섬 목록이면 멈춰요' has "$LOG" '비었거나 모양이 이상해요'
+    mk_pkgs "$D"; sed -i 's/^ubuntu=.*/ubuntu=jammy-test/' "$D/pkgs_info.txt"; ( cd "$D" && sha256sum debs/* pkgs_info.txt > MANIFEST_pkgs.sha256 )
+    run_pk "$D"; t '다른 Ubuntu 버전용 묶음이면 멈춰요' has "$LOG" '이 묶음은 Ubuntu jammy-test 용인데'
+    mk_pkgs "$D"; chmod 777 "$T/pk"
+    run_pk "$D"; t '푼 곳을 남도 고칠 수 있으면 멈춰요' has "$LOG" 'root 말고도 고칠 수 있어요'
+    chmod 755 "$T/pk"
+    # 진짜 설치는 버리는 가상 머신에서만(서버의 dpkg 에 시험 패키지를 넣지 않게)
+    if [ "${GPU_TEST_SYSTEM:-}" != 1 ]; then skip '진짜 설치: GPU_TEST_SYSTEM=1 일 때만 돌려요(GitHub Actions)'; return; fi
+    mk_pkgs "$D"
+    run_pk "$D"; t '없는 프로그램만 임시 저장소로 설치해요' bash -c 'grep -q "기초 프로그램 1개가 모두 있어요" "$1" && [ "$(gpu-test-hello)" = hello ]' _ "$LOG"
+    t '서버의 apt 저장소 목록은 그대로예요' bash -c '! grep -rqs gpu-test-hello /var/lib/apt/lists/'
+    run_pk "$D"; t '두 번째 실행은 설치할 것이 없어요' has "$LOG" '설치할 것이 없어요'
+    dpkg -r gpu-test-hello > /dev/null 2>&1
+}
+
+# ================================================================== 10. admin_setup.sh 를 진짜 /app 에(버리는 가상 머신에서만)
 t_system() {
     head_ 'admin_setup.sh (진짜 /app·/etc)'
     if [ "${GPU_TEST_SYSTEM:-}" != 1 ] || ! is_root; then skip 'GPU_TEST_SYSTEM=1 과 root 일 때만 돌려요(GitHub Actions)'; return; fi
@@ -433,7 +476,7 @@ t_system() {
     chmod 755 /srv/gpunas
 }
 
-all=(static docs installers gpu wrapper fetch reports hook system)
+all=(static docs installers gpu wrapper fetch reports hook pkgs system)
 sel=("$@"); [ ${#sel[@]} -gt 0 ] || sel=("${all[@]}")
 echo "${C}[GPU 서버 저장소] 자동 시험  ($(date '+%Y-%m-%d %H:%M'), $(id -un))${Z}"
 for s in "${sel[@]}"; do

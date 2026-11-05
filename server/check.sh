@@ -312,7 +312,8 @@ sec_dirs() {
 
 sec_programs() {
     head_ '서버 프로그램'
-    # "명령:Ubuntu 패키지". 서버 화면(컨테이너 밖)에서 쓰는 프로그램은 OS 에 설치해 달라고 한다. docs/1_처음_설치.md 의 요청 목록과 같게 둔다
+    # "명령:Ubuntu 패키지". 서버 화면(컨테이너 밖)에서 쓰는 프로그램은 관리자가 기초 프로그램 묶음(pkgs_install.sh)으로 설치한다.
+    # docs/1_처음_설치.md 의 "서버 기초 프로그램" 목록, pc/pkgs_pack.ps1 과 같게 둔다(tests/run.sh 가 확인)
     local NEED=(bash:bash tar:tar sha256sum:coreutils awk:gawk sed:sed grep:grep perl:perl python3:python3 unzip:unzip
           runuser:util-linux setsid:util-linux findmnt:util-linux script:bsdutils)
     local WANT=(tmux:tmux screen:screen vim:vim nano:nano micro:micro less:less htop:htop btop:btop nvtop:nvtop iotop:iotop iostat:sysstat
@@ -322,10 +323,10 @@ sec_programs() {
     local miss
     miss=$(lack "${NEED[@]}")
     [ -z "$miss" ] && ok "설치 스크립트에 필요한 명령이 모두 있어요" ||
-        bad "설치 스크립트에 필요한 패키지가 없어요: $miss" "패키지 설치: apt install $miss"
+        mine "설치 스크립트에 필요한 패키지가 없어요: $miss" "기초 프로그램 설치(docs/1_처음_설치.md 의 \"1-1단계: 서버 기초 프로그램\"): $miss"
     miss=$(lack "${WANT[@]}")
     [ -z "$miss" ] && ok "서버 화면에서 쓰는 프로그램(tmux, nvtop, rsync 등)이 모두 있어요" ||
-        bad "서버 화면에서 쓰는 프로그램 중 없는 것: $miss" "패키지 설치: apt install $miss"
+        mine "서버 화면에서 쓰는 프로그램 중 없는 것: $miss" "기초 프로그램 설치(docs/1_처음_설치.md 의 \"1-1단계: 서버 기초 프로그램\"): $miss"
 }
 lack() { local p m=(); for p in "$@"; do command -v "${p%%:*}" >/dev/null || m+=("${p#*:}"); done; printf '%s\n' "${m[@]}" | grep . | sort -u | tr '\n' ' '; }
 
