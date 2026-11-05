@@ -227,7 +227,7 @@ perm_line() {   # $1 경로 $2 보일 이름(없으면 경로) $3 이름 칸 너
 }
 sec_dirs() {
     head_ '서버 폴더·권한 (읽기만 해요)'
-    local p n i uid others= links= open=
+    local p n i others='' links='' open=''
     # /app: 팀원 작업 공간·도커·설치 파일이 놓일 곳. 1단계 admin_setup.sh 가 root 소유로 잠근다
     if [ -d "$APP" ]; then
         echo "  [$APP 과 그 아래 두 단계]"
