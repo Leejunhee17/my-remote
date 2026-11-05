@@ -303,6 +303,14 @@ t_reports() {
             t 'root: 공용 계정 이름을 모르면 GPU_ACCOUNT 로 다시 하라고 해요' has "$LOG" 'GPU_ACCOUNT=<계정이름>'
         (cd "$rep" && timeout 30 bash "$rep/check.sh" disk "$rep/run") > "$LOG" 2>&1 < /dev/null
         t 'root: 다른 계정이 쓰는 폴더는 속도를 재지 않아요' has "$LOG" 'root로 실행하면 다른 계정이 쓰는 폴더는 측정하지 않아요'
+        # 서버 폴더·권한: /app 아래 다른 계정 것과 링크를 알려 주고, 공유용 사본에서는 폴더 이름을 가린다
+        mkdir -p "$rep/app/autonomy_sw" "$rep/app/teamB" "$rep/home3"; chown nobody "$rep/app/autonomy_sw" "$rep/home3"; chown 1234 "$rep/app/teamB"; ln -s /etc "$rep/app/odd"
+        (cd "$rep" && timeout 60 env APP="$rep/app" GPU_NAS="$rep/nas" GPU_ACCOUNT=nobody GPU_ACC_HOME="$rep/home3" QUICK=1 bash "$rep/check.sh") > "$LOG" 2>&1 < /dev/null
+        t '서버 폴더: /app 아래 다른 계정 것을 알려 줘요' has "$LOG" '아래에 root·공용 계정이 아닌 계정의 것이 있어요'
+        t '서버 폴더: /app 아래 링크를 알려 줘요' has "$LOG" '링크가 1개 있어요'
+        t '서버 폴더: 시스템 폴더 주인·권한을 봐요' has "$LOG" '[설치 스크립트가 쓸 시스템 폴더]'
+        t '서버 폴더: 공유용 사본에 /app 아래 폴더 이름이 없어요' bash -c "! grep -qwE 'teamB|odd' $rep/home3/check_공유용_*.txt"
+        t '서버 폴더: NAS 가 없어도 / 아래 이름(etc 등)을 가리지 않아요' bash -c "grep -q '/etc/profile.d' $rep/home3/check_공유용_*.txt"
         # 공용 계정이 홈에 보고서 이름으로 링크를 심어 둬도 root 파일을 덮지 않는다(공용 계정 권한으로 쓰므로)
         local victim=$rep/victim tag m; echo 원래 > "$victim"; chmod 644 "$victim"; tag=$(hostname -s | tail -c 3)
         for m in "$(date +%Y%m%d-%H%M)" "$(date -d '+1 min' +%Y%m%d-%H%M)"; do ln -s "$victim" "$rep/home2/check_공유용_${tag}_$m.txt"; done

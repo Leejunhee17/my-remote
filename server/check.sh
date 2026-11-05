@@ -214,6 +214,102 @@ sec_storage() {
     [ -e "$APP/shared" ] && warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 명단·설정만 $APP/admin 으로 옮기고 나머지는 치워요. 예전 데이터셋·모델을 NAS로 옮기는 명령도 알려 줘요"
 }
 
+# ================================================================== 서버 폴더·권한(읽기만 한다)
+# 한 줄: 이름  주인(번호)  그룹  권한  누가 쓰는지. 링크·파일·없음도 표시한다
+perm_line() {   # $1 경로 $2 보일 이름(없으면 경로) $3 이름 칸 너비
+    local p=$1 name=${2:-$1} w=${3:-34} st uid gid mode extra=
+    if [ -L "$p" ]; then extra=" → $(readlink "$p")"; name="$name (링크)"
+    elif [ ! -e "$p" ]; then echo "  $(pad "$name" "$w") (없어요)"; return; fi
+    st=$(stat -c '%u %g %a' "$p" 2>/dev/null) || { echo "  $(pad "$name" "$w") (읽지 못했어요)"; return; }
+    read -r uid gid mode <<< "$st"
+    [ -L "$p" ] || [ -d "$p" ] || name="$name (파일)"
+    echo "  $(pad "$name" "$w") 주인 $(pad "$(who_uid "$uid")" 22) 그룹 $(pad "$(grp_name "$gid")" 12) $(pad "$mode" 5) $(who_writes "$mode")$extra"
+}
+sec_dirs() {
+    head_ '서버 폴더·권한 (읽기만 해요)'
+    local p n i uid others= links= open=
+    # /app: 팀원 작업 공간·도커·설치 파일이 놓일 곳. 1단계 admin_setup.sh 가 root 소유로 잠근다
+    if [ -d "$APP" ]; then
+        echo "  [$APP 과 그 아래 두 단계]"
+        perm_line "$APP" "" 34
+        i=0
+        while IFS= read -r -d '' p; do
+            i=$((i + 1)); [ "$i" -le 80 ] || continue
+            perm_line "$p" "${p#"$APP"/}" 34
+        done < <(find "$APP" -mindepth 1 -maxdepth 2 -print0 2>/dev/null | sort -z)
+        [ "$i" -le 80 ] || echo "  ... 모두 ${i}개 중 80개만 보였어요"
+        # 1단계에서 /app 을 잠그기 전에 알아야 할 것: 다른 계정 것, 링크, 누구나 쓰는(스티키 아닌) 폴더
+        others=$(find "$APP" -mindepth 1 -maxdepth 2 ! -user root ${ACC:+! -user "$ACC"} -printf '%u ' 2>/dev/null | tr ' ' '\n' | grep . | sort | uniq -c | awk '{printf "%s(%s개) ", $2, $1}')
+        [ "$(stat -c %U "$APP")" = root ] || [ "$(stat -c %U "$APP")" = "$ACC" ] || others="$(stat -c %U "$APP")($APP 자체) $others"
+        if [ -n "$others" ]; then
+            warn "$APP 아래에 root·공용 계정이 아닌 계정의 것이 있어요: $others"
+            echo "      1단계 admin_setup.sh 가 $APP 을 잠그면(root 소유 755) 그 계정은 $APP 바로 아래에 새 폴더를 못 만들어요. 누구 것인지 서버 관리 팀에 확인하세요"
+        else ok "$APP 아래는 root·공용 계정 것만 있어요"; fi
+        links=$(find "$APP" -mindepth 1 -maxdepth 2 -type l 2>/dev/null | wc -l)
+        [ "$links" -eq 0 ] || warn "$APP 아래에 링크가 ${links}개 있어요(위 목록의 '(링크)'). 누가 만들었는지 확인하세요. admin_setup.sh 는 쓰는 자리에 링크가 있으면 멈춰요"
+        open=$(find "$APP" -mindepth 0 -maxdepth 2 -type d -perm -0002 ! -perm -1000 2>/dev/null | wc -l)
+        [ "$open" -eq 0 ] || warn "$APP 아래에 누구나 쓰고 지울 수 있는 폴더(스티키 아님, o+w)가 ${open}개 있어요"
+    fi
+
+    # 홈 폴더: 공용 계정 홈은 보고서가 들어가는 곳이고 팀원이 함께 쓴다
+    echo; echo "  [홈 폴더 /home]"
+    i=0
+    while IFS= read -r -d '' p; do
+        i=$((i + 1)); [ "$i" -le 40 ] || continue
+        perm_line "$p" "${p#/home/}" 34
+    done < <(find /home -mindepth 1 -maxdepth 1 -print0 2>/dev/null | sort -z)
+    [ "$i" -gt 0 ] || echo "  (없어요)"
+    if id "$ACC" >/dev/null 2>&1; then
+        p=$(getent passwd "$ACC" | cut -d: -f6)
+        if [ -z "$p" ] || [ ! -d "$p" ]; then warn "공용 계정 홈($p)이 없어요. 보고서를 넣을 곳이 없어요"
+        else
+            [ "$p" = "/home/$ACC" ] || perm_line "$p" "공용 계정 홈 $p" 34
+            [ "$(stat -c %u "$p")" = "$(id -u "$ACC")" ] || warn "공용 계정 홈($p)의 주인이 공용 계정이 아니에요"
+            [ -z "$(find "$p" -maxdepth 0 -perm /022)" ] || warn "공용 계정 홈($p)을 다른 계정도 쓸 수 있어요(그룹·누구나 쓰기)"
+        fi
+    fi
+
+    # 설치 스크립트(root)가 나중에 쓸 시스템 폴더. root 말고 다른 계정이 쓸 수 있으면 root 가 설치할 때 바꿔치기될 수 있다
+    echo; echo "  [설치 스크립트가 쓸 시스템 폴더]"
+    local sys=(/etc/gpu /etc/profile.d /etc/cron.d /etc/sudoers.d /etc/systemd/system /etc/apparmor.d /etc/nvidia-container-runtime
+               /etc/bash.bashrc /etc/subuid /etc/subgid /usr/local/bin /usr/local/sbin /usr/local/lib /opt /var/log /tmp /var/tmp)
+    local weak=
+    for p in "${sys[@]}"; do
+        perm_line "$p" "" 34
+        [ -e "$p" ] && [ ! -L "$p" ] || continue
+        case "$p" in /tmp|/var/tmp) [ -k "$p" ] || weak+="$p(스티키 아님) "; continue ;; esac
+        { [ "$(stat -c %u "$p")" = 0 ] && [ -z "$(find "$p" -maxdepth 0 -perm /022)" ]; } || weak+="$p "
+    done
+    [ -z "$weak" ] && ok "시스템 폴더는 모두 root 만 고칠 수 있어요" ||
+        bad "root 말고도 고칠 수 있는 시스템 폴더가 있어요: $weak" "다음 폴더를 root 소유로, 그룹·다른 계정은 못 쓰게 해 주세요(/tmp·/var/tmp 는 1777): $weak"
+    # 예전 설치 흔적(새로 설치한 OS 에는 없어야 한다)
+    local left=; for p in /etc/gpu /etc/profile.d/gpu.sh /etc/profile.d/gpu-docker.sh /etc/cron.d/gpu /opt/gpu /etc/systemd/system/gpu-docker.service /var/log/gpu; do
+        [ -e "$p" ] || [ -L "$p" ] && left+="$p "; done
+    [ -z "$left" ] || echo "  이 저장소의 설치 스크립트가 만드는 것이 이미 있어요(예전 설치이거나 이미 설치함): $left"
+
+    # 공용 계정 권한: 관리자 그룹·sudo 가 있으면 누구나 root 가 될 수 있다(admin_setup.sh 와 같은 기준)
+    if id "$ACC" >/dev/null 2>&1; then
+        echo; echo "  [공용 계정($ACC)]"
+        echo "  $(id "$ACC")"
+        n=$(id -nG "$ACC" | tr ' ' '\n' | grep -xE 'sudo|admin|wheel|docker|disk|lxd|incus-admin|libvirt' | tr '\n' ' ')
+        [ -z "$n" ] && ok "관리자 권한 그룹(sudo·docker·disk·lxd 등)에 없어요" ||
+            bad "공용 계정이 관리자 그룹에 있어요: $n(팀원 누구나 root 가 될 수 있어요)" "공용 계정($ACC)을 관리자 그룹에서 빼 주세요: $n"
+        if [ -n "$IS_ROOT" ]; then
+            sudo -l -U "$ACC" 2>/dev/null | grep -q 'may run' &&
+                bad "공용 계정이 sudo 를 쓸 수 있어요" "공용 계정($ACC)의 sudo 권한을 없애 주세요(/etc/sudoers, /etc/sudoers.d/)" || ok "sudo 를 못 써요"
+        else echo "  sudo 권한은 root 로 실행하면 확인해요."; fi
+        grep -q "^$ACC:" /etc/subuid 2>/dev/null && echo "  /etc/subuid 에 있어요(rootless 도커에 필요해요. 2단계 docker_install.sh 가 맞춰요)" ||
+            echo "  /etc/subuid 에 아직 없어요(2단계 docker_install.sh 가 넣어요)"
+    fi
+
+    # 연결 옵션: nosuid·noexec 등
+    echo; echo "  [연결 옵션]"
+    for p in / "$APP" /home /tmp; do
+        [ -d "$p" ] || continue
+        echo "  $(pad "$p" 8) $(findmnt -no SOURCE,FSTYPE --target "$p" 2>/dev/null | head -1)  $(findmnt -no OPTIONS --target "$p" 2>/dev/null | head -1 | tr ',' '\n' | grep -E '^(ro|rw|nosuid|noexec|nodev)$' | tr '\n' ' ')"
+    done
+}
+
 sec_programs() {
     head_ '서버 프로그램'
     # "명령:Ubuntu 패키지". 서버 화면(컨테이너 밖)에서 쓰는 프로그램은 OS 에 설치해 달라고 한다. docs/1_처음_설치.md 의 요청 목록과 같게 둔다
@@ -655,7 +751,7 @@ sec_ibnet() {
 
 body() {
     echo "${c_c}[GPU 서버] 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))${c_0}"
-    sec_os; sec_gpu; sec_storage; sec_programs; sec_nic; sec_nas
+    sec_os; sec_gpu; sec_storage; sec_dirs; sec_programs; sec_nic; sec_nas
     if [ -n "${QUICK:-}" ]; then head_ '속도'; echo "  QUICK 이라서 속도 측정은 건너뛰었어요."
     else sec_speed "$@"; fi
     sec_ibnet
@@ -731,7 +827,13 @@ cmd_full() {
     masks=("$(hostname -f 2>/dev/null)=$label" "$(hostname 2>/dev/null)=$label" "$ME=$label" "$ACC=공용계정")
     i=0; while IFS=: read -r n _ u _; do [ "$u" -ge 1000 ] && [ "$u" -lt 60000 ] && [ "$n" != "$ACC" ] && { i=$((i + 1)); masks+=("$n=계정$i"); }; done < <(getent passwd)
     nasd=$(main_nas)
-    i=0; for d in "$nasd"/*/; do n=$(basename "$d"); case "$n" in tmp|data|home|"$(basename "$TEAM")"|'*') continue ;; esac; i=$((i + 1)); masks+=("$n=폴더$i"); done 2>/dev/null
+    i=0; [ -n "$nasd" ] && for d in "$nasd"/*/; do n=$(basename "$d"); case "$n" in tmp|data|home|"$(basename "$TEAM")"|'*') continue ;; esac; i=$((i + 1)); masks+=("$n=폴더$i"); done 2>/dev/null
+    i=0; for d in "$APP"/* "$APP"/.[!.]* /home/*; do
+        [ -e "$d" ] || [ -L "$d" ] || continue; n=$(basename "$d")
+        case "$n" in admin|autonomy_sw|inbox|upload|docker|state|shared|workspace|lost+found|.shared_old_*|.admin_old_*|"$ACC") continue ;; esac
+        getent passwd "$n" >/dev/null && continue   # 계정 이름은 위에서 가렸다
+        i=$((i + 1)); masks+=("$n=서버폴더$i")
+    done 2>/dev/null
     for f in "$PEER_NOTE" "$(nas_dir "${1:-}")"/.gpu_net/*.info; do
         if [ "$f" = "$PEER_NOTE" ]; then h=$(head -1 "$f"); else h=$(field HOST "$f"); fi
         [[ "$h" =~ ^[A-Za-z0-9._-]{2,64}$ ]] && [ "$h" != "$ME" ] && masks+=("$h=상대서버(…${h: -2})")
