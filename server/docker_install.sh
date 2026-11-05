@@ -45,7 +45,7 @@ CODE=$(. /etc/os-release && echo "${VERSION_CODENAME:-}")
 ok "운영체제 $(. /etc/os-release && echo "$PRETTY_NAME"), 커널 $(uname -r)"
 id -nG "$ACC" | tr ' ' '\n' | grep -qx docker && warn "공용 계정($ACC)이 docker 그룹에 있어요. root 권한과 같으니 서버 관리 팀에 빼 달라고 하세요(gpasswd -d $ACC docker)"
 command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 && ok "GPU $(nvidia-smi -L | wc -l)장이 보여요" ||
-    warn 'nvidia-smi가 GPU를 못 봐요. 도커는 설치하지만, GPU 컨테이너는 드라이버를 고친 뒤에 돼요(check_server.sh 로 확인).'
+    warn 'nvidia-smi가 GPU를 못 봐요. 도커는 설치하지만, GPU 컨테이너는 드라이버를 고친 뒤에 돼요(공용 계정으로 QUICK=1 bash /app/inbox/check.sh 로 확인).'
 [ -d /app ] || stop '/app 폴더가 없어요' '서버 관리 팀에 2 TB SSD를 /app에 연결해 달라고 요청한 뒤 다시 실행하세요.'
 
 # ------------------------------------------------------------------ 2. 시스템 패키지

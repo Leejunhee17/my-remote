@@ -3,7 +3,7 @@
 두 GPU 서버가 같이 쓰는 NAS(`/data`)에 무엇을 어디에 두고, 누가 쓸 수 있고, 용량이 얼마나 필요한지 정리했어요.
 NAS는 팀마다 나눠 받는 공간이 아니라 여러 팀이 각자 알아서 쓰는 곳이에요. 그래서 우리 팀은 **`/data/autonomy_sw` 한 폴더 아래에만** 둬요.
 **데이터셋과 모델은 NAS에 한 번만 설치하고 두 서버가 같이 읽어요.** 측정해 보니 NAS가 충분히 빨라서(동시 읽기 11 GB/s, `docs/4_네트워크.md`) 서버마다 따로 들일 필요가 없어요.
-2026-11-03에 두 서버에서 `check_nas.sh` 를 실행한 결과는 `reports/nas_공유용_…txt` 에 있어요.
+2026-11-03에 두 서버에서 NAS 를 점검한 결과는 `reports/nas_공유용_…txt` 에 있어요. 이제 NAS 점검은 서버·네트워크 점검과 함께 `check.sh` 하나로 해요.
 
 ## 지금 아는 것과 모르는 것
 
@@ -18,11 +18,11 @@ NAS는 팀마다 나눠 받는 공간이 아니라 여러 팀이 각자 알아�
 | 같이 쓰는 곳 | 다른 팀도 같은 NAS를 써요. 팀별 할당량이나 팀 폴더는 따로 없어요. 우리 팀 폴더는 **`/data/autonomy_sw`** 로 정했어요(`/app/admin/gpu.conf` 의 `NAS_DIR`) |
 | 아직 모르는 것 | 두 서버의 공용 계정 번호가 같은지(서버에 공용 계정 이름을 아직 안 적어서 확인하지 못했어요), 이미지처럼 작은 파일을 많이 읽을 때의 속도 |
 
-모르는 것은 두 서버에서 각각 아래를 실행하면 한 화면에 나와요. 아무것도 바꾸지 않아요. 결과는 `/app/inbox/reports/nas_report_<서버>_<시각>.txt` 에도 남아요. 원본에는 NAS 주소·계정 같은 사내 정보가 있어서, 같이 생기는 공유용(`nas_공유용_…txt`)만 git 으로 올려요(`docs/4_네트워크.md` 의 "결과 가져오기").
+모르는 것은 두 서버에서 각각 아래를 실행하면 한 화면에 나와요. 아무것도 바꾸지 않고 root 도 필요 없어요(공용 계정으로 실행해요). 결과는 공용 계정 홈의 `check_report_<서버>_<시각>.txt` 에도 남아요. 원본에는 NAS 주소·계정 같은 사내 정보가 있어서, 같이 생기는 공유용(`check_공유용_…txt`)만 git 으로 올려요(`docs/4_네트워크.md` 의 "결과 가져오기").
 
 ```bash
-# [서버 1, 서버 2 각각] root
-cd /app/inbox && bash check_nas.sh /data/autonomy_sw
+# [서버 1, 서버 2 각각] 공용 계정. 팀 폴더는 /app/admin/gpu.conf 의 NAS_DIR(기본 /data/autonomy_sw)을 봐요
+cd /app/inbox && bash check.sh       # 1단계 전에는 공용 계정 홈에 올린 것으로: cd ~ && bash check.sh
 ```
 
 ## 정한 원칙
@@ -88,7 +88,7 @@ cd /app/inbox && bash check_nas.sh /data/autonomy_sw
 ```bash
 # [서버 1] root. admin_setup.sh 뒤에 확인
 ls -ld /data/autonomy_sw /data/autonomy_sw/*                                 # 주인·권한
-bash /app/inbox/check_nas.sh /data/autonomy_sw     # 주인·권한·용량
+QUICK=1 bash /app/inbox/check.sh                       # 공용 계정으로. 팀 폴더의 주인·권한·용량(속도 측정 없이)
 ```
 
 ## 쓰는 법
@@ -137,14 +137,14 @@ cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh   # 2단계
 
 ## 정해야 할 것
 
-`check_nas.sh` 결과로 채워요.
+`check.sh` 결과의 NAS 부분으로 채워요.
 
 | 항목 | 확인하는 곳 | 결과 |
 |---|---|---|
 | 우리 팀 폴더 이름·위치 | 팀 회의 | `/data/autonomy_sw`(정함) |
 | 누가 팀 폴더를 만드는지 | | root 가 만들어요(`admin_setup.sh`). `/data` 가 root 소유 755라 공용 계정은 만들 수 없어요 |
-| root squash | 화면의 "root squash" | 안 해요(root 가 root 소유 755 `/data` 에 쓸 수 있음) |
-| 두 서버의 공용 계정 번호가 같은지 | 화면의 "계정 번호"(두 서버에서 모두 실행한 뒤 맞춰 봐요) | 일반 계정 4개(uid 1000~1003)는 두 서버에서 같아 보여요. 공용 계정은 이름을 적은 뒤 확인해요 |
+| root squash | root 로만 알 수 있어서 `check.sh` 는 보지 않아요. 2026-11-03 점검 결과와 `admin_setup.sh` 화면 | 안 해요(root 가 root 소유 755 `/data` 에 쓸 수 있음) |
+| 두 서버의 공용 계정 번호가 같은지 | 화면의 "상대 서버 찾기"(두 서버에서 함께 실행하면 맞춰 봐요), "계정 번호" | 일반 계정 4개(uid 1000~1003)는 두 서버에서 같아 보여요. 공용 계정은 이름을 적은 뒤 확인해요 |
 | 전체·남은 용량 | 화면의 "용량" | 전체 414 TB, 남은 것 397 TB(2026-11-03). 계획한 약 9 TB 는 충분해요 |
 | 팀원 수(N), 1인당 백업 몫(B) | 팀 회의 | |
 | 보관 기간 | 팀 회의(`tmp_transfer/` 14일, 이미지 1인 2개 안) | |

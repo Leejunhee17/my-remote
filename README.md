@@ -61,7 +61,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 
 | 단계 | 접근 PC | GPU 서버 (root) |
 |---|---|---|
-| 0. 서버 점검 | | `check_server.sh`, `check_network.sh all`, `check_nas.sh` |
+| 0. 서버 점검 | | `check.sh` (서버·NAS·네트워크를 한 번에. 공용 계정으로, root 필요 없음) |
 | 1. 관리자 기본 설정 | `pc\setup_pack.ps1` | `admin_setup.sh` (**맨 먼저**: `/app` 잠금) |
 | 2. 도커 | `pc\docker_pack.ps1` | `docker_install.sh` |
 | 3. 데이터셋 | `pc\datasets_download.ps1` | `datasets_install.sh` |
@@ -80,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 | `team/` | 팀원에게 줄 규칙과 사용법 |
 | `pc/` | 접근 PC에서 실행하는 받기·묶기 스크립트(`run_all.ps1` 은 한 번에) |
 | `.env.example` | 접근 PC 설정 예시. 복사해 `.env` 를 만들고 토큰·프록시를 적어요(`.env` 는 git에 올라가지 않아요) |
-| `server/` | GPU 서버에서 root 로 실행하는 점검·설치 스크립트 |
+| `server/` | GPU 서버에서 실행하는 점검(`check.sh`, 공용 계정)·설치 스크립트(root) |
 | `server/bin/` | 팀원이 쓰는 `docker`, `nvidia-smi` 뒤에서 이름표·경고·"GPU별 사용자" 표를 붙이는 도우미와 정기 점검(`gpu`). `admin_setup.sh` 가 `/app/admin/bin` 에 설치해요 |
 | `lists/` | 받을 모델 목록 |
 | `reports/` | 서버 점검 결과 중 사내 정보를 가린 공유용만 올리는 곳 |

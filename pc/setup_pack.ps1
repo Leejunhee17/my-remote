@@ -1,6 +1,6 @@
 ﻿<#
 [접근 PC] GPU 서버 설치 스크립트 묶음(setup\gpu-setup.tar)을 만든다.
-들어가는 것: admin_setup.sh, 점검 스크립트 셋(check_server·check_network·check_nas), 도우미(bin/gpu, bin/docker, bin/nvidia-smi).
+들어가는 것: admin_setup.sh, 점검 스크립트(check.sh, 공용 계정으로 실행), 도우미(bin/gpu, bin/docker, bin/nvidia-smi).
 서버 화면에서 쓰는 프로그램(tmux, nvtop 등)은 OS 에 설치해 달라고 서버 관리 팀에 요청하고(docs/1_처음_설치.md), 학습 도구는 도커 이미지에 넣는다.
 
   powershell -ExecutionPolicy Bypass -File .\pc\setup_pack.ps1
@@ -18,7 +18,7 @@ Write-Host "[접근 PC] 서버 설치 스크립트 묶기  ($(Get-Date -Format '
 Write-Step 1 $T '점검'
 if (Get-Command 'tar.exe' -ErrorAction SilentlyContinue) { Write-Ok 'tar.exe' }
 else { Stop-Run '없는 프로그램: tar.exe' '윈도우 10 1803 이후에는 기본으로 들어 있어요. 윈도우를 업데이트하세요.' }
-$scripts = @('admin_setup.sh', 'check_server.sh', 'check_network.sh', 'check_nas.sh', 'bin/gpu', 'bin/docker', 'bin/nvidia-smi')
+$scripts = @('admin_setup.sh', 'check.sh', 'bin/gpu', 'bin/docker', 'bin/nvidia-smi')
 foreach ($f in $scripts) {
     if (-not (Test-Path (Join-Path $root ('server\' + ($f -replace '/', '\'))))) { Stop-Run "없는 파일: server\$f" 'git pull로 저장소를 최신으로 받으세요.' }
 }
