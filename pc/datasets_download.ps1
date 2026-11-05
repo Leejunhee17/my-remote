@@ -1,5 +1,5 @@
 ﻿<#
-[접근 PC] 세그멘테이션 데이터셋을 받는다. 설명은 docs\5_데이터셋.md.
+[접근 PC] 세그멘테이션 라벨이 있는 데이터셋을 받는다(RELLIS-3D·GO·ORAD-3D 등은 라이다·rosbag 까지 전부). 설명은 docs\5_데이터셋.md.
 점검 → 받기(끊기면 이어받기) → 검사 → GPU 서버에 올릴 목록 만들기까지 한 번에 한다.
 끊기거나 실패하면 같은 명령을 다시 실행한다. 받은 것은 건너뛴다.
 
@@ -8,6 +8,7 @@
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenesLinks C:\Users\나\Downloads\61541v001.txt
                                                                      # WildScenes 를 포털의 링크 목록 파일로 받는다(AWS CLI 가 안 될 때)
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only goose,RUGD
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only ORAD-3D       # 큰 것은 따로(약 350 GB)
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
 .env 에 WildScenes 접속 정보(WILDSCENES_S3_*, WILDSCENES_*_KEY)나 링크 목록(WILDSCENES_LINKS)을 적어 두면
 -WildScenes 를 붙이지 않아도 WildScenes 까지 받고, 접속 정보를 묻지 않는다.
@@ -43,6 +44,10 @@ $Items = @(
     @{ Set = 'gooseEx'; GB = 3;  Name = 'gooseEx_2d_test.zip';    Url = 'https://goose-dataset.de/storage/gooseEx_2d_test.zip' }
     @{ Set = 'RUGD';    GB = 5;  Name = 'RUGD_frames-with-annotations.zip'; Url = 'http://rugd.vision/data/RUGD_frames-with-annotations.zip' }
     @{ Set = 'RUGD';    GB = 1;  Name = 'RUGD_annotations.zip';   Url = 'http://rugd.vision/data/RUGD_annotations.zip' }
+    # CAVS 시맨틱 세그(실제 1,077장 + 합성 1,947장 + rosbag). 주소는 사이트의 "Download Dataset" 링크. 막히면 브라우저로 받아 datasets\CaSSeD 에 넣는다
+    @{ Set = 'CaSSeD';  GB = 38; Name = 'CaSSeD.tar.gz';          Url = 'https://www.cavs.msstate.edu/resources/downloads/CaSSeD/CaSSeD.tar.gz' }
+    # Freiburg Forest: 라벨이 있는 다중 스펙트럼 묶음. 라벨 없는 raw(15,000장)는 사이트에서 브라우저로 받아 datasets\freiburg_forest 에 넣는다
+    @{ Set = 'freiburg_forest'; GB = 3; Name = 'freiburg_forest_multispectral_annotated.tar.gz'; Url = 'http://deepscene.cs.uni-freiburg.de/static/datasets/freiburg_forest_multispectral_annotated.tar.gz' }
 )
 $Items = @($Items | Where-Object { Want $_.Set })
 
@@ -57,9 +62,55 @@ $DriveItems = @(
     @{ Set = 'go';         GB = 2;  Name = 'images';            Id = '1Y_XHZw6BeuqwD280K7xw4eapNRpSKXA5' }
     @{ Set = 'go';         GB = 1;  Name = 'annotations_id';    Id = '1VehRXZ_Bw4DolGVvqVk4qr_pmbUXYgQA' }
     @{ Set = 'go';         GB = 1;  Name = 'annotations_color'; Id = '1qc4J1DgiWU0MsUhUhyX0p8sQROoVb4uZ' }
+    # RELLIS-3D 나머지 전부(github.com/unmannedlab/RELLIS-3D): 라이다, 보정, rosbag. 2D 세그는 위 rellis_2d
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'ontology';               Id = '1K8Zf0ju_xI5lnx3NTDLJpVTs59wmGPI6' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'image_examples';         Id = '1wIig-LCie571DnK72p2zNAYYWeclEz1D' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'ouster_examples';        Id = '1QikPnpmxneyCuwefr6m50fBOSB2ny4LC' }
+    @{ Set = 'rellis_full'; GB = 26; Name = 'ouster_color_ply';       Id = '1BZWrPOeLhbVItdN0xhzolfsABr6ymsRr' }
+    @{ Set = 'rellis_full'; GB = 14; Name = 'ouster_semantickitti';   Id = '1lDSVRf_kZrD0zHHMsKJ0V1GN9QATR4wH' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'ouster_semantickitti_labels'; Id = '12bsblHXtob60KrjV7lGXUQTdC5PhV8Er' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'ouster_scan_poses';      Id = '1V3PT_NJhA41N7TBLp5AbW31d0ztQDQOX' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'ouster_split';           Id = '1raQJPySyqDaHpc53KPnJVl3Bln6HlcVS' }
+    @{ Set = 'rellis_full'; GB = 6;  Name = 'velodyne_semantickitti'; Id = '1PiQgPQtJJZIpXumuHSig5Y6kxhAzz1cz' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'velodyne_semantickitti_labels'; Id = '1n-9FkpiH4QUP7n0PnQBp-s7nzbSzmxp8' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'calib_camera_intrinsic';  Id = '1NAigZTJYocRSOTfgFBddZYnDsI_CSpwK' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'calib_camera_to_ouster';  Id = '19EOqWS9fDUFp4nsBrMCa69xs9LgIlS2e' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'calib_velodyne_to_ouster'; Id = '1T6yPwcdzJoU-ifFRelLtDLPuPQswIQwf' }
+    @{ Set = 'rellis_full'; GB = 1;  Name = 'calib_stereo';           Id = '1cP5-l_nYt3kZ4hZhEAHEdpt2fzToar0R' }
+    @{ Set = 'rellis_full'; GB = 2;  Name = 'rosbag_example_synced';   Id = '13EHwiJtU0aAWBQn-ZJhTJwC1Yx2zDVUv' }
+    @{ Set = 'rellis_full'; GB = 5;  Name = 'rosbag_example_merged';   Id = '1qSeOoY6xbQGjcrZycgPM8Ty37eKDjpJL' }
+    @{ Set = 'rellis_full'; GB = 5;  Name = 'rosbag_example_split_raw'; Id = '1-TDpelP4wKTWUDTIn0dNuZIT3JkBoZ_R' }
+    @{ Set = 'rellis_full'; GB = 12; Name = 'rosbag_00000_synced';     Id = '1bIb-6fWbaiI9Q8Pq9paANQwXWn7GJDtl' }
+    @{ Set = 'rellis_full'; GB = 23; Name = 'rosbag_00000_merged';     Id = '1grcYRvtAijiA0Kzu-AV_9K4k2C1Kc3Tn' }
+    @{ Set = 'rellis_full'; GB = 8;  Name = 'rosbag_00001_synced';     Id = '1xNjAFE3cv6X8n046irm8Bo5QMerNbwP1' }
+    @{ Set = 'rellis_full'; GB = 16; Name = 'rosbag_00001_merged';     Id = '1geoU45pPavnabQ0arm4ILeHSsG3cU6ti' }
+    @{ Set = 'rellis_full'; GB = 14; Name = 'rosbag_00002_synced';     Id = '1gy0ehP9Buj-VkpfvU9Qwyz1euqXXQ_mj' }
+    @{ Set = 'rellis_full'; GB = 28; Name = 'rosbag_00002_merged';     Id = '1h0CVg62jTXiJ91LnR6md-WrUBDxT543n' }
+    @{ Set = 'rellis_full'; GB = 8;  Name = 'rosbag_00003_synced';     Id = '1vCeZusijzyn1ZrZbg4JaHKYSc2th7GEt' }
+    @{ Set = 'rellis_full'; GB = 15; Name = 'rosbag_00003_merged';     Id = '1glJzgnTYLIB_ar3CgHpc_MBp5AafQpy9' }
+    @{ Set = 'rellis_full'; GB = 7;  Name = 'rosbag_00004_synced';     Id = '1gxODhAd8CBM5AGvsoyuqN7yGpWazzmVy' }
+    @{ Set = 'rellis_full'; GB = 14; Name = 'rosbag_00004_merged';     Id = '1AuEjX0do3jGZhGKPszSEUNoj85YswNya' }
+    # GO 나머지 전부(github.com/unmannedlab/the-great-outdoors-dataset): 열화상, 라이다, 레이더, 보정, rosbag. 크기는 공개되지 않아 대략값
+    @{ Set = 'go_full'; GB = 1;  Name = 'sensor_setup_scan';         Id = '1lTc4GO6WiOHxn7cqnY3baj5yh7qnQ5oX' }
+    @{ Set = 'go_full'; GB = 1;  Name = 'image_examples';            Id = '1oi5KpBYXefvMpiUzrVE1BWcPfmMieTdx' }
+    @{ Set = 'go_full'; GB = 2;  Name = 'thermal_images';            Id = '1kTwL7O_v4Qc8WpzpT7416VXgENYm1ZK-' }
+    @{ Set = 'go_full'; GB = 1;  Name = 'thermal_annotations_color'; Id = '1g6Hf7-wg3JqQMDufhpHCyGK-cPrkQ7Ck' }
+    @{ Set = 'go_full'; GB = 1;  Name = 'thermal_annotations_id';    Id = '1u_cRN-SkU2b_M5pWCRU0rL4_RkCTUTsA' }
+    @{ Set = 'go_full'; GB = 10; Name = 'lidar_semantickitti';       Id = '1pzBnAVe-q531XBSnNUY8I42XOogDnLY7' }
+    @{ Set = 'go_full'; GB = 5;  Name = 'radar_polar';               Id = '1KC56g3GriVsIA5rkKCFA7mqBWeuZL9PQ' }
+    @{ Set = 'go_full'; GB = 1;  Name = 'calib_camera_intrinsic';    Id = '1I489hMmcnly5gwao6YC2I0wnOcL8W96w' }
+    @{ Set = 'go_full'; GB = 1;  Name = 'calib_rgb_to_ouster';       Id = '1JZPWwZa7wA6mN_Qv8ze7_535D-xo8Zex' }
+    @{ Set = 'go_full'; GB = 1;  Name = 'calib_thermal_to_rgb';      Id = '1bal8q-ytdc8od2wV9nXW9-fKIPbGuNau' }
+    @{ Set = 'go_full'; GB = 50; Name = 'rosbag';                    Id = '1aze9xgbN1ID-9CW4U3CJtYi6ChBmaKGO' }
 )
+# 스크립트로 받을 수 없어서 브라우저로 받아 datasets\<폴더> 에 넣는 것. 넣어 둔 압축 파일은 검사해서 목록에 넣는다(docs\5_데이터셋.md)
+#   rellis_full: Drive 폴더(원본 rosbag 5개 시퀀스, 보정 원본), ycor: Box 공유 링크, freiburg_forest: raw 묶음
+$HandSets = @('rellis_full', 'ycor', 'freiburg_forest', 'CaSSeD')
+# ORAD-3D: ModelScope(중국) 데이터셋 저장소에서 modelscope 도구로 받는다(약 350 GB, 끊기면 이어받기)
+$ModelScopeId = 'Georgehhhh/ORAD-3D'
 $DriveItems = @($DriveItems | Where-Object { Want $_.Set })
-$Manual = @($DriveItems | ForEach-Object { $_.Set } | Select-Object -Unique)
+$Manual = @(@($DriveItems | ForEach-Object { $_.Set }) + @($HandSets | Where-Object { Want $_ }) | Select-Object -Unique)
+$doOrad = Want 'ORAD-3D'
 $doWild = ($WildScenes -or $WildScenesLinks) -and (Want 'wildscenes')
 $WsPortal = 'https://data.csiro.au/collection/csiro:61541'   # WildScenes 포털 페이지
 
@@ -67,7 +118,7 @@ New-Item -ItemType Directory -Force $Dest | Out-Null
 $Dest = (Resolve-Path $Dest).Path.TrimEnd('\')
 Start-Log (Join-Path $Dest 'download.log')
 Stop-Sleep
-Write-Host "[접근 PC] 세그멘테이션 데이터셋 받기  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))"
+Write-Host "[접근 PC] 세그멘테이션 데이터셋 받기(라벨이 있는 데이터셋 전부)  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))"
 Write-Host "받는 곳: $Dest"
 
 # 압축 검사: 0 정상, 1 깨짐, 2 모르는 형식
@@ -288,6 +339,7 @@ function Show-DriveDiag($d, $label) {
 function Get-Drive($id, $target) {
     New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
     $part = "$target.download"
+    $hdr  = "$target.headers"   # 응답 머리글. 압축이 아닌 파일(rosbag, 보정 파일)은 원래 파일 이름의 확장자를 여기서 가져온다
     $url  = "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
     $stall = 0
     while ($stall -lt $MaxTries) {
@@ -295,7 +347,7 @@ function Get-Drive($id, $target) {
         if ($local) { Write-Info "이어받기: $(Format-Size $local)부터" }
         $ca = Get-CurlArgs $url
         & curl.exe -L -C - --fail --retry 3 --retry-delay 10 --connect-timeout 30 -Y 1024 -y 120 `
-            -b $DriveJar -c $DriveJar @ca -o $part $url
+            -b $DriveJar -c $DriveJar @ca -D $hdr -o $part $url
         $code = $LASTEXITCODE
         if ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $part }
         if ($code -eq 22 -or $code -eq 56) {
@@ -339,11 +391,32 @@ function Get-Drive($id, $target) {
             $stall++
             continue
         }
+        if ($ext -eq '.bin' -and (Test-Path $hdr)) {
+            # 압축이 아니면 Drive 가 알려 준 원래 파일 이름(Content-Disposition)의 확장자를 쓴다. 예: .bag, .yaml, .txt
+            $cd = [regex]::Matches([IO.File]::ReadAllText($hdr), '(?im)^content-disposition:.*?filename="?([^";\r\n]+)')
+            if ($cd.Count) { $e = [IO.Path]::GetExtension($cd[$cd.Count - 1].Groups[1].Value); if ($e -match '^\.[A-Za-z0-9]{1,6}$') { $ext = $e.ToLower() } }
+        }
+        Remove-Item -Force -ErrorAction SilentlyContinue $hdr
         $final = "$target$ext"
         Move-Item -Force $part $final
         return $final
     }
     return $null
+}
+
+# ORAD-3D: ModelScope 데이터셋 저장소를 modelscope 도구(uv 로 실행)로 통째로 받는다. 끊기면 다시 실행하면 이어서 받는다.
+# 다 받으면 파일마다 체크섬을 ORAD-3D.ok 에 적는다(서버가 하나하나 확인한다)
+function Get-ModelScope($id, $dir) {
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $stall = 0
+    while ($stall -lt $MaxTries) {
+        $before = (Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+        & $uv tool run --python 3.12 --from modelscope modelscope download --dataset $id --local_dir $dir | Out-Host
+        if ($LASTEXITCODE -eq 0) { return $true }
+        $after = (Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
+        $stall = Step-Retry $stall $before $after $MaxTries "modelscope $LASTEXITCODE"
+    }
+    return $false
 }
 
 function Read-Plain($prompt) {
@@ -397,7 +470,7 @@ if ($script:Fails) {
 
 # Google Drive 는 스크립트가 받지 않지만, 브라우저로 받을 수 있는지 알려 준다(실패해도 멈추지 않는다)
 $driveOk = $false
-if ($Manual.Count) {
+if ($DriveItems.Count) {
     $d1 = Invoke-Probe 'https://drive.google.com/'
     if ($d1.Code -ne 0) {
         Write-Warn "Google Drive 접속 안 됨(curl $($d1.Code)). RELLIS-3D, TAS500, GO는 건너뛰고 나머지를 받아요. 접속되면 같은 명령을 다시 실행하세요."
@@ -494,6 +567,7 @@ if ($driveOk) {
         ForEach-Object { $_.GB } | Measure-Object -Sum).Sum
 }
 if ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) { $needGB += 47 }
+if ($doOrad -and -not (Test-Path (Join-Path $Dest 'ORAD-3D.ok'))) { $needGB += 350 }
 $free = Get-FreeGB $Dest
 if ($free -lt $needGB + 5) {
     Stop-Run "남은 공간이 $free GB예요(앞으로 약 $needGB GB가 필요해요)" '공간을 비우거나, -Dest E:\datasets 처럼 넉넉한 드라이브로 받는 곳을 바꾸거나, -Only로 나눠 받으세요.'
@@ -612,6 +686,29 @@ foreach ($it in $DriveItems) {
     $f = Get-Drive $it.Id $target
     if ($f) { Set-Done "$f.ok" $f; Write-Ok "$label 받았어요"; $result[$label] = '받음' }
     else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
+}
+
+# ORAD-3D (ModelScope)
+if ($doOrad) {
+    $odir = Join-Path $Dest 'ORAD-3D'
+    if (Test-Path "$odir.ok") {
+        Write-Host '  ORAD-3D: 이미 받았어요'; $result['ORAD-3D'] = '받음'
+    } else {
+        Write-Host ''
+        Write-Host "  ORAD-3D 받는 중 (약 350 GB, ModelScope $ModelScopeId)" -ForegroundColor Cyan
+        if (Get-ModelScope $ModelScopeId $odir) {
+            # 파일마다 체크섬(서버가 하나하나 확인). 받기 도구가 남긴 임시 파일은 뺀다
+            $ofiles = @(Get-ChildItem $odir -Recurse -File | Where-Object { $_.FullName -notmatch '\\(\._____temp|\.cache)\\' -and $_.Name -notmatch '\.(incomplete|lock)$' })
+            Write-Info "ORAD-3D 파일 $($ofiles.Count)개의 체크섬을 계산하는 중이에요(크면 한 시간 안팎)"
+            $ol = foreach ($f in $ofiles) { "$((Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower())  $($f.FullName.Substring($Dest.Length + 1) -replace '\\', '/')" }
+            [IO.File]::WriteAllText("$odir.ok.part", ((@($ol) -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+            Move-Item -Force "$odir.ok.part" "$odir.ok"
+            Write-Ok 'ORAD-3D 받았어요'; $result['ORAD-3D'] = '받음'
+        } else {
+            Write-Bad 'ORAD-3D 받지 못했어요. www.modelscope.cn 접속을 확인하고 같은 명령을 다시 실행하세요(받은 데까지 이어서 받아요)'
+            $result['ORAD-3D'] = '실패'
+        }
+    }
 }
 
 # 브라우저로 받아 직접 넣어 둔 압축 파일도 검사한다(스크립트가 받은 파일은 이미 .ok 가 있다)

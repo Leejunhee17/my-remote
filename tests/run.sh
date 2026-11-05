@@ -176,6 +176,17 @@ t_installers() {
     rm -rf "$T/nas" "$D"; mk_datasets "$D"; grep -v wildscenes "$D/MANIFEST.sha256" > "$D/m" && mv "$D/m" "$D/MANIFEST.sha256"
     run_ds "$H" "$D"; t '데이터셋: 예전 목록(wildscenes 체크섬 없음)이면 멈춰요' has "$LOG" '체크섬 목록에 wildscenes 파일이 없어요'
 
+    # 나눠 올리기: 폴더째 안 올린 데이터셋은 건너뛰고, 폴더 안의 압축은 그 폴더에 풀고, 압축이 아닌 파일은 경로대로 둔다
+    rm -rf "$T/nas" "$D"; mk_datasets "$D"
+    ( cd "$D" && mkdir -p ORAD-3D/training_zip rellis_full && echo s > s.txt && zip -q ORAD-3D/training_zip/seq1.zip s.txt && rm s.txt
+      echo bag > rellis_full/rosbag_00000_synced.bag
+      sha256sum ORAD-3D/training_zip/seq1.zip rellis_full/rosbag_00000_synced.bag >> MANIFEST.sha256
+      echo "0000000000000000000000000000000000000000000000000000000000000000  CaSSeD/CaSSeD.tar.gz" >> MANIFEST.sha256
+      rm -rf goose )
+    run_ds "$H" "$D"
+    t '데이터셋: 안 올린 데이터셋(goose·CaSSeD)은 건너뛰어요' bash -c 'grep -q "이번에 올리지 않은 데이터셋(건너뛰어요): CaSSeD goose" "$1" && ! [ -e "$2/goose" ]' _ "$LOG" "$T/nas/datasets"
+    t '데이터셋: 폴더 안의 압축은 그 폴더에 풀어요' test -f "$T/nas/datasets/ORAD-3D/training_zip/s.txt"
+    t '데이터셋: 압축이 아닌 파일(rosbag)은 같은 경로에 둬요' test -f "$T/nas/datasets/rellis_full/rosbag_00000_synced.bag"
     # 설치할 NAS 폴더나 그 위를 남도 고칠 수 있으면 root 는 쓰지 않는다
     if is_root; then
         rm -rf "$T/nas" "$D"; mk_datasets "$D"; mkdir -p "$T/nas/datasets"; chmod 777 "$T/nas"

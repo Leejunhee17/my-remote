@@ -69,10 +69,15 @@ command -v unzip >/dev/null ||
 # 목록이 비었거나 모양이 다른 줄이 있으면 sha256sum 은 그 줄을 건너뛰고 "맞음"이 될 수 있어 따로 본다
 [ "$(grep -c . MANIFEST.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
     stop "체크섬 목록(MANIFEST.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 datasets_download.ps1 을 다시 실행해 목록을 새로 만든 뒤 datasets 폴더를 다시 올려 들여오세요."
-# 체크섬 목록에는 압축 파일과 wildscenes 파일(하나하나)이 들어 있다. wildscenes 를 이미 옮겨서 이번에 안 올렸으면 그 줄은 뺀다
+# 체크섬 목록에는 접근 PC에서 받은 모든 데이터셋이 들어 있다. 큰 데이터셋은 나눠 올릴 수 있게,
+# 이번에 올린 데이터셋 폴더(목록의 맨 앞 폴더)만 확인하고 설치한다. 폴더째 안 올린 데이터셋은 건너뛴다
 SUMS=$(mktemp); trap 'rm -f "$SUMS"' EXIT
-if [ ! -d wildscenes ] && [ -f "$D/wildscenes/.gpu_done" ]; then grep -v '^[0-9a-f]\{64\}  wildscenes/' MANIFEST.sha256 > "$SUMS"
-else cat MANIFEST.sha256 > "$SUMS"; fi
+skipped=
+for s in $(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' MANIFEST.sha256 | sort -u); do
+    if [ -d "$s" ]; then grep -F "  $s/" MANIFEST.sha256 >> "$SUMS"; else skipped+=" $s"; fi
+done
+[ -n "$skipped" ] && echo "  이번에 올리지 않은 데이터셋(건너뛰어요):$skipped"
+[ -s "$SUMS" ] || stop "체크섬 목록에 있는 데이터셋 폴더가 하나도 올라오지 않았어요" "datasets 폴더 안에 데이터셋 폴더(예: goose)를 넣어 올렸는지 확인하세요(docs/5_데이터셋.md)." 
 n=$(grep -c . "$SUMS" || true); nw=$(grep -c '^[0-9a-f]\{64\}  wildscenes/' "$SUMS" || true)
 echo "  파일 ${n}개(그중 wildscenes ${nw}개)의 체크섬을 확인하고 있어요(100 GB면 10분 안팎)"
 bad_files=; rc=0
@@ -84,7 +89,7 @@ if [ -n "$bad_files" ]; then
 fi
 ok "파일 ${n}개의 체크섬이 맞아요"
 
-if [ -f wildscenes.ok ]; then
+if [ -f wildscenes.ok ] && { [ -d wildscenes ] || [ -f "$D/wildscenes/.gpu_done" ]; }; then   # 안 올렸고 설치된 적도 없으면 건너뛴다(나눠 올리기)
     want_f=$(sed -n 's/.*files=\([0-9]*\).*/\1/p' wildscenes.ok)
     if [ -d wildscenes ]; then
         have_f=$(find wildscenes -type f | wc -l)
@@ -106,12 +111,12 @@ ok "남은 공간 ${free} GB (필요한 공간 약 ${need} GB)"
 
 # ------------------------------------------------------------------ 2. 풀기
 step 2 '풀기'
-mapfile -t files < <(sed -n 's/^[0-9a-f]\{64\}  //p' MANIFEST.sha256 | grep -v '^wildscenes/')   # wildscenes 는 아래에서 따로 옮긴다
+mapfile -t files < <(sed -n 's/^[0-9a-f]\{64\}  //p' "$SUMS" | grep -v '^wildscenes/')   # wildscenes 는 아래에서 따로 옮긴다
 i=0
 for f in "${files[@]}"; do
     i=$((i + 1))
-    set_dir=${f%%/*}
-    dest="$D/$set_dir"
+    # 압축은 들어 있던 폴더에 풀고, 압축이 아닌 파일(rosbag, 보정 파일 등)은 같은 경로에 그대로 둔다
+    dest="$D/$(dirname "$f")"
     mark="$dest/.gpu_$(basename "$f").done"
     if [ -f "$mark" ]; then echo "  ($i/${#files[@]}) $f: 이미 풀었어요"; continue; fi
     echo "  ($i/${#files[@]}) $f 푸는 중이에요"
@@ -119,8 +124,9 @@ for f in "${files[@]}"; do
     case "$f" in
         *.zip)            unzip -q -o "$f" -d "$dest" ;;
         *.tar|*.tar.gz|*.tgz|*.tar.xz) tar xf "$f" -C "$dest" --no-same-owner ;;   # root 로 풀 때 압축 안의 주인을 따르지 않게
-        *)  warn "$f: zip·tar가 아니라서 $dest 에 그대로 복사했어요. 직접 풀어야 할 수 있어요."
+        *.7z|*.rar) warn "$f: 7z·rar 는 풀지 않고 $dest 에 그대로 복사했어요. 필요하면 직접 푸세요."
             cp "$f" "$dest/" ;;
+        *)  cp "$f" "$dest/" ;;
     esac
     if [ $? -eq 0 ]; then touch "$mark"; else bad "$f: 풀지 못했어요(남은 공간과 권한을 확인하세요)"; fi
 done
@@ -157,6 +163,10 @@ check RUGD       RUGD       'RUGD_annotations/*'           '*.png'
 check WildScenes wildscenes '*/indexLabel/*'               '*.png'
 check TAS500     tas500v1.1 '*_labels_ids/*'               '*.png'
 check GO         go         '*/pylon_camera_node_label_id/*' '*.png'
+# 라벨 위치를 정하지 않은 데이터셋(라이다·rosbag 까지 받은 것 등)은 파일 수만 보여 준다
+for s in rellis_full go_full ORAD-3D CaSSeD freiburg_forest ycor; do
+    [ -d "$D/$s" ] && printf '  %-11s %s\n' "$s" "${c_g}파일 $(find "$D/$s" -type f ! -name '.gpu_*' | wc -l)개${c_0}"
+done
 if [ -d "$D/RUGD" ] && [ ! -f "$D/RUGD/RUGD_annotation-colormap.txt" ]; then
     found=$(find "$D/RUGD" -name 'RUGD_annotation-colormap.txt' | head -1)
     if [ -n "$found" ]; then cp "$found" "$D/RUGD/"; ok "RUGD 색상표를 $D/RUGD 에 복사했어요"
@@ -166,7 +176,8 @@ fi
 echo
 if [ "$FAILS" -eq 0 ]; then
     echo "${c_g}############################ 완료 ############################${c_0}"
-    echo " 올린 데이터셋이 모두 정상이에요. 위치: $D"
+    echo " 이번에 올린 데이터셋이 모두 정상이에요. 위치: $D"
+    [ -n "$skipped" ] && echo " 이번에 올리지 않은 것:$skipped (나눠 올렸다면 다음 묶음을 올려 같은 순서로 설치하세요)"
     echo " 엑셀 '데이터셋 목록' 시트의 진행 상황을 '서버 반입'으로 바꾸세요."
     echo " 다음 단계: 사전학습 모델(docs/1_처음_설치.md 4단계)"
     echo " NAS에 설치돼서 서버 2도 바로 써요. /app 의 복사본은 지워도 돼요: rm -rf /app/inbox/datasets /app/upload/datasets"
