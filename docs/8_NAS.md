@@ -22,7 +22,7 @@ NAS는 팀마다 나눠 받는 공간이 아니라 여러 팀이 각자 알아�
 
 ```bash
 # [서버 1, 서버 2 각각] root. 팀 폴더는 /app/admin/gpu.conf 의 NAS_DIR(기본 /data/autonomy_sw)을 봐요
-bash /app/inbox/check.sh
+bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "0단계: 서버 점검" 대로
 ```
 
 ## 정한 원칙

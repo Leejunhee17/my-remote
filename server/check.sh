@@ -136,8 +136,8 @@ sec_os() {
     echo "  $os, 커널 $(uname -r)"
     case "$os" in Ubuntu*) ;; *) warn "Ubuntu가 아니에요($os). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)" ;; esac
     if [ -z "$ACC_SET" ] && [ -n "$IS_ROOT" ]; then
-        mine "공용 계정 이름을 알 수 없어요(/etc/gpu/account 가 없어요). 보고서를 공용 계정 홈에 넣지 못해요" \
-             "서버에 한 번 적어 두기: mkdir -p /etc/gpu && echo <계정이름> > /etc/gpu/account && chmod 644 /etc/gpu/account"
+        mine "공용 계정 이름을 알 수 없어요(/etc/gpu/account 는 1단계에서 적어요). 보고서를 공용 계정 홈에 넣지 못해요" \
+             "공용 계정 이름을 앞에 붙여 다시 점검하기: GPU_ACCOUNT=<계정이름> bash $(readlink -f "$0")"
     elif [ -z "$ACC_SET" ]; then
         warn "/etc/gpu/account 가 아직 없어요. 지금 계정($ACC)을 공용 계정으로 보고 점검해요"
         echo "      root 로 적어 둬요(docs/1_처음_설치.md 의 \"처음 한 번: 공용 계정 이름과 올릴 폴더\")"
@@ -525,7 +525,7 @@ disk_both() {   # 한 줄기와 8줄기
 
 sec_speed() {
     local nas R peer='' pf role local_dir d
-    NET_MINE=; NET_PINFO=   # 끝날 때 지울 파일(trap 이 함수 밖에서 읽으므로 전역)
+    NET_R=; NET_MINE=; NET_PINFO=; NET_KEEP=   # 끝날 때 지울 것(trap 이 함수 밖에서 읽으므로 전역)
     nas=$(nas_dir "${1:-}")
     R="$nas/.gpu_net"
     if [ -n "$nas" ] && [ -L "$R" ]; then
@@ -541,9 +541,9 @@ sec_speed() {
     fi
     if [ -n "$nas" ]; then
         rm -f "$R/$ME".*
-        NET_MINE="$R/$ME.info"
-        # 끝나거나 중간에 멈추면 내 정보를 지운다(남아 있으면 다음에 한쪽만 실행해도 짝이 있는 줄 안다)
-        trap 'rm -f "$NET_MINE" "$NET_PINFO"' EXIT; trap 'rm -f "$NET_MINE" "$NET_PINFO"; exit 130' INT TERM
+        NET_R=$R; NET_MINE="$R/$ME.info"
+        # 끝나거나 중간에 멈추면 NAS 에 만든 것을 지운다(남아 있으면 다음에 한쪽만 실행해도 짝이 있는 줄 안다)
+        trap net_cleanup EXIT; trap 'net_cleanup; exit 130' INT TERM
         { echo "HOST=$ME"; echo "ETH=${GPU_ETH:-$(eth_ip)}"; echo "IB=$(ib_ips)"; echo "HCAS=$(active_hcas)"
           echo "PORT=$PORT"; echo "PERFTEST=$(command -v ib_write_bw >/dev/null && echo 1)"
           echo "UID=$(id -u "$ACC" 2>/dev/null)"; echo "GID=$(id -g "$ACC" 2>/dev/null)"; } | put "$NET_MINE" ||
@@ -611,18 +611,27 @@ sec_speed() {
     fi
 
     # 디스크: NAS 는 두 서버가 차례로(동시에 재면 나눠 가져서 값이 반이 된다). 로컬 SSD 는 /app 아래 써도 되는 폴더(root 는 /app/inbox)
-    local_dir=; for d in "$APP/autonomy_sw" "$APP/upload" "$APP/inbox"; do usable_dir "$d" && { local_dir=$d; break; }; done
+    local_dir=; for d in "$APP/autonomy_sw" "$APP/upload" "$APP/inbox" "$APP"; do usable_dir "$d" && { local_dir=$d; break; }; done
     if [ -n "$peer" ] && [ "$role" = B ]; then
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
         echo "  상대 서버($peer)가 NAS 측정을 마칠 때까지 기다려요..."; wait_file "$R/$peer.nasdone" "$pf" 900 || warn '상대 서버가 15분 안에 끝내지 않아서 기다리지 않고 넘어가요'
         head_ "NAS 속도 ($nas)"; disk_both NAS "$nas"
-        : | put "$R/$ME.nasdone"
+        : | put "$R/$ME.nasdone"; NET_KEEP=1   # 상대 서버가 이 표시를 본 뒤 지워 준다
     else
         if [ -n "$nas" ]; then head_ "NAS 속도 ($nas)"; disk_both NAS "$nas"; : | put "$R/$ME.nasdone"; fi
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
-        [ -n "$peer" ] && { wait_file "$R/$peer.nasdone" "$pf" 900 || true; }
+        [ -n "$peer" ] && { wait_file "$R/$peer.nasdone" "$pf" 900 && rm -f "$R/$peer.nasdone"; }
     fi
-    [ -n "$local_dir" ] || echo "  (로컬 SSD는 $APP/autonomy_sw·$APP/upload(공용 계정), $APP/inbox(root) 에 쓸 수 있을 때 재요)"
+    [ -n "$local_dir" ] || echo "  (로컬 SSD는 $APP/autonomy_sw·$APP/upload(공용 계정), root 소유 $APP/inbox·$APP(root) 에 쓸 수 있을 때 재요)"
+}
+
+# NAS 에 남긴 주소·완료 표시와 폴더를 지운다. 나중에 끝나는 쪽(B)의 NAS 완료 표시는 A 가 본 뒤 지운다
+net_cleanup() {
+    [ -n "${NET_R:-}" ] || return 0
+    rm -f "$NET_MINE" "$NET_PINFO" "$NET_R/$ME.netdone"
+    [ -n "$NET_KEEP" ] || rm -f "$NET_R/$ME.nasdone"
+    rmdir "$NET_R" 2>/dev/null
+    return 0
 }
 
 # InfiniBand 망: 카드마다 어떤 서버·장비가 보이나(같은 망인지). ibhosts 는 보통 root 만 쓸 수 있다(/dev/infiniband/umad*)

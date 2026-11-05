@@ -298,6 +298,9 @@ t_reports() {
         t 'root: 보고서 두 개를 공용 계정 홈에 공용 계정 소유로 넣어요' test "$(stat -c %U "$rep"/home/check_* 2>/dev/null | grep -cx nobody)" = 2
         t 'root: 공용 계정이 쓸 수 있는 곳을 공용 계정 권한으로 봐요' has "$LOG" "$rep/nas/tmp: 쓸 수 있어요"
         t 'root: root squash 를 봐요' has "$LOG" 'no_root_squash'
+        (cd "$rep" && timeout 60 env GPU_NAS="$rep/nas" GPU_ACC_HOME="$rep/home" QUICK=1 bash "$rep/check.sh") > "$LOG" 2>&1 < /dev/null
+        [ -e /etc/gpu/account ] && skip 'root: 공용 계정 이름 없이(이 컴퓨터에 /etc/gpu/account 가 있어요)' ||
+            t 'root: 공용 계정 이름을 모르면 GPU_ACCOUNT 로 다시 하라고 해요' has "$LOG" 'GPU_ACCOUNT=<계정이름>'
         (cd "$rep" && timeout 30 bash "$rep/check.sh" disk "$rep/run") > "$LOG" 2>&1 < /dev/null
         t 'root: 다른 계정이 쓰는 폴더는 속도를 재지 않아요' has "$LOG" 'root로 실행하면 다른 계정이 쓰는 폴더는 측정하지 않아요'
         # 공용 계정이 홈에 보고서 이름으로 링크를 심어 둬도 root 파일을 덮지 않는다(공용 계정 권한으로 쓰므로)
@@ -343,7 +346,7 @@ t_reports() {
     t '두 서버: 서버 사이 이더넷 속도를 재요' bash -c "grep -qE '서버 사이 이더넷: 받기 [0-9.]+ GB/s' '$LOG' && grep -qE '서버 사이 이더넷: 받기 [0-9.]+ GB/s' '$LOG.b'"
     t '두 서버: NAS 를 차례로 재요(나중 쪽이 기다려요)' has "$LOG.b" 'NAS 측정을 마칠 때까지 기다려요'
     t '두 서버: NAS 속도가 요약에 있어요' bash -c "grep -qE 'NAS 동시 8개: 쓰기 [0-9.]+ GB/s' '$LOG'"
-    t '두 서버: 끝나면 주소 파일을 지워요' bash -c "! ls '$rep'/nas/tmp/.gpu_net/*.info 2>/dev/null | grep -q ."
+    t '두 서버: 끝나면 NAS 에 만든 주소 파일·폴더를 지워요' test ! -e "$rep/nas/tmp/.gpu_net"
     share=$(ls -t "$rep"/run2/check_공유용_*.txt 2>/dev/null | head -1)
     t '두 서버: 공유용 사본에 상대 서버 이름이 없어요' bash -c "[ -n '$share' ] && ! sed 's/(…[^)]*)//g' '$share' | grep -qw pa"
 }
