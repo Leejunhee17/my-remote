@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # [GPU 서버] 서버·NAS·네트워크를 한 번에 점검하고 보고서 하나로 남겨요. 설정은 아무것도 바꾸지 않아요.
-# root 가 필요 없어요. 공용 계정으로 실행해요(root 로 실행하면 멈춰요).
+# root 로 실행해요(1단계 전에는 root 만 NAS(/data/tmp)에 써서 두 서버가 서로 찾을 수 있어요). 보고서는 공용 계정 홈에 넣어요.
+# 공용 계정으로도 돼요. 그때는 공용 계정이 쓸 수 있는 NAS 폴더(1단계 뒤 /data/autonomy_sw/tmp_transfer)가 있어야 속도를 재요.
 #   bash check.sh                     전체 점검. 두 서버에서 각각 실행하면 NAS로 서로를 찾아 서버 사이(이더넷·InfiniBand·RDMA),
 #                                     로컬 SSD, NAS 속도까지 재요. 상대 서버를 최대 10분 기다려요
 #   bash check.sh <NAS 안 폴더>        속도 측정에 쓸 NAS 폴더를 직접 정해요(내가 쓸 수 있는 폴더)
@@ -9,8 +10,8 @@
 #   bash check.sh send <받는 쪽 IP>     서버 사이 속도만: 보내는 쪽(10초)
 #   bash check.sh disk <폴더>          그 폴더(NAS나 /app)의 쓰기·읽기 속도만(시험 파일 4 GB를 쓰고 지워요)
 #   JOBS=8 bash check.sh disk <폴더>   파일 8개를 동시에(여럿이 함께 쓸 때의 전체 속도)
-# [문제] 줄은 마지막 "고칠 것" 목록에 모여요. 보고서는 실행한 폴더(내 폴더가 아니면 홈)에 원본(check_report_…txt)과
-# 사내 정보를 가린 공유용(check_공유용_…txt) 두 개로 남아요. 숫자는 GB/s 와 Gbps(카드 속도 단위)를 같이 보여 줘요. 1 GB/s = 8 Gbps.
+# [문제] 줄은 마지막 "고칠 것" 목록에 모여요. 보고서는 원본(check_report_…txt)과 사내 정보를 가린 공유용(check_공유용_…txt)
+# 두 개예요. root 면 공용 계정 홈에(FileZilla로 바로 내려받게), 공용 계정이면 실행한 폴더(내 폴더가 아니면 홈)에 남아요. 숫자는 GB/s 와 Gbps(카드 속도 단위)를 같이 보여 줘요. 1 GB/s = 8 Gbps.
 set -uo pipefail
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 ok()   { echo "  ${c_g}[정상]${c_0} $*"; }
@@ -20,15 +21,11 @@ bad()  { echo "  ${c_r}[문제]${c_0} $1"; [ -z "${2:-}" ] || ASK+=("$2"); }   #
 mine() { echo "  ${c_r}[문제]${c_0} $1"; MINE+=("$2"); }                    # $2: 관리자가 직접 할 것
 head_() { echo; echo "${c_c}== $* ==${c_0}"; }
 
-# root 는 쓰지 않는다. 일반 계정이면 NAS 의 공유 폴더나 남이 만든 링크가 서버 파일을 덮을 걱정이 없다
-if [ "$(id -u)" = 0 ]; then
-    echo "${c_r}멈춤: root 로 실행하지 마세요.${c_0} 이 점검은 root 가 필요 없어요. 공용 계정으로 접속해 같은 명령을 다시 실행하세요."
-    exit 1
-fi
+IS_ROOT=; [ "$(id -u)" = 0 ] && IS_ROOT=1
 APP=${APP:-/app}
 ME=${GPU_HOST:-$(hostname -s)}
 ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
-ACC_SET=${ACC:+1}; ACC=${ACC:-$(id -un)}                   # 아직 안 적었으면 지금 계정을 공용 계정으로 본다
+ACC_SET=${ACC:+1}; [ -n "$ACC" ] || [ -n "$IS_ROOT" ] || ACC=$(id -un)   # 아직 안 적었으면 지금 계정을 공용 계정으로 본다(root 는 빼고)
 TEAM=${NAS_DIR:-$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$APP/admin/gpu.conf" 2>/dev/null | tail -1)}; TEAM=${TEAM:-/data/autonomy_sw}
 PORT=${PORT:-5201}
 STREAMS=${STREAMS:-8}
@@ -64,12 +61,22 @@ main_nas() {   # 팀 폴더가 들어 있는 NAS, 없으면 첫 NAS
     done < <(nas_mounts)
     echo "$best"
 }
-# 속도 측정과 상대 서버 찾기에 쓸, 내가 쓸 수 있는 NAS 폴더: 직접 적은 폴더 → 팀 폴더의 tmp_transfer → NAS/tmp → NAS
+# 시험 파일·주소 파일을 써도 되는 폴더인지. root 는 남이 바꿔치기할 수 없는 폴더에만 쓴다: root 소유이고 남이 못 쓰거나,
+# 스티키(남의 파일·폴더를 못 지움). 그렇지 않은 폴더에 root 가 쓰면, 그 폴더 주인이 링크를 심어 root 가 시스템 파일을 덮게 만들 수 있다
+usable_dir() {
+    [ -d "$1" ] && [ ! -L "$1" ] && [ -w "$1" ] || return 1
+    [ -z "$IS_ROOT" ] || [ -k "$1" ] || { [ "$(stat -c %u "$1")" = 0 ] && [ -z "$(find "$1" -maxdepth 0 -perm /022)" ]; }
+}
+# 속도 측정과 상대 서버 찾기에 쓸 NAS 폴더: 직접 적은 폴더 → 팀 폴더의 tmp_transfer(공용 계정) → NAS/tmp → NAS
 nas_dir() {
-    [ -n "${1:-}" ] && { echo "$1"; return; }
+    [ -n "${1:-}" ] && { usable_dir "$1" && echo "$1"; return; }
     local c t
     { echo "$TEAM/tmp_transfer"; while read -r t _; do echo "$t/tmp"; echo "$t"; done < <(nas_mounts); } |
-        while IFS= read -r c; do [ -d "$c" ] && [ ! -L "$c" ] && [ -w "$c" ] && { echo "$c"; break; }; done
+        while IFS= read -r c; do usable_dir "$c" && { echo "$c"; break; }; done
+}
+# 공용 계정이 그 폴더에 쓸 수 있는지. root 는 공용 계정 권한으로 확인한다(setsid: 공용 계정 프로그램이 root 화면에 글자를 넣지 못하게)
+acc_writes() {
+    if [ -n "$IS_ROOT" ]; then setsid -w runuser -u "$ACC" -- test -w "$1" 2>/dev/null; else [ -w "$1" ]; fi
 }
 
 # nvidia-smi topo -m 에서 NVLink(NV숫자)로 이어진 GPU 묶음: "[0,1,2,3] [4,5,6,7]". 묶인 것이 없으면 빈 줄
@@ -128,12 +135,15 @@ sec_os() {
     local os; os=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")
     echo "  $os, 커널 $(uname -r)"
     case "$os" in Ubuntu*) ;; *) warn "Ubuntu가 아니에요($os). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)" ;; esac
-    if [ -z "$ACC_SET" ]; then
+    if [ -z "$ACC_SET" ] && [ -n "$IS_ROOT" ]; then
+        mine "공용 계정 이름을 알 수 없어요(/etc/gpu/account 가 없어요). 보고서를 공용 계정 홈에 넣지 못해요" \
+             "서버에 한 번 적어 두기: mkdir -p /etc/gpu && echo <계정이름> > /etc/gpu/account && chmod 644 /etc/gpu/account"
+    elif [ -z "$ACC_SET" ]; then
         warn "/etc/gpu/account 가 아직 없어요. 지금 계정($ACC)을 공용 계정으로 보고 점검해요"
-        echo "      1단계 전에 root 로 적어 둬요(docs/1_처음_설치.md 의 \"처음 한 번: 공용 계정 이름과 올릴 폴더\")"
+        echo "      root 로 적어 둬요(docs/1_처음_설치.md 의 \"처음 한 번: 공용 계정 이름과 올릴 폴더\")"
     elif id "$ACC" >/dev/null 2>&1; then
         ok "공용 계정($ACC)이 있어요"
-        [ "$(id -un)" = "$ACC" ] || warn "공용 계정이 아닌 $(id -un) 로 실행했어요. 쓸 수 있는 곳은 지금 계정 기준으로 봐요"
+        [ -n "$IS_ROOT" ] || [ "$(id -un)" = "$ACC" ] || warn "공용 계정이 아닌 $(id -un) 로 실행했어요. 쓸 수 있는 곳은 지금 계정 기준으로 봐요"
     else
         bad "공용 계정이 없어요: $ACC (이름을 잘못 적었으면 /etc/gpu/account 를 고치세요)" "팀원 공용 계정($ACC)을 예전과 같은 이름으로 만들어 주세요(sudo·docker 그룹 없이)"
     fi
@@ -198,7 +208,7 @@ sec_storage() {
     owner=$(stat -c %U "$APP")
     if [ "$owner" = root ]; then ok "$APP 주인이 root예요(팀원은 $APP/autonomy_sw 에 써요)"
     else warn "$APP 주인: $owner. 1단계에서 root로 admin_setup.sh 를 실행하면 root 소유로 잠가요"; fi
-    if [ -d "$APP/autonomy_sw" ] && [ ! -w "$APP/autonomy_sw" ]; then
+    if [ -d "$APP/autonomy_sw" ] && id "$ACC" >/dev/null 2>&1 && ! acc_writes "$APP/autonomy_sw"; then
         mine "$APP/autonomy_sw 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
     fi
     [ -e "$APP/shared" ] && warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 명단·설정만 $APP/admin 으로 옮기고 나머지는 치워요. 예전 데이터셋·모델을 NAS로 옮기는 명령도 알려 줘요"
@@ -312,11 +322,26 @@ sec_nas() {
         echo "  아직 없어요. 1단계 admin_setup.sh(root)가 만들어요(docs/8_NAS.md 의 '처음 만들기')."
     fi
 
-    head_ "지금 계정($(id -un))이 쓸 수 있는 곳"
-    for d in "$NAS" "$NAS/tmp" "$TEAM" "$TEAM/tmp_transfer" "$TEAM/backup"; do
-        [ -d "$d" ] && { [ -w "$d" ] && echo "  $d: 쓸 수 있어요" || echo "  $d: 쓸 수 없어요"; }
-    done
-    echo "  root squash(root 가 NAS에서 누구로 보이는지)는 root 로만 알 수 있어서 보지 않아요. 1단계 admin_setup.sh 가 팀 폴더를 만들 때 확인해요."
+    if id "$ACC" >/dev/null 2>&1; then
+        head_ "공용 계정($ACC)이 쓸 수 있는 곳"
+        for d in "$NAS" "$NAS/tmp" "$TEAM" "$TEAM/tmp_transfer" "$TEAM/backup"; do
+            [ -d "$d" ] && { acc_writes "$d" && echo "  $d: 쓸 수 있어요" || echo "  $d: 쓸 수 없어요"; }
+        done
+    fi
+
+    head_ 'root squash (root 가 NAS에서 누구로 보이는지)'
+    if [ -z "$IS_ROOT" ]; then
+        echo "  root 로 실행하면 확인해요. 1단계 admin_setup.sh 도 팀 폴더를 만들 때 확인해요."
+    elif [ "$(stat -c %u "$NAS")" = 0 ] && [ -z "$(find "$NAS" -maxdepth 0 -perm /022)" ]; then
+        # root 소유이고 남은 못 쓰는 NAS 최상위에 root 가 쓸 수 있는지만 NAS 에 물어본다(아무것도 만들지 않음)
+        if [ -w "$NAS" ]; then
+            warn "root 가 NAS에서도 root 예요(no_root_squash. root 소유 $NAS 에 root 가 쓸 수 있어요). 팀원이 쓸 수 있는 NAS 폴더에서는 root 로 작업하지 마세요"
+        else
+            ok "root 가 NAS에서는 다른 계정으로 바뀌어요(root squash. root 소유 $NAS 에 root 가 쓸 수 없어요)"
+        fi
+    else
+        echo "  $NAS 가 root 소유(755)가 아니라서 확인하지 않았어요. 서버 관리 팀에 root squash 설정을 물어보세요."
+    fi
 }
 
 # ================================================================== 서버 사이 속도(따로 잴 때)
@@ -387,6 +412,7 @@ cmd_disk() {
     local dir=${1:?폴더를 적으세요: bash check.sh disk /data/autonomy_sw/tmp_transfer} size_gb=${SIZE_GB:-4} t0 t1 b f
     [[ "$size_gb" =~ ^[0-9]+$ ]] && [ "$size_gb" -ge 1 ] || size_gb=4
     [ -d "$dir" ] && [ -w "$dir" ] || { bad "$dir 에 쓸 수 없어요(없거나 권한 없음)"; exit 1; }
+    usable_dir "$dir" || { bad "root로 실행하면 다른 계정이 쓰는 폴더는 측정하지 않아요: $dir. 같은 디스크의 root 폴더(예: /app/inbox)에서 측정하거나, 공용 계정으로 실행하세요"; exit 1; }
     local free; free=$(df -Pk "$dir" | awk 'NR==2 {print int($4/1048576)}')
     [ "$free" -gt $((size_gb * 2)) ] || { bad "남은 공간이 ${free} GB라서 시험 파일(${size_gb} GB)을 쓰기 어려워요"; exit 1; }
     local jobs=${JOBS:-1} i cnt
@@ -505,9 +531,15 @@ sec_speed() {
     if [ -n "$nas" ] && [ -L "$R" ]; then
         warn "상대 서버 확인용 폴더가 링크라서 쓰지 않아요: $R (누가 만들었는지 확인하세요). 이 서버만 측정해요"; nas=
     fi
+    if [ -n "$nas" ] && [ ! -d "$R" ]; then
+        # root 는 root 만 쓰는 755, 공용 계정은 스티키 1777(두 서버의 계정 번호가 달라도 서로 쓰고, 남의 파일은 못 지운다)
+        { mkdir -p "$R" && chmod "$([ -n "$IS_ROOT" ] && echo 755 || echo 1777)" "$R"; } 2>/dev/null
+    fi
+    # root 는 다른 계정이 만든 폴더에 쓰지 않는다(그 계정이 파일을 링크로 바꿔치기하면 root 가 이 서버의 파일을 덮는다)
+    if [ -n "$nas" ] && [ -n "$IS_ROOT" ] && ! [[ "$(stat -c %u "$R" 2>/dev/null)" =~ ^(0|65534|4294967294)$ ]]; then
+        warn "상대 서버 확인용 폴더를 다른 계정이 만들었어요: $R (주인 uid $(stat -c %u "$R")). 지우거나 그 계정으로 실행하세요. 이 서버만 측정해요"; nas=
+    fi
     if [ -n "$nas" ]; then
-        # 스티키 1777: 두 서버의 계정 번호가 달라도 서로 파일을 쓸 수 있고, 남의 파일은 지우지 못한다
-        [ -d "$R" ] || { mkdir -p "$R" && chmod 1777 "$R"; } 2>/dev/null
         rm -f "$R/$ME".*
         NET_MINE="$R/$ME.info"
         # 끝나거나 중간에 멈추면 내 정보를 지운다(남아 있으면 다음에 한쪽만 실행해도 짝이 있는 줄 안다)
@@ -548,7 +580,8 @@ sec_speed() {
     else
         head_ '상대 서버 찾기'
         warn "NAS에 지금 계정이 쓸 수 있는 폴더가 없어서 상대 서버 찾기와 NAS 속도는 건너뛰어요."
-        echo "      1단계 admin_setup.sh 가 $TEAM/tmp_transfer 를 만든 뒤 다시 실행하거나, 쓸 수 있는 NAS 폴더를 적어 주세요: bash check.sh <폴더>"
+        if [ -n "$IS_ROOT" ]; then echo "      root 는 root 소유(남이 못 쓰는) 폴더나 스티키 폴더에만 써요. 그런 NAS 폴더를 적어 주세요: bash check.sh <폴더>"
+        else echo "      root 로 실행하거나, 1단계 admin_setup.sh 가 $TEAM/tmp_transfer 를 만든 뒤 다시 실행하거나, 쓸 수 있는 NAS 폴더를 적어 주세요: bash check.sh <폴더>"; fi
     fi
 
     if [ -n "$peer" ]; then
@@ -577,8 +610,8 @@ sec_speed() {
         : | put "$R/$ME.netdone"; wait_file "$R/$peer.netdone" "$pf" 180 || true
     fi
 
-    # 디스크: NAS 는 두 서버가 차례로(동시에 재면 나눠 가져서 값이 반이 된다). 로컬 SSD 는 /app 아래 내가 쓸 수 있는 폴더
-    local_dir=; for d in "$APP/autonomy_sw" "$APP/upload"; do [ -d "$d" ] && [ ! -L "$d" ] && [ -w "$d" ] && { local_dir=$d; break; }; done
+    # 디스크: NAS 는 두 서버가 차례로(동시에 재면 나눠 가져서 값이 반이 된다). 로컬 SSD 는 /app 아래 써도 되는 폴더(root 는 /app/inbox)
+    local_dir=; for d in "$APP/autonomy_sw" "$APP/upload" "$APP/inbox"; do usable_dir "$d" && { local_dir=$d; break; }; done
     if [ -n "$peer" ] && [ "$role" = B ]; then
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
         echo "  상대 서버($peer)가 NAS 측정을 마칠 때까지 기다려요..."; wait_file "$R/$peer.nasdone" "$pf" 900 || warn '상대 서버가 15분 안에 끝내지 않아서 기다리지 않고 넘어가요'
@@ -589,7 +622,7 @@ sec_speed() {
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
         [ -n "$peer" ] && { wait_file "$R/$peer.nasdone" "$pf" 900 || true; }
     fi
-    [ -n "$local_dir" ] || echo "  (로컬 SSD는 $APP/autonomy_sw 나 $APP/upload 에 쓸 수 있을 때 재요)"
+    [ -n "$local_dir" ] || echo "  (로컬 SSD는 $APP/autonomy_sw·$APP/upload(공용 계정), $APP/inbox(root) 에 쓸 수 있을 때 재요)"
 }
 
 # InfiniBand 망: 카드마다 어떤 서버·장비가 보이나(같은 망인지). ibhosts 는 보통 root 만 쓸 수 있다(/dev/infiniband/umad*)
@@ -637,11 +670,25 @@ body() {
 }
 
 # ================================================================== 보고서
-# 보고서 둘 곳: 실행한 폴더(내 것일 때)나 홈. 남이 쓸 수 있는 폴더에는 쓰지 않는다(링크로 다른 파일을 덮게 만들 수 있다)
+# 보고서 둘 곳: root 는 root 만 보는 새 임시 폴더(다 쓴 뒤 공용 계정 홈으로 옮긴다), 그 밖에는 실행한 폴더(내 것일 때)나 홈.
+# 남이 쓸 수 있는 폴더에는 쓰지 않는다(링크로 다른 파일을 덮게 만들 수 있다)
 report_dir() {
     local d
+    [ -n "$IS_ROOT" ] && { mktemp -d; return; }
     for d in "$PWD" "$HOME"; do [ -d "$d" ] && [ -O "$d" ] && [ -w "$d" ] && { echo "$d"; return; }; done
     mktemp -d
+}
+# root: 보고서를 공용 계정 홈에 공용 계정 권한으로 넣는다. 홈은 공용 계정이 고칠 수 있는 곳이라 root 가 직접 쓰면
+# 심어 둔 링크를 따라 다른 파일을 덮을 수 있다. 공용 계정 권한으로 쓰면 그런 일이 없고, 파일 주인도 공용 계정이 된다
+to_acc_home() {   # 파일들 → 넣은 폴더를 출력. 못 넣으면 1
+    local home f
+    id "$ACC" >/dev/null 2>&1 || return 1
+    home=${GPU_ACC_HOME:-$(getent passwd "$ACC" | cut -d: -f6)}   # GPU_ACC_HOME 은 시험할 때만
+    [ -n "$home" ] && [ -d "$home" ] || return 1
+    for f in "$@"; do
+        setsid -w runuser -u "$ACC" -- sh -c 'umask 022; cat > "$1"' _ "$home/$(basename "$f")" < "$f" 2>/dev/null || return 1
+    done
+    echo "$home"
 }
 # 공유용 사본: 서버 이름·IP·NAS 주소·계정·폴더 이름을 가려서 git 으로 올려도 되게 만든다.
 # $1 원본, $2 사본, 나머지는 "가릴말=바꿀말". IP 는 처음 나온 순서대로 IP-1, IP-2 … 로 바꿔 같은 IP 는 같은 번호가 된다
@@ -683,6 +730,14 @@ cmd_full() {
     share="$rdir/check_공유용_${label//[^A-Za-z0-9]/}_$(date +%Y%m%d-%H%M).txt"
     share_copy "$out" "$share" "${masks[@]}"
     rm -f "$PEER_NOTE"
+    if [ -n "$IS_ROOT" ]; then
+        local home
+        if home=$(to_acc_home "$out" "$share"); then
+            rm -rf "$rdir"; out="$home/$(basename "$out")"; share="$home/$(basename "$share")"
+        else
+            echo; warn "공용 계정 홈에 보고서를 넣지 못해서 root 만 보는 곳에 남겼어요: $rdir"
+        fi
+    fi
     echo; echo "보고서(원본, 사내 정보 있음): $(readlink -f "$out")"
     echo "보고서(공유용, git 으로 올려도 돼요): $share"
     echo "  공유용만 내려받아 저장소의 reports 폴더에 넣고 올리세요(docs/4_네트워크.md 의 \"결과 가져오기\")."

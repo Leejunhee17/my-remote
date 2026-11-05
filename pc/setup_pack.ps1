@@ -1,6 +1,6 @@
 ﻿<#
 [접근 PC] GPU 서버 설치 스크립트 묶음(setup\gpu-setup.tar)을 만든다.
-들어가는 것: admin_setup.sh, 점검 스크립트(check.sh, 공용 계정으로 실행), 도우미(bin/gpu, bin/docker, bin/nvidia-smi).
+들어가는 것: admin_setup.sh, 점검 스크립트(check.sh), 도우미(bin/gpu, bin/docker, bin/nvidia-smi).
 서버 화면에서 쓰는 프로그램(tmux, nvtop 등)은 OS 에 설치해 달라고 서버 관리 팀에 요청하고(docs/1_처음_설치.md), 학습 도구는 도커 이미지에 넣는다.
 
   powershell -ExecutionPolicy Bypass -File .\pc\setup_pack.ps1

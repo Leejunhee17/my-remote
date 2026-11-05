@@ -290,12 +290,24 @@ t_reports() {
     local rep=$T/rep host share; host=$(hostname -s)
     mkdir -p "$rep/run" "$rep/run2" "$rep/nas/tmp" "$rep/nas/teamA"; chmod 755 "$rep"; chmod 1777 "$rep/nas/tmp"
     cp server/check.sh "$rep/check.sh"; chmod 755 "$rep/check.sh"
-    # 점검은 일반 계정으로 돌린다. root 로 시험할 때는 nobody 로 돌리고, root 로는 멈추는지도 본다
+    # root 로 돌리면 보고서를 공용 계정(여기서는 nobody) 홈에 공용 계정 권한으로 넣는다
     if is_root; then
         chown nobody "$rep/run" "$rep/run2"
-        (cd "$rep/run" && timeout 30 bash "$rep/check.sh") > "$LOG" 2>&1 < /dev/null
-        t 'root 로 실행하면 멈춰요' has "$LOG" 'root 로 실행하지 마세요'
+        mkdir -p "$rep/home" "$rep/home2"; chown nobody "$rep/home" "$rep/home2"
+        (cd "$rep" && timeout 60 env GPU_NAS="$rep/nas" GPU_ACCOUNT=nobody GPU_ACC_HOME="$rep/home" QUICK=1 bash "$rep/check.sh") > "$LOG" 2>&1 < /dev/null
+        t 'root: 보고서 두 개를 공용 계정 홈에 공용 계정 소유로 넣어요' test "$(stat -c %U "$rep"/home/check_* 2>/dev/null | grep -cx nobody)" = 2
+        t 'root: 공용 계정이 쓸 수 있는 곳을 공용 계정 권한으로 봐요' has "$LOG" "$rep/nas/tmp: 쓸 수 있어요"
+        t 'root: root squash 를 봐요' has "$LOG" 'no_root_squash'
+        (cd "$rep" && timeout 30 bash "$rep/check.sh" disk "$rep/run") > "$LOG" 2>&1 < /dev/null
+        t 'root: 다른 계정이 쓰는 폴더는 속도를 재지 않아요' has "$LOG" 'root로 실행하면 다른 계정이 쓰는 폴더는 측정하지 않아요'
+        # 공용 계정이 홈에 보고서 이름으로 링크를 심어 둬도 root 파일을 덮지 않는다(공용 계정 권한으로 쓰므로)
+        local victim=$rep/victim tag m; echo 원래 > "$victim"; chmod 644 "$victim"; tag=$(hostname -s | tail -c 3)
+        for m in "$(date +%Y%m%d-%H%M)" "$(date -d '+1 min' +%Y%m%d-%H%M)"; do ln -s "$victim" "$rep/home2/check_공유용_${tag}_$m.txt"; done
+        (cd "$rep" && timeout 60 env GPU_NAS="$rep/nas" GPU_ACCOUNT=nobody GPU_ACC_HOME="$rep/home2" QUICK=1 bash "$rep/check.sh") > "$LOG" 2>&1 < /dev/null
+        t 'root: 홈에 심어 둔 링크를 따라 root 파일을 덮지 않아요' test "$(cat "$victim")" = 원래
+        t 'root: 홈에 못 넣으면 root 만 보는 곳에 남겨요' has "$LOG" '공용 계정 홈에 보고서를 넣지 못해서'
     fi
+    # 공용 계정으로도 돌린다. root 로 시험할 때는 nobody 로 돌린다
     chk() {   # $1 실행할 폴더, 나머지는 환경 변수(이름=값). 출력은 표준 출력
         local d=$1; shift
         if is_root; then (cd "$d" && timeout 120 runuser -u nobody -- env PATH="$PATH" GPU_ACCOUNT=nobody "$@" bash "$rep/check.sh") 2>&1 < /dev/null

@@ -18,11 +18,11 @@ NAS는 팀마다 나눠 받는 공간이 아니라 여러 팀이 각자 알아�
 | 같이 쓰는 곳 | 다른 팀도 같은 NAS를 써요. 팀별 할당량이나 팀 폴더는 따로 없어요. 우리 팀 폴더는 **`/data/autonomy_sw`** 로 정했어요(`/app/admin/gpu.conf` 의 `NAS_DIR`) |
 | 아직 모르는 것 | 두 서버의 공용 계정 번호가 같은지(서버에 공용 계정 이름을 아직 안 적어서 확인하지 못했어요), 이미지처럼 작은 파일을 많이 읽을 때의 속도 |
 
-모르는 것은 두 서버에서 각각 아래를 실행하면 한 화면에 나와요. 아무것도 바꾸지 않고 root 도 필요 없어요(공용 계정으로 실행해요). 결과는 공용 계정 홈의 `check_report_<서버>_<시각>.txt` 에도 남아요. 원본에는 NAS 주소·계정 같은 사내 정보가 있어서, 같이 생기는 공유용(`check_공유용_…txt`)만 git 으로 올려요(`docs/4_네트워크.md` 의 "결과 가져오기").
+모르는 것은 두 서버에서 각각 아래를 실행하면 한 화면에 나와요. 아무것도 바꾸지 않아요. root 로 실행하고, 결과는 공용 계정 홈의 `check_report_<서버>_<시각>.txt` 에도 남아요. 원본에는 NAS 주소·계정 같은 사내 정보가 있어서, 같이 생기는 공유용(`check_공유용_…txt`)만 git 으로 올려요(`docs/4_네트워크.md` 의 "결과 가져오기").
 
 ```bash
-# [서버 1, 서버 2 각각] 공용 계정. 팀 폴더는 /app/admin/gpu.conf 의 NAS_DIR(기본 /data/autonomy_sw)을 봐요
-cd /app/inbox && bash check.sh       # 1단계 전에는 공용 계정 홈에 올린 것으로: cd ~ && bash check.sh
+# [서버 1, 서버 2 각각] root. 팀 폴더는 /app/admin/gpu.conf 의 NAS_DIR(기본 /data/autonomy_sw)을 봐요
+bash /app/inbox/check.sh
 ```
 
 ## 정한 원칙
@@ -88,7 +88,7 @@ cd /app/inbox && bash check.sh       # 1단계 전에는 공용 계정 홈에 �
 ```bash
 # [서버 1] root. admin_setup.sh 뒤에 확인
 ls -ld /data/autonomy_sw /data/autonomy_sw/*                                 # 주인·권한
-QUICK=1 bash /app/inbox/check.sh                       # 공용 계정으로. 팀 폴더의 주인·권한·용량(속도 측정 없이)
+QUICK=1 bash /app/inbox/check.sh                       # 팀 폴더의 주인·권한·용량, 공용 계정이 쓸 수 있는지(속도 측정 없이)
 ```
 
 ## 쓰는 법
@@ -143,7 +143,7 @@ cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh   # 2단계
 |---|---|---|
 | 우리 팀 폴더 이름·위치 | 팀 회의 | `/data/autonomy_sw`(정함) |
 | 누가 팀 폴더를 만드는지 | | root 가 만들어요(`admin_setup.sh`). `/data` 가 root 소유 755라 공용 계정은 만들 수 없어요 |
-| root squash | root 로만 알 수 있어서 `check.sh` 는 보지 않아요. 2026-11-03 점검 결과와 `admin_setup.sh` 화면 | 안 해요(root 가 root 소유 755 `/data` 에 쓸 수 있음) |
+| root squash | 화면의 "root squash"(root 로 실행했을 때) | 안 해요(root 가 root 소유 755 `/data` 에 쓸 수 있음) |
 | 두 서버의 공용 계정 번호가 같은지 | 화면의 "상대 서버 찾기"(두 서버에서 함께 실행하면 맞춰 봐요), "계정 번호" | 일반 계정 4개(uid 1000~1003)는 두 서버에서 같아 보여요. 공용 계정은 이름을 적은 뒤 확인해요 |
 | 전체·남은 용량 | 화면의 "용량" | 전체 414 TB, 남은 것 397 TB(2026-11-03). 계획한 약 9 TB 는 충분해요 |
 | 팀원 수(N), 1인당 백업 몫(B) | 팀 회의 | |
