@@ -47,8 +47,11 @@ $Items = @(
     # CAVS 시맨틱 세그(실제 1,077장 + 합성 1,947장 + rosbag). 주소는 사이트의 "Download Dataset" 링크(2026-11-06 확인). 막히면 브라우저로 받아 datasets\CaSSeD 에 넣는다
     # Late: 사내망에서 접속되지 않아(타임아웃) 다른 것을 다 받은 뒤 맨 끝에 받는다
     @{ Set = 'CaSSeD';  GB = 38; Name = 'CaSSeD.tar.gz';          Url = 'https://www.cavs.msstate.edu/resources/downloads/CaSSeD/CaSSeD.tar.gz'; Late = $true }
-    # Freiburg Forest: 라벨이 있는 다중 스펙트럼 묶음. 라벨 없는 raw(15,000장)는 사이트에서 브라우저로 받아 datasets\freiburg_forest 에 넣는다
-    @{ Set = 'freiburg_forest'; GB = 3; Name = 'freiburg_forest_multispectral_annotated.tar.gz'; Url = 'http://deepscene.cs.uni-freiburg.de/static/datasets/freiburg_forest_multispectral_annotated.tar.gz' }
+    # YCOR(Yamaha-CMU): AirLab 페이지의 Box 공유 링크(cmu.box.com/s/3fngoljhcwhqf2z5cbepufh331qtesxt)에 든 파일 하나. 받을 때마다 Box 가 임시 주소로 넘겨 준다(2026-11-06 확인)
+    @{ Set = 'ycor';    GB = 1;  Name = 'yamaha_seg.tar.gz';      Url = 'https://cmu.app.box.com/index.php?rm=box_download_shared_file&shared_name=3fngoljhcwhqf2z5cbepufh331qtesxt&file_id=f_771170167866' }
+    # Freiburg Forest: 사이트의 download_freiburg_forest_*.sh 가 받는 512 MB 조각들(.part-aa …). 조각을 받아 하나로 합친 뒤 검사한다(2026-11-06 확인)
+    @{ Set = 'freiburg_forest'; GB = 2;  Name = 'freiburg_forest_annotated.tar.gz'; Url = 'https://deepscene.cs.uni-freiburg.de/static/datasets/freiburg_forest_annotated.tar.gz'; Parts = 3 }
+    @{ Set = 'freiburg_forest'; GB = 18; Name = 'freiburg_forest_raw.tar.gz';       Url = 'https://deepscene.cs.uni-freiburg.de/static/datasets/freiburg_forest_raw.tar.gz';       Parts = 34 }
 )
 $Items = @($Items | Where-Object { Want $_.Set })
 $LateItems = @($Items | Where-Object { $_.Late })
@@ -107,7 +110,7 @@ $DriveItems = @(
     @{ Set = 'go_full'; GB = 50; Name = 'rosbag';                    Id = '1aze9xgbN1ID-9CW4U3CJtYi6ChBmaKGO' }
 )
 # 스크립트로 받을 수 없어서 브라우저로 받아 datasets\<폴더> 에 넣는 것. 넣어 둔 압축 파일은 검사해서 목록에 넣는다(docs\5_데이터셋.md)
-#   rellis_full: Drive 폴더(원본 rosbag 5개 시퀀스, 보정 원본), ycor: Box 공유 링크, freiburg_forest: raw 묶음
+#   rellis_full: Drive 폴더(원본 rosbag 5개 시퀀스, 보정 원본), CaSSeD: 사내망에서 접속 안 될 때. ycor·freiburg_forest 도 스크립트가 못 받으면 손으로 넣을 수 있게 둔다
 $HandSets = @('rellis_full', 'ycor', 'freiburg_forest', 'CaSSeD')
 # ORAD-3D: ModelScope(중국) 데이터셋 저장소에서 modelscope 도구로 받는다(약 350 GB, 끊기면 이어받기)
 $ModelScopeId = 'Georgehhhh/ORAD-3D'
@@ -144,6 +147,36 @@ function Get-RemoteSize($url) {
     $h = & curl.exe -sIL --connect-timeout 30 --max-time 60 @ca $url
     $m = $h | Select-String '^content-length:\s*(\d+)'
     if ($m) { return [int64]$m[-1].Matches[0].Groups[1].Value }
+    return $null
+}
+
+# 조각(.part-aa, -ab …)으로 나뉜 파일: 조각마다 이어받기로 받고 크기를 맞춘 뒤 하나로 합쳐 검사한다. 성공하면 조각은 지운다
+function Get-PartName([int]$i) { return [string][char][int](97 + [math]::Floor($i / 26)) + [string][char][int](97 + $i % 26) }   # 0 → aa, 26 → ba
+function Get-Parts($url, $file, $count) {
+    New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
+    $parts = @(0..($count - 1) | ForEach-Object { "$file.part-$(Get-PartName $_)" })
+    if (-not (Test-Path $file)) {
+        for ($i = 0; $i -lt $count; $i++) {
+            $p = $parts[$i]; $u = "$url.part-$(Get-PartName $i)"
+            $remote = Get-RemoteSize $u
+            if (-not $remote) { Write-Bad "조각 크기를 알 수 없어요(사이트에 접속되지 않아요): $(Split-Path -Leaf $p)"; return $null }
+            if ((Test-Path $p) -and (Get-Item $p).Length -eq $remote) { continue }
+            if ((Test-Path $p) -and (Get-Item $p).Length -gt $remote) { Remove-Item -Force $p }
+            Write-Info "조각 $($i + 1)/$count 받는 중: $(Split-Path -Leaf $p)"
+            if (-not (Get-File $u $p $null $MaxTries) -or (Get-Item $p).Length -ne $remote) {
+                Write-Bad "조각을 받지 못했어요: $(Split-Path -Leaf $p). 같은 명령을 다시 실행하면 이어서 받아요"; return $null
+            }
+        }
+        Write-Info "조각 $count 개를 하나로 합치는 중이에요"
+        $out = [IO.File]::Create("$file.join")
+        try { foreach ($p in $parts) { $in = [IO.File]::OpenRead($p); try { $in.CopyTo($out) } finally { $in.Close() } } }
+        finally { $out.Close() }
+        Move-Item -Force "$file.join" $file
+    }
+    $r = Test-Archive $file
+    if ($r -eq 0) { $parts | ForEach-Object { Remove-Item -Force -ErrorAction SilentlyContinue $_ }; return $file }
+    Write-Warn '합친 파일이 깨졌어요. 합친 파일을 지우고 다음에 조각을 다시 확인해요'
+    Remove-Item -Force $file
     return $null
 }
 
@@ -596,7 +629,7 @@ function Get-Items($list, $tag) {
         if (Test-Path "$target.ok") { Write-Host "  ($tag$n/$($list.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
         Write-Host ''
         Write-Host "  ($tag$n/$($list.Count)) $label 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
-        $f = Get-Url $it.Url $target
+        $f = if ($it.Parts) { Get-Parts $it.Url $target $it.Parts } else { Get-Url $it.Url $target }
         if ($f) { Set-Done "$target.ok" $f; Write-Ok "$label 받았어요"; $result[$label] = '받음' }
         else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
     }
