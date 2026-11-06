@@ -117,7 +117,7 @@ t_docs() {
     [ -z "$bad" ] && ok '코드 블록(```) 짝이 맞아요' || no "코드 블록 짝이 안 맞아요:$bad"
     # 문서에 나온 스크립트 이름이 저장소에 있다(예시로 쓴 이름은 뺀다)
     bad=; for n in $(grep -rhoE '[A-Za-z0-9_]+\.(sh|ps1|py)\b' README.md docs team | sort -u); do
-        case "$n" in gpu.sh|gpu-docker.sh|catalog.py|train.py|json.py) continue ;; esac
+        case "$n" in gpu.sh|gpu-docker.sh|catalog.py|train.py|json.py|download_freiburg_forest_*.sh) continue ;; esac   # 예시 이름, 데이터셋 사이트의 스크립트
         [ -n "$(find server pc tests -name "$n" -print -quit)" ] || bad+=" $n"
     done
     [ -z "$bad" ] && ok '문서에 나온 스크립트가 모두 있어요' || no "없는 스크립트:$bad"
