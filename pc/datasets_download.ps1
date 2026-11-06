@@ -3,19 +3,16 @@
 점검 → 받기(끊기면 이어받기) → 검사 → GPU 서버에 올릴 목록 만들기까지 한 번에 한다.
 끊기거나 실패하면 같은 명령을 다시 실행한다. 받은 것은 건너뛴다.
 
-  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1               # WildScenes 빼고
-  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenes   # WildScenes 포함(접속 정보를 물어본다)
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1               # .env 에 WILDSCENES_LINKS 가 없으면 WildScenes 빼고
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -WildScenesLinks C:\Users\나\Downloads\61541v001.txt
-                                                                     # WildScenes 를 포털의 링크 목록 파일로 받는다(AWS CLI 가 안 될 때)
+                                                                     # WildScenes 는 포털의 링크 목록 파일로 받는다
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only goose,RUGD
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only ORAD-3D       # 큰 것은 따로(약 350 GB)
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
-.env 에 WildScenes 접속 정보(WILDSCENES_S3_*, WILDSCENES_*_KEY)나 링크 목록(WILDSCENES_LINKS)을 적어 두면
--WildScenes 를 붙이지 않아도 WildScenes 까지 받고, 접속 정보를 묻지 않는다.
+.env 에 링크 목록 파일 경로(WILDSCENES_LINKS)를 적어 두면 -WildScenesLinks 를 붙이지 않아도 WildScenes 까지 받는다.
 #>
 param(
     [string]$Dest = (Join-Path (Split-Path $PSScriptRoot -Parent) 'datasets'),
-    [switch]$WildScenes,              # WildScenes 도 받는다. CSIRO 포털의 S3 접속 정보를 물어본다
     [string]$WildScenesLinks = '',    # WildScenes 를 포털 "Get a list of file download links" 로 받은 목록 파일로 받는다
     [string[]]$Only = @(),            # 이 폴더만 받는다(쉼표로 여러 개)
     [switch]$DriveCheck,              # 받지 않고 Google Drive 파일마다 받을 수 있는지, 안 되면 왜인지 진단만 한다
@@ -28,8 +25,8 @@ $root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\gpu). 결과 �
 $Only   = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 # .env 의 WildScenes 설정. 명령에 붙인 값이 먼저다
 if (-not $WildScenesLinks -and $env:WILDSCENES_LINKS) { $WildScenesLinks = [Environment]::ExpandEnvironmentVariables($env:WILDSCENES_LINKS) }
-$wsEnv = [bool]($env:WILDSCENES_S3_SERVER -and $env:WILDSCENES_S3_DIR -and $env:WILDSCENES_ACCESS_KEY -and $env:WILDSCENES_SECRET_KEY)
-if ($wsEnv) { $WildScenes = $true }
+# 예전 S3(AWS CLI) 방식 설정은 더 쓰지 않는다. 남아 있으면 지워도 된다고 알려 준다(키가 .env 에 계속 남지 않게)
+$oldWs = @('WILDSCENES_S3_SERVER', 'WILDSCENES_S3_DIR', 'WILDSCENES_ACCESS_KEY', 'WILDSCENES_SECRET_KEY' | Where-Object { [Environment]::GetEnvironmentVariable($_) })
 $check  = Join-Path $here 'check_archive.py'
 $T = 4
 
@@ -119,7 +116,7 @@ $ModelScopeId = 'Georgehhhh/ORAD-3D'
 $DriveItems = @($DriveItems | Where-Object { Want $_.Set })
 $Manual = @(@($DriveItems | ForEach-Object { $_.Set }) + @($HandSets | Where-Object { Want $_ }) | Select-Object -Unique)
 $doOrad = Want 'ORAD-3D'
-$doWild = ($WildScenes -or $WildScenesLinks) -and (Want 'wildscenes')
+$doWild = [bool]$WildScenesLinks -and (Want 'wildscenes')
 $WsPortal = 'https://data.csiro.au/collection/csiro:61541'   # WildScenes 포털 페이지
 
 New-Item -ItemType Directory -Force $Dest | Out-Null
@@ -225,15 +222,6 @@ function Get-Url($url, $file, $tries = $MaxTries) {
     return $null
 }
 
-# WildScenes: CSIRO 포털의 S3 저장소에서 AWS CLI 로 받는다(uv 로 실행해 따로 설치하지 않는다)
-function Invoke-Aws {
-    # .env 에 프록시가 없으면 브라우저가 이 주소에 쓰는 프록시를 AWS CLI 에도 쓴다(윈도우 로그인 인증은 AWS CLI 가 못 한다)
-    $pa = if ($env:HTTPS_PROXY) { $null } else { Get-BrowserProxy $script:WsEndpoint }
-    $old = $env:HTTPS_PROXY
-    if ($pa) { $env:HTTPS_PROXY = $pa }
-    try { & $uv tool run --from awscli aws @args --endpoint-url $script:WsEndpoint }
-    finally { if ($pa) { $env:HTTPS_PROXY = $old } }
-}
 
 # 링크가 401·403 으로 거절될 때 서버가 돌려준 이유를 보여 준다(상태 줄, Server, WWW-Authenticate, 본문 앞부분). 주소의 ? 뒤(서명)는 가린다
 function Show-WsDenied($it) {
@@ -275,24 +263,6 @@ function Get-WsLinks($file) {
     return ,$list
 }
 
-# 원격 폴더 아래에서 WildScenes2d 폴더를 찾는다(3단계 깊이까지)
-function Find-WsPrefix($base) {
-    $queue = @($base)
-    for ($depth = 0; $depth -le 3; $depth++) {
-        $next = @()
-        foreach ($p in $queue) {
-            foreach ($l in @(Invoke-Aws s3 ls "s3://$p")) {
-                if ($l -match '^\s*PRE (.+/)\s*$') {
-                    $name = $Matches[1]
-                    if ($name -ieq 'WildScenes2d/') { return "$p$name" }
-                    if ($next.Count -lt 50) { $next += "$p$name" }
-                }
-            }
-        }
-        $queue = $next
-    }
-    return $null
-}
 
 # 받은 파일 앞부분으로 압축 종류를 알아내 확장자를 정한다
 function Get-ArchiveExt($file) {
@@ -461,12 +431,6 @@ function Get-ModelScope($id, $dir) {
     return $false
 }
 
-function Read-Plain($prompt) {
-    $s = Read-Host $prompt -AsSecureString   # 화면과 기록 파일에 남지 않게
-    $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)
-    try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }
-}
-
 # -DriveCheck: 받지 않고 Google Drive 파일마다 진단만 하고 끝낸다
 if ($DriveCheck) {
     Write-Host ''
@@ -491,6 +455,7 @@ $uv = Find-Exe 'uv' $root
 if ($uv) { Write-Ok "uv : $uv" } else { Write-Bad 'uv가 없어요' }
 if (Get-Command 'tar.exe' -ErrorAction SilentlyContinue) { Write-Ok 'tar.exe' } else { Write-Bad '없는 프로그램: tar.exe (윈도우 10 1803 이후에는 기본으로 들어 있어요)' }
 Test-Aria2 | Out-Null
+if ($oldWs.Count) { Write-Warn ".env 의 $($oldWs -join ', ') 는 더 쓰지 않아요(WildScenes 는 링크 목록으로만 받아요). 키가 남지 않게 .env 에서 그 줄들을 지워 주세요" }
 if (-not (Test-Path $check)) { Write-Bad '없는 파일: pc\check_archive.py (git pull로 저장소를 최신으로 받으세요)' }
 if (-not (Test-Path (Join-Path $root 'server\datasets_install.sh'))) { Write-Bad '없는 파일: server\datasets_install.sh (git pull로 저장소를 최신으로 받으세요)' }
 if ($script:Fails) {
@@ -508,20 +473,22 @@ if ($script:Fails) {
         '한 사이트만 막혔다면 -Only로 나머지만 먼저 받으세요(예: -Only goose,gooseEx).')
 }
 
-# Google Drive 는 스크립트가 받지 않지만, 브라우저로 받을 수 있는지 알려 준다(실패해도 멈추지 않는다)
+# Google Drive 에 접속되는지 미리 본다(실패해도 멈추지 않는다)
 $driveOk = $false
 if ($DriveItems.Count) {
     $d1 = Invoke-Probe 'https://drive.google.com/'
     if ($d1.Code -ne 0) {
         Write-Warn "Google Drive 접속 안 됨($($d1.Msg)). RELLIS-3D, TAS500, GO는 건너뛰고 나머지를 받아요. 접속되면 같은 명령을 다시 실행하세요."
     } else {
-        # 첫 페이지만 열리고 파일 받기는 막힌 망이 있어, 실제 파일 하나를 앞부분만 받아 본다
-        $d = Test-DriveFile $DriveItems[0].Id
+        # 첫 페이지만 열리고 파일 받기는 막힌 망이 있어, 실제 파일 하나를 앞부분만 받아 본다.
+        # 큰 파일(rellis_2d images 등)로 시험하면 그 파일의 Google 하루 받기 한도를 매번 조금씩 쓰게 되어 작은 파일로 본다
+        $probe = @($DriveItems | Where-Object { $_.GB -le 1 } | Select-Object -Last 1) + @($DriveItems[0]) | Select-Object -First 1
+        $d = Test-DriveFile $probe.Id
         $driveOk = $d.Kind -ne 'proxy' -and $d.Kind -ne 'net'
         if ($d.Kind -eq 'ok' -or $d.Kind -eq 'confirm') {
             Write-Ok 'Google Drive 파일을 받을 수 있어요. RELLIS-3D, TAS500, GO도 받아요'
         } else {
-            Show-DriveDiag $d "Google Drive 시험 파일($($DriveItems[0].Set)/$($DriveItems[0].Name))"
+            Show-DriveDiag $d "Google Drive 시험 파일($($probe.Set)/$($probe.Name))"
             if ($driveOk) { Write-Warn 'Google에는 접속되니 파일마다 받아 볼게요.' }
             else { Write-Warn 'RELLIS-3D, TAS500, GO는 건너뛰고 나머지를 받아요. 파일마다 자세히 보려면 -DriveCheck를 붙여 실행하세요.' }
         }
@@ -555,53 +522,6 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     $f0 = $script:Fails   # 앞의 Google Drive 진단 실패는 세지 않는다(CSIRO 접속만 본다)
     Test-Site 'CSIRO S3 저장소' "https://$(([uri]$script:WsLinks[0].Url).Host)/" | Out-Null
     if ($script:Fails -gt $f0) { Skip-Wild 'CSIRO S3 저장소에 접속되지 않아요' '위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면 아래 기록 파일을 담당자에게 보내 주세요.'; break }
-} elseif ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
-    if ($wsEnv) {
-        Write-Ok 'WildScenes 접속 정보는 .env 에서 읽었어요(약 48시간만 유효해요. 거절되면 포털에서 새로 받아 .env 를 고치세요)'
-        $server = $env:WILDSCENES_S3_SERVER.Trim()
-        $wsDir  = $env:WILDSCENES_S3_DIR.Trim().TrimStart('/')
-        $env:AWS_ACCESS_KEY_ID     = $env:WILDSCENES_ACCESS_KEY.Trim()
-        $env:AWS_SECRET_ACCESS_KEY = $env:WILDSCENES_SECRET_KEY.Trim()
-    } else {
-        Write-Host ''
-        Write-Host '  WildScenes 접속 정보를 입력하세요. 접속 정보는 약 48시간만 유효하니 지금 새로 받으세요.' -ForegroundColor Cyan
-        Write-Host "  포털: $WsPortal"
-        Write-Host '  포털에서 Download → Download files via S3 Client 를 고르고, 화면에 나온 네 값을 차례로 복사해 붙여 넣으세요.'
-        Write-Host '  두 키는 입력해도 화면과 기록 파일에 남지 않아요. .env 에 적어 두면 묻지 않아요.'
-        Write-Host '  (자세한 설명: docs\5_데이터셋.md 의 "WildScenes 접속 정보 받기")'
-        $open = Read-Host '  포털 페이지를 브라우저로 열까요? [Y/n]'
-        if ($open -notmatch '^[nN]') { Start-Process $WsPortal }
-        $server = (Read-Host '  Server (예: s3.data.csiro.au)').Trim()
-        $wsDir  = (Read-Host '  Remote Directory (예: dapprd/000012345v001/)').Trim().TrimStart('/')
-        $env:AWS_ACCESS_KEY_ID     = (Read-Plain '  Access Key').Trim()
-        $env:AWS_SECRET_ACCESS_KEY = (Read-Plain '  Secret Access Key').Trim()
-    }
-    $env:AWS_DEFAULT_REGION    = 'us-east-1'   # S3 호환 저장소라 지역은 아무 값이나 된다
-    $env:AWS_RETRY_MODE        = 'standard'
-    $env:AWS_MAX_ATTEMPTS      = '10'
-    if (-not $wsDir.EndsWith('/')) { $wsDir += '/' }
-    $script:WsEndpoint = if ($server -match '://') { $server } else { "https://$server" }
-
-    $f0 = $script:Fails
-    Test-Site 'CSIRO S3 저장소' $script:WsEndpoint | Out-Null
-    if ($script:Fails -gt $f0) {
-        Skip-Wild 'CSIRO S3 저장소에 접속되지 않아요' ('위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면(401, AccessDenied 같은 오류가 떠도 열린 거예요) ' +
-            'docs\5_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요.'); break
-    }
-
-    Write-Info 'AWS CLI를 준비하는 중이에요(처음 한 번만)'
-    & $uv tool install awscli | Out-Host
-    if ($LASTEXITCODE -ne 0) { Skip-Wild 'AWS CLI를 준비하지 못했어요' 'PyPI(pypi.org) 접속을 확인하고 다시 실행하세요.'; break }
-
-    Write-Info 'WildScenes2d 폴더를 찾는 중이에요'
-    $script:WsPrefix = Find-WsPrefix $wsDir
-    if (-not $script:WsPrefix) {
-        Write-Host '  원격 폴더 내용:'
-        Invoke-Aws s3 ls "s3://$wsDir" | Out-Host
-        Skip-Wild 'WildScenes2d 폴더를 찾지 못했어요' ("접속 정보가 틀렸거나 48시간이 지났을 수 있어요. 포털($WsPortal)에서 접속 정보를 새로 받아 다시 실행하세요. " +
-            'SSL·certificate 오류가 보이면 회사 보안 장비 때문이니 아래 기록 파일을 담당자에게 보내 주세요.'); break
-    }
-    Write-Ok "WildScenes에 접속했어요: s3://$script:WsPrefix"
 }
 } while ($false)
 
@@ -709,27 +629,6 @@ if ($doWild) {
             }
             if (-not $aria) { Write-Bad 'aria2c 가 없어서 WildScenes 를 받지 못했어요(위 aria2c 준비 [문제] 를 보세요)' }
         }
-        while (-not $WildScenesLinks -and -not $done -and $stall -lt $MaxTries) {
-            # sync 는 이미 받은 파일을 건너뛰므로 몇 번이고 다시 해도 된다
-            $before = Get-Size $wdir
-            Invoke-Aws s3 sync "s3://$script:WsPrefix" $wdir --only-show-errors | Out-Host
-            $code = $LASTEXITCODE
-            if ($code -eq 0) {
-                Write-Info '빠진 파일이 없는지 확인하는 중이에요'
-                $left = @(Invoke-Aws s3 sync "s3://$script:WsPrefix" $wdir --dryrun | Where-Object { $_ -match '\(dryrun\)' })
-                if ($LASTEXITCODE -eq 0 -and $left.Count -eq 0) { $done = $true; break }
-                Write-Warn "아직 $($left.Count)개가 남았어요"
-            } else {
-                # 접속 정보가 만료됐으면 기다려도 소용없다
-                Invoke-Aws s3 ls "s3://$script:WsPrefix" | Out-Null
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Bad 'WildScenes 접속 정보가 만료됐거나 막혔어요'
-                    Write-Info "    포털($WsPortal)에서 접속 정보를 새로 받아 같은 명령(-WildScenes)을 다시 실행하세요. 받은 파일은 건너뛰어요."
-                    break
-                }
-            }
-            $stall = Step-Retry $stall $before (Get-Size $wdir) $MaxTries "aws $code"
-        }
         if ($done) {
             $m = Get-ChildItem $wdir -Recurse -File | Measure-Object -Property Length -Sum
             [IO.File]::WriteAllText("$wdir.ok", "files=$($m.Count) bytes=$($m.Sum)`n", (New-Object Text.UTF8Encoding $false))
@@ -740,9 +639,8 @@ if ($doWild) {
 } elseif ($script:WsSkip) {
     $result['wildscenes'] = "건너뜀($script:WsSkip. 고친 뒤 다시 실행)"
 } elseif (Want 'wildscenes') {
-    $result['wildscenes'] = '건너뜀(받으려면 -WildScenes 또는 -WildScenesLinks 를 붙여 실행)'
+    $result['wildscenes'] = '건너뜀(받으려면 포털의 링크 목록 파일 경로를 .env 의 WILDSCENES_LINKS 에 적거나 -WildScenesLinks 를 붙여 실행)'
 }
-Remove-Item Env:AWS_ACCESS_KEY_ID, Env:AWS_SECRET_ACCESS_KEY -ErrorAction SilentlyContinue
 
 # Google Drive 데이터셋
 $n = 0
