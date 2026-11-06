@@ -19,7 +19,8 @@ param(
     [string]$WildScenesLinks = '',    # WildScenes 를 포털 "Get a list of file download links" 로 받은 목록 파일로 받는다
     [string[]]$Only = @(),            # 이 폴더만 받는다(쉼표로 여러 개)
     [switch]$DriveCheck,              # 받지 않고 Google Drive 파일마다 받을 수 있는지, 안 되면 왜인지 진단만 한다
-    [int]$MaxTries = 30               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 2시간)
+    [int]$MaxTries = 30,              # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 2시간)
+    [int]$LateTries = 3               # 맨 끝에 받는 것(사내망에서 막히는 사이트)은 이만큼만 해 보고 넘어간다(받아지기 시작하면 끝까지 이어받아요)
 )
 $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\gpu). 결과 폴더와 uv.exe 는 여기
@@ -44,11 +45,12 @@ $Items = @(
     @{ Set = 'gooseEx'; GB = 3;  Name = 'gooseEx_2d_test.zip';    Url = 'https://goose-dataset.de/storage/gooseEx_2d_test.zip' }
     @{ Set = 'RUGD';    GB = 5;  Name = 'RUGD_frames-with-annotations.zip'; Url = 'http://rugd.vision/data/RUGD_frames-with-annotations.zip' }
     @{ Set = 'RUGD';    GB = 1;  Name = 'RUGD_annotations.zip';   Url = 'http://rugd.vision/data/RUGD_annotations.zip' }
+    # YCOR(Yamaha-CMU): AirLab 페이지의 Box 공유 링크(cmu.box.com/s/3fngoljhcwhqf2z5cbepufh331qtesxt)에 든 파일 하나. 받을 때마다 Box 가 임시 주소로 넘겨 준다(2026-11-06 확인)
+    # Late: 사내망에서 cmu.box.com 이 막혀 있어 맨 끝에 받는다
+    @{ Set = 'ycor';    GB = 1;  Name = 'yamaha_seg.tar.gz';      Url = 'https://cmu.app.box.com/index.php?rm=box_download_shared_file&shared_name=3fngoljhcwhqf2z5cbepufh331qtesxt&file_id=f_771170167866'; Late = $true }
     # CAVS 시맨틱 세그(실제 1,077장 + 합성 1,947장 + rosbag). 주소는 사이트의 "Download Dataset" 링크(2026-11-06 확인). 막히면 브라우저로 받아 datasets\CaSSeD 에 넣는다
     # Late: 사내망에서 접속되지 않아(타임아웃) 다른 것을 다 받은 뒤 맨 끝에 받는다
     @{ Set = 'CaSSeD';  GB = 38; Name = 'CaSSeD.tar.gz';          Url = 'https://www.cavs.msstate.edu/resources/downloads/CaSSeD/CaSSeD.tar.gz'; Late = $true }
-    # YCOR(Yamaha-CMU): AirLab 페이지의 Box 공유 링크(cmu.box.com/s/3fngoljhcwhqf2z5cbepufh331qtesxt)에 든 파일 하나. 받을 때마다 Box 가 임시 주소로 넘겨 준다(2026-11-06 확인)
-    @{ Set = 'ycor';    GB = 1;  Name = 'yamaha_seg.tar.gz';      Url = 'https://cmu.app.box.com/index.php?rm=box_download_shared_file&shared_name=3fngoljhcwhqf2z5cbepufh331qtesxt&file_id=f_771170167866' }
     # Freiburg Forest: 사이트의 download_freiburg_forest_*.sh 가 받는 512 MB 조각들(.part-aa …). 조각을 받아 하나로 합친 뒤 검사한다(2026-11-06 확인)
     @{ Set = 'freiburg_forest'; GB = 2;  Name = 'freiburg_forest_annotated.tar.gz'; Url = 'https://deepscene.cs.uni-freiburg.de/static/datasets/freiburg_forest_annotated.tar.gz'; Parts = 3 }
     @{ Set = 'freiburg_forest'; GB = 18; Name = 'freiburg_forest_raw.tar.gz';       Url = 'https://deepscene.cs.uni-freiburg.de/static/datasets/freiburg_forest_raw.tar.gz';       Parts = 34 }
@@ -180,7 +182,7 @@ function Get-Parts($url, $file, $count) {
     return $null
 }
 
-function Get-Url($url, $file) {
+function Get-Url($url, $file, $tries = $MaxTries) {
     New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
     # 사이트에 접속되지 않을 때 브라우저로 받아 넣어 둔 파일이 있으면, 다시 받으려 하기 전에 그 파일부터 검사한다(다 받은 파일이면 그대로 쓴다)
     if ((Test-Path $file) -and -not (Get-RemoteSize $url)) {
@@ -189,7 +191,7 @@ function Get-Url($url, $file) {
         Write-Warn '넣어 둔 파일이 덜 받아졌거나 깨졌어요. 사이트에서 이어받기를 해 봐요'
     }
     $stall = 0
-    while ($stall -lt $MaxTries) {
+    while ($stall -lt $tries) {
         $remote = Get-RemoteSize $url
         $local  = if (Test-Path $file) { (Get-Item $file).Length } else { 0 }
         if (-not ($remote -and $local -eq $remote)) {
@@ -204,7 +206,7 @@ function Get-Url($url, $file) {
                 Remove-Item -Force -ErrorAction SilentlyContinue $file
             }
             if ($code -ne 0) {
-                $stall = Step-Retry $stall $local (Get-Size $file) $MaxTries "curl $code"
+                $stall = Step-Retry $stall $local (Get-Size $file) $tries "curl $code"
                 continue
             }
         }
@@ -631,7 +633,7 @@ Write-Ok "남은 공간 $free GB, 앞으로 받을 양 약 $needGB GB"
 Write-Step 2 $T '받기 (끊기면 이어받아요)'
 $result = [ordered]@{}
 # 직접 링크 목록을 차례로 받는다. $tag 는 화면의 번호 앞에 붙는 글자
-function Get-Items($list, $tag) {
+function Get-Items($list, $tag, $tries = $MaxTries) {
     $n = 0
     foreach ($it in $list) {
         $n++
@@ -640,7 +642,7 @@ function Get-Items($list, $tag) {
         if (Test-Path "$target.ok") { Write-Host "  ($tag$n/$($list.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
         Write-Host ''
         Write-Host "  ($tag$n/$($list.Count)) $label 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
-        $f = if ($it.Parts) { Get-Parts $it.Url $target $it.Parts } else { Get-Url $it.Url $target }
+        $f = if ($it.Parts) { Get-Parts $it.Url $target $it.Parts } else { Get-Url $it.Url $target $tries }
         if ($f) { Set-Done "$target.ok" $f; Write-Ok "$label 받았어요"; $result[$label] = '받음' }
         else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
     }
@@ -771,8 +773,8 @@ if ($doOrad) {
     }
 }
 
-# 접속이 잘 안 되는 사이트(CaSSeD)는 다른 것을 다 받은 뒤 맨 끝에
-Get-Items $LateItems '나중 '
+# 사내망에서 막히는 사이트(YCOR 의 Box, CaSSeD 의 CAVS)는 다른 것을 다 받은 뒤 맨 끝에. 진전 없이 $LateTries 번 끊기면 넘어간다
+Get-Items $LateItems '나중 ' $LateTries
 
 # 브라우저로 받아 직접 넣어 둔 압축 파일도 검사한다(스크립트가 받은 파일은 이미 .ok 가 있다)
 foreach ($set in $Manual) {
