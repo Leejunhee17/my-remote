@@ -1,5 +1,5 @@
 ﻿<#
-[접근 PC] WildScenes 링크가 브라우저로는 받아지는데 스크립트(curl)로는 401 같은 오류가 날 때, 왜 그런지 여러 방법으로 시험해
+[접근 PC] WildScenes 링크가 브라우저로는 받아지는데 받기 스크립트로는 안 될 때, 왜 그런지 받기 도구(aria2c)와 .NET 으로 시험해
 결과를 reports\wildscenes_check_공유용_<날짜>.txt 에 남기고, 물어본 뒤 git 으로 올린다(담당자가 그 파일을 읽는다).
 아무것도 받지 않는다(링크마다 앞 1 KB 만 요청한다). 서명·키, 프록시 주소, 사내 IP 는 가려서 적는다.
 
@@ -50,7 +50,8 @@ $qnames = @(([uri]$url).Query.TrimStart('?') -split '&' | Where-Object { $_ } | 
 
 Add-Line "WildScenes 링크 점검  $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 Add-Line "윈도우: $([Environment]::OSVersion.VersionString), PowerShell $($PSVersionTable.PSVersion)"
-Add-Line "curl: $((& curl.exe -V | Select-Object -First 1))"
+$aria = Get-Aria2
+Add-Line "aria2c: $(if ($aria) { (& $aria --version | Select-Object -First 1) } else { '준비 못 함' })"
 Add-Line "목록 파일: 만든 시각 $((Get-Item $Links).LastWriteTime.ToString('yyyy-MM-dd HH:mm')), 줄 $(([IO.File]::ReadAllLines($Links)).Count)개"
 Add-Line "시험한 주소: https://$site$(([uri]$url).AbsolutePath)?…"
 Add-Line "주소 뒤에 붙은 값 이름: $($qnames -join ', ')"
@@ -64,31 +65,6 @@ Add-Line "브라우저가 이 주소에 쓰는 프록시(PAC 포함): $(Proxy-La
 $pac = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue).AutoConfigURL
 Add-Line "자동 프록시 설정(PAC): $(if ($pac) { '있음' } else { '없음' })"
 Add-Line ''
-
-# 시험 하나: curl 로 앞 1 KB 만 요청해 상태·머리글·본문 앞부분을 적는다
-function Test-Curl($name, [string[]]$extra) {
-    $hd = [IO.Path]::GetTempFileName(); $bd = [IO.Path]::GetTempFileName()
-    try {
-        $err = & curl.exe -sS -L -r 0-1023 --ssl-no-revoke --connect-timeout 20 --max-time 60 @extra -D $hd -o $bd -w '%{http_code}' $url 2>&1
-        $code = $LASTEXITCODE
-        $http = (@($err) | Where-Object { $_ -match '^\d{3}$' } | Select-Object -Last 1)
-        $msg = (@($err) | Where-Object { $_ -notmatch '^\d{3}$' }) -join ' '
-        $ok = $code -eq 0 -and $http -match '^20[06]$'
-        Add-Line "== $name"
-        Add-Line "   결과: $(if ($ok) { '받아져요' } else { '안 돼요' }) (HTTP $http, curl $code)$(if ($msg) { ' ' + (Hide-Text $msg) })"
-        foreach ($h in [IO.File]::ReadAllLines($hd)) {
-            if ($h -match 'Connection Established') { continue }
-            if ($h -match '^(?i)(HTTP/|server:|www-authenticate:|proxy-authenticate:|x-amz-request-id:|x-amz-error|content-type:|x-cache|x-squid|x-bluecoat|x-zscaler|x-fortinet)') { Add-Line "   머리글: $(Hide-Text $h.Trim())" }
-            elseif ($h -match '^(?i)via:\s*(.*)$') { Add-Line "   머리글: via: $(Hide-Via $Matches[1])" }
-        }
-        if (-not $ok) {
-            $body = [IO.File]::ReadAllText($bd)
-            if ($body) { $b = Hide-Text (($body -replace '\s+', ' ').Trim()); Add-Line "   본문 앞부분: $($b.Substring(0, [math]::Min(400, $b.Length)))" }
-        }
-        Add-Line ''
-        return $ok
-    } finally { Remove-Item -Force -ErrorAction SilentlyContinue $hd, $bd }
-}
 
 # 시험 하나: .NET(브라우저처럼 윈도우 시스템 프록시와 윈도우 로그인을 쓴다)
 function Test-DotNet {
@@ -119,36 +95,26 @@ function Test-DotNet {
 }
 
 $res = [ordered]@{}
-$res['curl 그대로(.env 설정 그대로)'] = Test-Curl 'curl 그대로(.env 설정 그대로)' @()
-$res['curl, 프록시 없이 바로'] = Test-Curl 'curl, 프록시 없이 바로' @('--noproxy', '*')
-$px = @($wp, $bp) | Where-Object { $_ } | Select-Object -Unique
-$i = 0
-foreach ($p in $px) {
-    $i++
-    $tag = if ($p -eq $bp -and $p -ne $wp) { "브라우저 자동 프록시" } elseif ($p -eq $wp -and $p -eq $bp) { "윈도우 프록시(브라우저와 같음)" } else { "윈도우 프록시" }
-    $res["curl, $tag"] = Test-Curl "curl, $tag" @('--proxy', $p)
-    $res["curl, $tag + 윈도우 로그인(negotiate)"] = Test-Curl "curl, $tag + 윈도우 로그인(negotiate)" @('--proxy', $p, '--proxy-negotiate', '--proxy-user', ':')
-    $res["curl, $tag + 윈도우 로그인(ntlm)"] = Test-Curl "curl, $tag + 윈도우 로그인(ntlm)" @('--proxy', $p, '--proxy-ntlm', '--proxy-user', ':')
-}
 $res['.NET(브라우저와 같은 시스템 프록시)'] = Test-DotNet
 
-# 받기 스크립트(datasets_download.ps1)와 똑같이: 점검(Test-Site)이 고른 설정을 붙이고, 같은 curl 옵션으로 이 파일 하나를 끝까지 받는다
-Add-Line '== 받기 스크립트와 같은 방법'
+# 받기 스크립트(datasets_download.ps1)와 똑같이 aria2c 로 이 파일 하나를 끝까지 받는다. 두 번째는 받은 파일이 있는 채로 다시(이어받기)
+Add-Line '== 받기 스크립트와 같은 방법(aria2c)'
 Test-Site 'CSIRO S3 저장소' "https://$site/" | Out-Null
-$ha = $script:HostArgs[$site]
-Add-Line "   점검이 고른 설정: 추가 인자 $(if ($script:CurlExtra.Count) { $script:CurlExtra -join ' ' } else { '없음' }), 이 주소 전용 $(if ($ha) { (@($ha) | ForEach-Object { if ($_ -match '://') { '(프록시)' } else { $_ } }) -join ' ' } else { '없음' })"
+$ap = @(Get-Aria2Proxy $url)
+Add-Line "   aria2c 에 붙는 프록시: $(if ($ap.Count) { Proxy-Label ($ap[0] -replace '^--all-proxy=', '') } else { '없음' })"
 $tmpd = Join-Path ([IO.Path]::GetTempPath()) "ws_check_$stamp"
 New-Item -ItemType Directory -Force $tmpd | Out-Null
-$tf = Join-Path $tmpd 'f'
+$tf = Join-Path $tmpd 'f'; $lf = Join-Path $tmpd 'aria2.log'
 foreach ($round in 1, 2) {
-    # 2번째는 이미 받은 파일이 있는 상태(-C - 이어받기)에서 다시 받는다. 받기 스크립트가 다시 실행될 때와 같다
-    $ca = Get-CurlArgs $url
-    $msg = & curl.exe -sS -L -C - --fail --retry 3 --retry-delay 5 --connect-timeout 30 -Y 1024 -y 120 @ca -o $tf --stderr - $url | Out-String
-    $code = $LASTEXITCODE
+    Remove-Item -Force -ErrorAction SilentlyContinue $lf
+    $code = if ($aria) { Invoke-Aria2 $url $tf @("--log=$lf", '--log-level=notice') } else { 99 }
     $sz = if (Test-Path $tf) { (Get-Item $tf).Length } else { 0 }
     $what = if ($round -eq 1) { '처음 받기' } else { '받은 파일이 있는 채로 다시(이어받기)' }
-    Add-Line "   $($what): $(if ($code -eq 0) { '받아져요' } else { '안 돼요' }) (curl $code, 파일 $sz 바이트)$(if ($msg.Trim()) { ' ' + (Hide-Text $msg.Trim()) })"
-    $res["받기 스크립트와 같은 방법: $what"] = ($code -eq 0)
+    Add-Line "   $($what): $(if ($code -eq 0) { '받아져요' } elseif ($code -eq 99) { 'aria2c 없음' } else { '안 돼요' }) (aria2c $code, 파일 $sz 바이트)"
+    if ($code -ne 0 -and (Test-Path $lf)) {
+        [IO.File]::ReadAllLines($lf) | Where-Object { $_ -match '(?i)errorCode|status=|exception|SSL|TLS|certificate|ERROR' } | Select-Object -First 6 | ForEach-Object { Add-Line "     aria2c: $(Hide-Text $_.Trim())" }
+    }
+    $res["aria2c: $what"] = ($code -eq 0)
 }
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmpd
 $rel = [regex]::Match([uri]::UnescapeDataString(($url -split '\?')[0]), '(?i)/WildScenes_?2d/(.+)$').Groups[1].Value -replace '/', '\'
@@ -165,7 +131,7 @@ if (Test-Path $log) {
     $all = [IO.File]::ReadAllLines($log)
     $start = 0
     for ($k = $all.Count - 1; $k -ge 0; $k--) { if ($all[$k] -match '\[접근 PC\] 세그멘테이션 데이터셋 받기') { $start = $k; break } }
-    $pick = @($all[$start..($all.Count - 1)] | Where-Object { $_ -match '(?i)wildscenes|CSIRO|S3|멈춤|멈춘 이유|할 일|\[문제\]|curl' } | Select-Object -Last 60)
+    $pick = @($all[$start..($all.Count - 1)] | Where-Object { $_ -match '(?i)wildscenes|CSIRO|S3|멈춤|멈춘 이유|할 일|\[문제\]|aria2c' } | Select-Object -Last 60)
     foreach ($l in $pick) {
         if ($env:USERPROFILE) { $l = $l.Replace($env:USERPROFILE, '%USERPROFILE%') }   # 윈도우 계정 이름은 가린다
         Add-Line "   $(Hide-Text $l.TrimEnd())"

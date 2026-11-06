@@ -74,18 +74,12 @@ function Find-Exe($name, $root) {
     return $null
 }
 
-# 회사망에서 curl 이 막히는 흔한 경우를 스스로 찾아 우회한다. 모든 curl 호출에 Get-CurlArgs 결과를 붙인다.
-$script:CurlExtra = @()
-$script:HostArgs  = @{}   # 주소(호스트)마다 따로 쓰는 프록시 설정. 브라우저가 주소마다 다른 프록시를 쓸 때
-$script:NoRevoke  = $false
+# 인터넷 요청은 두 가지로 한다(curl 은 쓰지 않는다).
+#  - 접속 확인·크기 확인·작은 파일·진단: .NET(Invoke-Http). 브라우저처럼 윈도우 시스템 프록시(PAC 포함)와 윈도우 로그인 인증을 쓰고,
+#    인증서 폐기 확인 서버에 닿지 않아도 브라우저처럼 넘어간다(회사망에서 윈도우 curl 이 CRYPT_E_NO_REVOCATION_CHECK 로 끊기던 문제).
+#  - 받기: aria2c(Invoke-Aria2). 이어받기, 다시 시도, 여러 파일 동시 받기. 윈도우판은 인증서를 검증하면서 "폐기 확인 정보 없음"만 넘어간다.
 $env:UV_NATIVE_TLS = '1'   # uv 가 윈도우 인증서 저장소를 쓰게 한다(회사 보안 장비 인증서 포함)
-
-function Get-CurlArgs($url) {
-    $a = @($script:CurlExtra)
-    try { $h = ([uri]$url).Host } catch { $h = '' }
-    if ($h -and $script:HostArgs.ContainsKey($h)) { $a += $script:HostArgs[$h] }
-    return ,$a
-}
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
 
 # 브라우저가 이 주소에 쓰는 프록시를 윈도우에 묻는다(자동 프록시 설정 PAC 포함). 바로 가면 $null
 function Get-BrowserProxy($url) {
@@ -99,13 +93,6 @@ function Get-BrowserProxy($url) {
     return $null
 }
 
-function Invoke-Probe($url) {
-    # HEAD 를 막는 장비가 있어 GET 으로 1바이트만 받는다. 오류 문구는 화면에 보이도록 받아 둔다.
-    $ca = Get-CurlArgs $url
-    $msg = & curl.exe -sS -o NUL -L -r 0-0 --connect-timeout 15 --max-time 40 --stderr - @ca $url | Out-String
-    return [pscustomobject]@{ Code = $LASTEXITCODE; Msg = $msg.Trim() }
-}
-
 function Get-WindowsProxy {
     $s = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue
     if (-not $s -or $s.ProxyEnable -ne 1 -or -not $s.ProxyServer) { return $null }
@@ -115,96 +102,104 @@ function Get-WindowsProxy {
     return $p
 }
 
-function Get-NetHint($code) {
-    switch ($code) {
-        6       { return '주소를 찾지 못했어요(DNS). 브라우저만 프록시를 쓰는 망일 수 있어요.' }
-        7       { return '연결이 거부됐어요. 방화벽이 막았거나 프록시를 거쳐야 하는 망이에요.' }
-        28      { return '시간이 초과됐어요. 방화벽이 막았거나 프록시를 거쳐야 하는 망이에요.' }
-        35      { return '보안 연결(TLS)에 실패했어요. 회사 보안 장비가 막았을 수 있어요.' }
-        56      { return '연결은 됐지만 중간에 끊겼어요. 대부분 회사 프록시나 방화벽이 이 주소를 막은 경우예요.' }
-        60      { return '인증서를 믿을 수 없어요. 회사 보안 장비가 인증서를 바꾸는 망이에요.' }
-        default { return '' }
+# .env 의 프록시: http:// 주소는 HTTP_PROXY, https:// 주소는 HTTPS_PROXY(.env 를 읽을 때 HTTP_PROXY 가 없으면 HTTPS_PROXY 와 같게 둔다)
+function Get-EnvProxy($url) { if ($url -like 'http://*') { return $env:HTTP_PROXY } return $env:HTTPS_PROXY }
+
+# .NET 으로 요청 하나. .env 의 HTTPS_PROXY 가 있으면 그것을, 없으면 브라우저와 같은 시스템 프록시를 쓰고, 프록시에는 윈도우 로그인을 보낸다.
+#   -Range '0-0'    앞부분만      -Max 바이트   본문을 이만큼만 읽는다(기본 64 KB)    -NoRedirect   넘겨주기를 따라가지 않는다
+#   -Cookies        CookieContainer(여러 요청에 걸쳐 쿠키 유지)      -Head 머리글만(HEAD)     -Headers @{ 이름 = 값 }
+# 돌려주는 것: Ok(HTTP 응답을 받았으면 $true. 4xx·5xx 도 응답은 받은 것), Status, Url(마지막 주소), Headers(소문자 이름), Body(글자), Error, Kind
+#   Kind: http(응답 받음) / dns / connect / timeout / tls / proxy / reset / other
+function Invoke-Http($url, [string]$Range = '', [int]$Max = 65536, [switch]$NoRedirect, $Cookies = $null, [switch]$Head, [hashtable]$Headers = @{}, [int]$TimeoutSec = 60) {
+    $r = [pscustomobject]@{ Ok = $false; Status = 0; Url = $url; Headers = @{}; Body = ''; Error = ''; Kind = 'other' }
+    $res = $null
+    try {
+        $req = [Net.HttpWebRequest]::Create($url)
+        $ep = Get-EnvProxy $url
+        if ($ep) { $req.Proxy = New-Object Net.WebProxy($ep) } else { $req.Proxy = [Net.WebRequest]::GetSystemWebProxy() }
+        if ($req.Proxy) { $req.Proxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials }
+        $req.Timeout = $TimeoutSec * 1000; $req.ReadWriteTimeout = $TimeoutSec * 1000
+        $req.AllowAutoRedirect = -not $NoRedirect
+        $req.UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) gpu-setup'
+        if ($Cookies) { $req.CookieContainer = $Cookies }
+        if ($Head) { $req.Method = 'HEAD' }
+        if ($Range -match '^(\d+)-(\d*)$') { if ($Matches[2]) { $req.AddRange([int64]$Matches[1], [int64]$Matches[2]) } else { $req.AddRange([int64]$Matches[1]) } }
+        foreach ($k in $Headers.Keys) { $req.Headers[$k] = $Headers[$k] }
+        try { $res = $req.GetResponse() } catch [Net.WebException] { $res = $_.Exception.Response; if (-not $res) { throw } }
+        $r.Ok = $true; $r.Kind = 'http'; $r.Status = [int]$res.StatusCode; $r.Url = $res.ResponseUri.AbsoluteUri
+        foreach ($k in $res.Headers.AllKeys) { $r.Headers[$k.ToLower()] = $res.Headers[$k] }
+        if (-not $Head -and $Max -gt 0) {
+            $st = $res.GetResponseStream(); $ms = New-Object IO.MemoryStream; $buf = New-Object byte[] 8192
+            while ($ms.Length -lt $Max) { $n = $st.Read($buf, 0, [math]::Min($buf.Length, $Max - $ms.Length)); if ($n -le 0) { break }; $ms.Write($buf, 0, $n) }
+            $r.Body = [Text.Encoding]::UTF8.GetString($ms.ToArray())
+        }
+    } catch {
+        $ex = $_.Exception; while ($ex.InnerException -and -not ($ex -is [Net.WebException])) { $ex = $ex.InnerException }
+        $r.Error = $ex.Message
+        if ($ex -is [Net.WebException]) {
+            switch ($ex.Status.ToString()) {
+                'NameResolutionFailure'      { $r.Kind = 'dns' }
+                'ProxyNameResolutionFailure' { $r.Kind = 'proxy' }
+                'ConnectFailure'             { $r.Kind = 'connect' }
+                'Timeout'                    { $r.Kind = 'timeout' }
+                'TrustFailure'               { $r.Kind = 'tls' }
+                'SecureChannelFailure'       { $r.Kind = 'tls' }
+                'ConnectionClosed'           { $r.Kind = 'reset' }
+                'ReceiveFailure'             { $r.Kind = 'reset' }
+                'SendFailure'                { $r.Kind = 'reset' }
+                default                      { $r.Kind = 'other' }
+            }
+        }
+    } finally { if ($res) { $res.Close() } }
+    return $r
+}
+
+# 받을 파일 크기(바이트). 앞 1바이트를 요청해 Content-Range 의 전체 크기를 읽는다(없으면 Content-Length). 모르면 $null
+function Get-RemoteSize($url) {
+    $r = Invoke-Http $url -Range '0-0' -Max 0
+    if (-not $r.Ok -or $r.Status -ge 400) { return $null }
+    if ($r.Headers['content-range'] -match '/(\d+)$') { return [int64]$Matches[1] }
+    if ($r.Status -eq 200 -and $r.Headers['content-length'] -match '^\d+$') { return [int64]$r.Headers['content-length'] }
+    return $null
+}
+
+function Invoke-Probe($url) {
+    # 접속되는지만 본다(HTTP 코드는 상관없다). HEAD 를 막는 장비가 있어 GET 으로 1바이트만 받는다
+    $r = Invoke-Http $url -Range '0-0' -Max 0 -TimeoutSec 40
+    return [pscustomobject]@{ Code = $(if ($r.Ok) { 0 } else { 1 }); Kind = $r.Kind; Msg = $r.Error; Status = $r.Status; Headers = $r.Headers }
+}
+
+function Get-NetHint($kind) {
+    switch ($kind) {
+        'dns'     { return '주소를 찾지 못했어요(DNS). 사내 IT에 이 주소를 물어보세요.' }
+        'proxy'   { return '프록시 주소를 찾지 못했어요. .env 의 HTTPS_PROXY 나 윈도우 프록시 설정을 확인하세요.' }
+        'connect' { return '연결이 거부됐어요. 방화벽이 막았거나 프록시를 거쳐야 하는 망이에요.' }
+        'timeout' { return '시간이 초과됐어요. 방화벽이 조용히 막는 주소일 수 있어요(차단 화면 없이 타임아웃).' }
+        'tls'     { return '보안 연결(TLS)에 실패했어요. 회사 보안 장비가 막거나 인증서를 바꾸는 망이에요.' }
+        'reset'   { return '연결은 됐지만 중간에 끊겼어요. 대부분 회사 프록시나 방화벽이 이 주소를 막은 경우예요.' }
+        default   { return '' }
     }
 }
 
-# 사이트에 접속되는지 보고 [정상]/[문제] 를 찍는다. HTTP 코드는 상관없다.
+# 사이트에 접속되는지 보고 [정상]/[문제] 를 찍는다. HTTP 코드는 상관없다(브라우저와 같은 방법으로 접속해 본다)
 function Test-Site($name, $url) {
     $first = Invoke-Probe $url
-    if ($first.Code -eq 0) { Write-Ok "인터넷: $name"; return $true }
-
-    # 1) 인증서 폐기 확인 서버가 막힌 망: 브라우저는 그냥 넘어가지만 curl 은 실패한다
-    if (-not $script:NoRevoke) {
-        $script:CurlExtra = @('--ssl-no-revoke')
-        if ((Invoke-Probe $url).Code -eq 0) {
-            $script:NoRevoke = $true
-            $env:MAMBA_SSL_NO_REVOKE = 'true'
-            Write-Ok "인터넷: $name"
-            Write-Warn '이 망은 인증서 폐기 확인이 막혀 있어서 그 확인을 끄고 진행해요(브라우저도 이렇게 해요).'
-            return $true
-        }
-        $script:CurlExtra = @()
+    if ($first.Code -eq 0) {
+        Write-Ok "인터넷: $name"
+        # 프록시가 거절하면 응답은 오지만 프록시가 보낸 것이다(407 은 프록시 인증 실패)
+        if ($first.Status -eq 407) { Write-Warn "    $name : 프록시가 인증을 요구해요(407). 윈도우 로그인 인증이 안 되는 프록시예요. 사내 IT에 문의하세요." }
+        return $true
     }
-
-    # 2) 브라우저만 윈도우 프록시 설정을 쓰는 망: 같은 프록시를 스크립트에도 쓴다
-    $proxy = Get-WindowsProxy
-    if (-not $env:HTTPS_PROXY -and $proxy) {
-        $env:HTTPS_PROXY = $proxy; $env:HTTP_PROXY = $proxy
-        $ok = (Invoke-Probe $url).Code -eq 0
-        if (-not $ok -and -not $script:NoRevoke) {
-            $script:CurlExtra = @('--ssl-no-revoke')
-            $ok = (Invoke-Probe $url).Code -eq 0
-            if ($ok) { $script:NoRevoke = $true; $env:MAMBA_SSL_NO_REVOKE = 'true' } else { $script:CurlExtra = @() }
-        }
-        if ($ok) {
-            Write-Ok "인터넷: $name"
-            Write-Warn "윈도우 프록시 설정($proxy)을 찾아 스크립트에도 써요."
-            return $true
-        }
-        Remove-Item Env:HTTPS_PROXY, Env:HTTP_PROXY -ErrorAction SilentlyContinue
-    }
-
-    # 3) 브라우저는 닿는데 curl 만 막히는 망: 브라우저가 이 주소에 쓰는 프록시(PAC 포함)와
-    #    윈도우 로그인 인증(브라우저가 자동으로 하는 것)을 이 주소에만 똑같이 쓴다
     $site = ([uri]$url).Host
-    $bp = Get-BrowserProxy $url
-    $px = if ($bp) { $bp } elseif ($env:HTTPS_PROXY) { $env:HTTPS_PROXY } else { Get-WindowsProxy }
-    $cands = @()
-    if ($bp) { $cands += ,@('--proxy', $bp) }
-    if ($px) {
-        $cands += ,@('--proxy', $px, '--proxy-negotiate', '--proxy-user', ':')
-        $cands += ,@('--proxy', $px, '--proxy-ntlm', '--proxy-user', ':')
-    }
-    $saved = $script:CurlExtra
-    foreach ($c in $cands) {
-        foreach ($nr in $false, $true) {
-            $script:CurlExtra = if ($nr) { @('--ssl-no-revoke') } else { $saved }
-            $script:HostArgs[$site] = $c
-            if ((Invoke-Probe $url).Code -eq 0) {
-                if ($nr) { $script:NoRevoke = $true; $env:MAMBA_SSL_NO_REVOKE = 'true' }
-                $how = if ($c.Count -gt 2) { "프록시 $px, 윈도우 로그인 인증" } else { "브라우저의 자동 프록시 설정이 고른 프록시 $bp" }
-                Write-Ok "인터넷: $name"
-                Write-Warn "브라우저와 같은 방법으로 접속해요: $site ($how)"
-                return $true
-            }
-        }
-    }
-    $script:CurlExtra = $saved
-    $script:HostArgs.Remove($site)
-
     Write-Bad "인터넷: $name 접속 안 됨 ($url)"
-    Write-Info "    curl 오류 $($first.Code): $($first.Msg)"
-    $hint = Get-NetHint $first.Code
+    Write-Info "    오류: $($first.Msg)"
+    $hint = Get-NetHint $first.Kind
     if ($hint) { Write-Info "    $hint" }
-    $site = ([uri]$url).Host
-    if ($first.Msg -match 'CONNECT tunnel failed, response (\d+)') {
-        Write-Info "    → 회사 프록시가 이 주소($site) 연결을 거절했어요(프록시 응답 $($Matches[1])). 이 주소만 막힌 거예요."
-        Write-Info "      사내 IT에 $site (포트 443) 접속 허용을 요청하세요."
-    } elseif ($first.Msg -match 'reset|abort|closed') {
-        Write-Info "    → 방화벽이나 보안 장비가 이 주소($site) 연결을 중간에 끊었어요. 사내 IT에 $site (포트 443) 접속 허용을 요청하세요."
-    }
+    Write-Info "    사내 IT에 $site (포트 443) 접속 허용을 요청하세요."
     Write-Info "    확인: 브라우저에서 https://$site/ 를 열어 보세요. 오류 글자(XML)라도 뜨면 브라우저로는 연결되는 거고, '연결할 수 없음'이 뜨면 브라우저도 막힌 거예요."
     $pac = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue).AutoConfigURL
     if ($pac) { Write-Info "    이 PC 브라우저는 자동 프록시 설정(PAC)을 써요: $pac" }
+    $bp = Get-BrowserProxy $url
     Write-Info "    브라우저가 이 주소에 쓰는 프록시: $(if ($bp) { $bp } else { '없음(바로 접속)' })"
     return $false
 }
@@ -250,50 +245,27 @@ function Test-Sum($file, $md5, $sha256) {
     return $true
 }
 
-# 이어받기 + 다시 시도. md5 나 sha256 을 주면 받은 뒤 맞는지 본다. 성공하면 $true.
-# 받은 양이 늘고 있는 동안은 몇 번 끊겨도 계속하고, 진전 없이 $tries 번 끊기면 포기한다.
-function Get-File($url, $file, $md5, $tries, $sha256) {
-    if ((Test-Path $file) -and ($md5 -or $sha256) -and (Test-Sum $file $md5 $sha256)) { return $true }
-    $stall = 0
-    while ($stall -lt $tries) {
-        $before = Get-Size $file
-        $ca = Get-CurlArgs $url
-        & curl.exe -sS -L -C - --fail --retry 3 --connect-timeout 30 -Y 1024 -y 120 @ca -o $file $url
-        $code = $LASTEXITCODE
-        if ($code -eq 0) {
-            if (Test-Sum $file $md5 $sha256) { return $true }
-            Write-Warn "체크섬이 맞지 않아 다시 받아요: $(Split-Path -Leaf $file)"
-            Remove-Item -Force $file
-            $stall++
-            continue
-        }
-        if ($code -eq 33 -or $code -eq 36 -or $code -eq 22) {
-            Remove-Item -Force -ErrorAction SilentlyContinue $file   # 이어받기가 안 되면 처음부터
-        }
-        $stall = Step-Retry $stall $before (Get-Size $file) $tries "$(Split-Path -Leaf $file) (curl $code)"
-    }
-    return $false
-}
-
-# aria2c(파일 많은 목록을 동시에 받는 도구). 공식 윈도우판을 받아 지문을 확인하고 저장소의 tools\aria2 에 둔다.
+# aria2c(받기 도구). 공식 윈도우판을 받아 지문을 확인하고 저장소의 tools\aria2 에 둔다(git 에는 안 올라간다).
 # 윈도우판은 인증서를 검증하면서 "폐기 확인 정보 없음"(CRYPT_E_NO_REVOCATION_CHECK)만 넘어가서(SCH_CRED_IGNORE_NO_REVOCATION_CHECK),
-# 폐기 확인 서버에 닿지 않는 회사망에서도 보안 확인을 끄지 않고 받아진다. 받을 때는 .NET 을 쓴다(브라우저처럼 시스템 프록시를 따른다)
+# 폐기 확인 서버에 닿지 않는 회사망에서도 보안 확인을 끄지 않고 받아진다. aria2c 자체는 .NET 으로 받는다
 $Aria2Url    = 'https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip'
 $Aria2ZipSha = '67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288'
 $Aria2ExeSha = 'be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2'
+$script:Aria2Path = $null
 function Get-Aria2 {
+    if ($script:Aria2Path) { return $script:Aria2Path }
+    if ($env:GPU_ARIA2) { $script:Aria2Path = $env:GPU_ARIA2; return $env:GPU_ARIA2 }   # 시험할 때만(tests, 리눅스)
     $dir = Join-Path (Split-Path $PSScriptRoot -Parent) 'tools\aria2'
     $exe = Join-Path $dir 'aria2c.exe'
-    if ((Test-Path $exe) -and (Get-FileHash $exe -Algorithm SHA256).Hash -eq $Aria2ExeSha.ToUpper()) { return $exe }
+    if ((Test-Path $exe) -and (Get-FileHash $exe -Algorithm SHA256).Hash -eq $Aria2ExeSha.ToUpper()) { $script:Aria2Path = $exe; return $exe }
     New-Item -ItemType Directory -Force $dir | Out-Null
     $zip = Join-Path $dir 'aria2.zip'
     try {
         if (-not ((Test-Path $zip) -and (Get-FileHash $zip -Algorithm SHA256).Hash -eq $Aria2ZipSha.ToUpper())) {
             Write-Info 'aria2c 를 준비하는 중이에요(처음 한 번, 2.5 MB)'
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             $wc = New-Object Net.WebClient
-            $wc.Proxy = [Net.WebRequest]::GetSystemWebProxy()
-            $wc.Proxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials
+            if ($env:HTTPS_PROXY) { $wc.Proxy = New-Object Net.WebProxy($env:HTTPS_PROXY) } else { $wc.Proxy = [Net.WebRequest]::GetSystemWebProxy() }
+            if ($wc.Proxy) { $wc.Proxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials }
             $wc.DownloadFile($Aria2Url, $zip)
         }
         if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $Aria2ZipSha.ToUpper()) { Remove-Item -Force $zip; Write-Warn 'aria2c 묶음의 지문이 맞지 않아 지웠어요'; return $null }
@@ -304,11 +276,69 @@ function Get-Aria2 {
             [IO.Compression.ZipFileExtensions]::ExtractToFile($e, $exe, $true)
         } finally { $z.Dispose() }
         if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $Aria2ExeSha.ToUpper()) { Remove-Item -Force $exe; Write-Warn 'aria2c.exe 의 지문이 맞지 않아 지웠어요'; return $null }
+        $script:Aria2Path = $exe
         return $exe
     } catch {
         Write-Warn "aria2c 를 받지 못했어요(github.com 접속을 확인하세요): $($_.Exception.Message)"
         return $null
     }
+}
+
+# 점검 단계용: aria2c 가 없으면 [문제]
+function Test-Aria2 {
+    $a = Get-Aria2
+    if ($a) { Write-Ok "aria2c ($a)"; return $true }
+    Write-Bad 'aria2c 를 준비하지 못했어요. github.com 접속을 확인하거나, 브라우저로 아래 파일을 받아 저장소의 tools\aria2 폴더에 aria2.zip 이라는 이름으로 넣고 다시 실행하세요'
+    Write-Info "    $Aria2Url"
+    return $false
+}
+
+# aria2c 에 붙일 프록시: .env 의 프록시(Get-EnvProxy), 없으면 브라우저가 이 주소에 쓰는 프록시(PAC 포함). aria2c 는 윈도우 로그인 인증을 못 한다
+function Get-Aria2Proxy($url) {
+    $p = Get-EnvProxy $url
+    if (-not $p) { $p = Get-BrowserProxy $url }
+    if ($p) { return @("--all-proxy=$p") }
+    return @()
+}
+
+# aria2c 로 파일 하나를 받는다(이어받기 -c). $conn 은 동시 연결 수. 종료 코드를 돌려준다(aria2c 를 못 구하면 99)
+#   0 받음, 3 없는 주소(404), 22 거절(403 등), 24 인증 실패(401), 8 이어받기 안 됨, 13 받은 파일이 있는데 이어받기를 못 함, 그 밖은 네트워크 문제
+function Invoke-Aria2($url, $file, [string[]]$extra = @(), [int]$conn = 1) {
+    $a = Get-Aria2
+    if (-not $a) { return 99 }
+    $dir = Split-Path $file; $name = Split-Path -Leaf $file
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    # 빈 파일(임시 파일 등)이 있으면 지운다. 이어받기를 못 하는 서버에서는 aria2c 가 덮어쓰지 않으려고 멈춘다(13)
+    if ((Test-Path $file) -and (Get-Item $file).Length -eq 0 -and -not (Test-Path "$file.aria2")) { Remove-Item -Force $file }
+    $px = @(Get-Aria2Proxy $url)
+    & $a -c -d $dir -o $name -x $conn -s $conn --auto-file-renaming=false --file-allocation=none `
+        --max-tries=3 --retry-wait=10 --connect-timeout=30 --timeout=120 `
+        --summary-interval=0 --console-log-level=warn --download-result=hide @px @extra $url | Out-Host   # 화면에만(결과값에 섞이지 않게)
+    return $LASTEXITCODE
+}
+
+# 이어받기 + 다시 시도(aria2c). md5 나 sha256 을 주면 받은 뒤 맞는지 본다. 성공하면 $true.
+# 받은 양이 늘고 있는 동안은 몇 번 끊겨도 계속하고, 진전 없이 $tries 번 끊기면 포기한다.
+function Get-File($url, $file, $md5, $tries, $sha256) {
+    if ((Test-Path $file) -and -not (Test-Path "$file.aria2") -and ($md5 -or $sha256) -and (Test-Sum $file $md5 $sha256)) { return $true }
+    $stall = 0
+    while ($stall -lt $tries) {
+        $before = Get-Size $file
+        $code = Invoke-Aria2 $url $file
+        if ($code -eq 99) { return $false }
+        if ($code -eq 0) {
+            if (Test-Sum $file $md5 $sha256) { return $true }
+            Write-Warn "체크섬이 맞지 않아 다시 받아요: $(Split-Path -Leaf $file)"
+            Remove-Item -Force $file
+            $stall++
+            continue
+        }
+        if ($code -in 3, 8, 13, 22, 24) {
+            Remove-Item -Force -ErrorAction SilentlyContinue $file, "$file.aria2"   # 거절됐거나 이어받기가 안 되면 처음부터
+        }
+        $stall = Step-Retry $stall $before (Get-Size $file) $tries "$(Split-Path -Leaf $file) (aria2c $code)"
+    }
+    return $false
 }
 
 # 지문은 업로드가 끝난 뒤(몇 시간 뒤, 다른 날, NAS를 거친 서버 2)에 맞춰 보므로 화면에만 두지 않고 저장소 맨 위에 쌓아 둔다

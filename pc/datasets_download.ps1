@@ -59,7 +59,7 @@ $Items = @($Items | Where-Object { Want $_.Set })
 $LateItems = @($Items | Where-Object { $_.Late })
 $Items     = @($Items | Where-Object { -not $_.Late })
 
-# Google Drive 에만 있는 것. Drive 에 접속되면 curl 로 받고(이어받기), 안 되면 건너뛴다.
+# Google Drive 에만 있는 것. Drive 에 접속되면 aria2c 로 받고(이어받기), 안 되면 건너뛴다.
 # 브라우저로 받아 datasets\<폴더>\ 에 직접 넣어 둔 압축 파일도 검사해서 목록에 넣는다.
 $DriveItems = @(
     @{ Set = 'rellis_2d';  GB = 11; Name = 'images';            Id = '1F3Leu0H_m6aPVpZITragfreO_SGtL2yV' }
@@ -144,14 +144,6 @@ function Set-Done($okFile, $file) {
     [IO.File]::WriteAllText($okFile, "$hash  $rel`n", (New-Object Text.UTF8Encoding $false))
 }
 
-function Get-RemoteSize($url) {
-    $ca = Get-CurlArgs $url
-    $h = & curl.exe -sIL --connect-timeout 30 --max-time 60 @ca $url
-    $m = $h | Select-String '^content-length:\s*(\d+)'
-    if ($m) { return [int64]$m[-1].Matches[0].Groups[1].Value }
-    return $null
-}
-
 # 조각(.part-aa, -ab …)으로 나뉜 파일: 조각마다 이어받기로 받고 크기를 맞춘 뒤 하나로 합쳐 검사한다. 성공하면 조각은 지운다
 function Get-PartName([int]$i) { return [string][char][int](97 + [math]::Floor($i / 26)) + [string][char][int](97 + $i % 26) }   # 0 → aa, 26 → ba
 function Get-Parts($url, $file, $count) {
@@ -194,19 +186,24 @@ function Get-Url($url, $file, $tries = $MaxTries) {
     while ($stall -lt $tries) {
         $remote = Get-RemoteSize $url
         $local  = if (Test-Path $file) { (Get-Item $file).Length } else { 0 }
-        if (-not ($remote -and $local -eq $remote)) {
+        if (-not ($remote -and $local -eq $remote -and -not (Test-Path "$file.aria2"))) {
             if ($remote -and $local -gt $remote) { Remove-Item -Force $file }
             if ($local) { Write-Info "이어받기: $(Format-Size $local)부터" }
-            # -C - : 이어받기, -Y/-y : 2분 동안 1 KB/s 아래면 끊고 다시
-            $ca = Get-CurlArgs $url
-            & curl.exe -L -C - --fail --retry 3 --retry-delay 10 --connect-timeout 30 -Y 1024 -y 120 @ca -o $file $url
-            $code = $LASTEXITCODE
-            if ($code -eq 33 -or $code -eq 36) {
+            $code = Invoke-Aria2 $url $file
+            if ($code -eq 99) { return $null }
+            if ($code -in 8, 13) {
                 Write-Warn '다운로드 사이트가 이어받기를 지원하지 않아서 처음부터 다시 받아요'
-                Remove-Item -Force -ErrorAction SilentlyContinue $file
+                Remove-Item -Force -ErrorAction SilentlyContinue $file, "$file.aria2"
+            }
+            # 없는 주소(404)·거절(403)·인증 실패(401)는 다시 해도 같다
+            if ($code -in 3, 22, 24 -and -not ((Get-Size $file) -gt $local)) {
+                $r = Invoke-Http $url -Range '0-0' -Max 2048
+                Write-Bad "사이트가 거절했어요(HTTP $($r.Status)): $(Split-Path -Leaf $file). 주소가 바뀌었거나 막힌 거예요"
+                Write-Info "    주소: $(($url -split '\?')[0])"
+                return $null
             }
             if ($code -ne 0) {
-                $stall = Step-Retry $stall $local (Get-Size $file) $tries "curl $code"
+                $stall = Step-Retry $stall $local (Get-Size $file) $tries "aria2c $code"
                 continue
             }
         }
@@ -230,28 +227,23 @@ function Get-Url($url, $file, $tries = $MaxTries) {
 
 # WildScenes: CSIRO 포털의 S3 저장소에서 AWS CLI 로 받는다(uv 로 실행해 따로 설치하지 않는다)
 function Invoke-Aws {
-    # 이 주소에만 따로 찾은 프록시가 있으면 AWS CLI 에도 쓴다(윈도우 로그인 인증은 AWS CLI 가 못 한다)
-    $pa = $script:HostArgs[([uri]$script:WsEndpoint).Host]
+    # .env 에 프록시가 없으면 브라우저가 이 주소에 쓰는 프록시를 AWS CLI 에도 쓴다(윈도우 로그인 인증은 AWS CLI 가 못 한다)
+    $pa = if ($env:HTTPS_PROXY) { $null } else { Get-BrowserProxy $script:WsEndpoint }
     $old = $env:HTTPS_PROXY
-    if ($pa) { $env:HTTPS_PROXY = $pa[1] }
+    if ($pa) { $env:HTTPS_PROXY = $pa }
     try { & $uv tool run --from awscli aws @args --endpoint-url $script:WsEndpoint }
     finally { if ($pa) { $env:HTTPS_PROXY = $old } }
 }
 
 # 링크가 401·403 으로 거절될 때 서버가 돌려준 이유를 보여 준다(상태 줄, Server, WWW-Authenticate, 본문 앞부분). 주소의 ? 뒤(서명)는 가린다
 function Show-WsDenied($it) {
-    $tmp = [IO.Path]::GetTempFileName(); $hd = [IO.Path]::GetTempFileName()
-    try {
-        $ca = Get-CurlArgs $it.Url
-        $hdr = @($it.Headers | ForEach-Object { '-H', $_ })
-        & curl.exe -sS -L -r 0-1023 --connect-timeout 30 --max-time 60 @ca @hdr -D $hd -o $tmp $it.Url 2>&1 | Out-Null
-        Write-Info "    거절된 주소: $(($it.Url -split '\?')[0])?…  (목록의 머리글 줄 $($it.Headers.Count)개를 같이 보냈어요)"
-        foreach ($h in [IO.File]::ReadAllLines($hd)) {
-            if ($h -match '^(HTTP/|server:|www-authenticate:|x-amz-|content-type:|location:)' -and $h -notmatch 'Connection Established') { Write-Info "    응답: $(($h -replace '\?\S*', '?…').Trim())" }
-        }
-        $body = [IO.File]::ReadAllText($tmp)
-        if ($body) { Write-Info "    응답 본문: $((($body -replace '\s+', ' ') -replace '(Signature|Credential|AccessKeyId|Token)[^<]*', '$1…').Substring(0, [math]::Min(400, $body.Length)))" }
-    } catch { } finally { Remove-Item -Force -ErrorAction SilentlyContinue $tmp, $hd }
+    $h = @{}; foreach ($x in $it.Headers) { if ($x -match '^([^:]+):\s*(.*)$') { $h[$Matches[1]] = $Matches[2] } }
+    $r = Invoke-Http $it.Url -Range '0-1023' -Max 2048 -Headers $h
+    Write-Info "    거절된 주소: $(($it.Url -split '\?')[0])?…  (목록의 머리글 줄 $($it.Headers.Count)개를 같이 보냈어요)"
+    if (-not $r.Ok) { Write-Info "    응답 없음: $($r.Error)"; return }
+    Write-Info "    응답: HTTP $($r.Status)"
+    foreach ($k in 'server', 'www-authenticate', 'content-type', 'location') { if ($r.Headers[$k]) { Write-Info "    응답: ${k}: $(($r.Headers[$k] -replace '\?\S*', '?…').Trim())" } }
+    if ($r.Body) { $t = (($r.Body -replace '\s+', ' ') -replace '(Signature|Credential|AccessKeyId|Token)[^<]*', '$1…'); Write-Info "    응답 본문: $($t.Substring(0, [math]::Min(400, $t.Length)))" }
 }
 
 # 포털 "Get a list of file download links" 의 목록 파일에서 WildScenes2d 아래 파일만 고른다.
@@ -262,7 +254,7 @@ function Get-WsLinks($file) {
     $script:WsLinkSample = @()
     $last = $null
     foreach ($l in [IO.File]::ReadAllLines($file)) {
-        # 들여쓴 aria2 옵션 줄. header= 는 바로 위 링크에 필요한 머리글(인증 등)이라 curl 에도 넘긴다. 나머지(out= 등)는 쓰지 않는다
+        # 들여쓴 aria2 옵션 줄. header= 는 바로 위 링크에 필요한 머리글(인증 등)이라 aria2c 에도 넘긴다. 나머지(out= 등)는 쓰지 않는다
         if ($l -match '^\s+(\S+?)=(.*)$') {
             if ($last -and $Matches[1] -ieq 'header') { $last.Headers.Add($Matches[2].Trim()) }
             continue
@@ -322,47 +314,33 @@ function Get-DoneDrive($target) {
 }
 
 # 큰 파일 확인 페이지가 주는 쿠키를 다음 요청에 이어 쓴다
-$DriveJar = Join-Path $env:TEMP 'gpu_drive_cookies.txt'   # 서버에 올리는 datasets 폴더에 섞이지 않게
+$DriveJar = Join-Path ([IO.Path]::GetTempPath()) 'gpu_drive_cookies.txt'   # aria2c 쿠키. 서버에 올리는 datasets 폴더에 섞이지 않게
+$script:DriveCookies = New-Object Net.CookieContainer   # .NET 진단 요청의 쿠키
 
 # Google Drive 파일 하나를 앞부분만 받아 보고, 안 되면 왜 안 되는지 가린다.
 # 응답 머리글과 본문 앞부분은 datasets\drive_check 에 남긴다(담당자에게 보낼 자료)
 function Test-DriveFile($id) {
     $save = Join-Path $Dest 'drive_check'
     New-Item -ItemType Directory -Force $save | Out-Null
-    $hdr  = Join-Path $save "$id.headers.txt"
-    $body = Join-Path $save "$id.body.txt"
-    Remove-Item -Force -ErrorAction SilentlyContinue $hdr, $body
     $url = "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
-    # 앞 64 KB 만 요청하고, 서버가 무시하고 통째로 보내면 1 MB 에서 끊는다(그래도 '받을 수 있음' 이다)
-    $ca = Get-CurlArgs $url
-    # -v : 응답이 아예 없을 때도 어디서 막혔는지(DNS, 프록시, TLS) 알 수 있게 연결 과정을 남긴다
-    $out = & curl.exe -v -sS -L -r 0-65535 --max-filesize 1048576 --connect-timeout 30 --max-time 90 `
-        -b $DriveJar -c $DriveJar @ca -D $hdr -o $body -w '##%{http_code}|%{url_effective}|%{content_type}' `
-        --stderr - $url | Out-String
-    $code = $LASTEXITCODE
-    $http = 0; $final = ''; $ctype = ''
-    if ($out -match '##(\d{3})\|([^|]*)\|(.*)') { $http = [int]$Matches[1]; $final = $Matches[2]; $ctype = $Matches[3].Trim() }
-    $err = (@($out -split "`r?`n" | Where-Object { $_ -match '^curl: \(' }) -join ' ').Trim()
-    # 응답이 없어도 진단 기록은 항상 남긴다(쿠키 줄은 뺀다)
-    $trace = @($out -split "`r?`n" | Where-Object { $_ -notmatch '^[<>] (Set-)?Cookie:' }) -join "`r`n"
+    # 앞 64 KB 만 요청한다(서버가 무시하고 통째로 보내도 64 KB 만 읽는다)
+    $r = Invoke-Http $url -Range '0-65535' -Max 65536 -Cookies $script:DriveCookies -TimeoutSec 90
+    $http = $r.Status; $final = $r.Url; $ctype = [string]$r.Headers['content-type']; $text = $r.Body
     $bp = Get-BrowserProxy $url
+    # 응답이 없어도 진단 기록은 항상 남긴다(쿠키 머리글은 뺀다)
+    $hl = @($r.Headers.Keys | Where-Object { $_ -notmatch 'cookie' } | Sort-Object | ForEach-Object { "${_}: $($r.Headers[$_])" })
     [IO.File]::WriteAllText((Join-Path $save "$id.report.txt"), (@(
-        "시각: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')", "주소: $url", "curl 종료 코드: $code",
-        "curl 버전: $((& curl.exe -V | Select-Object -First 1))", "추가 인자: $($ca -join ' ')",
+        "시각: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')", "주소: $url", "응답: $(if ($r.Ok) { "HTTP $http" } else { "없음($($r.Kind)) $($r.Error)" })", "마지막 주소: $final",
         "HTTPS_PROXY: $env:HTTPS_PROXY", "윈도우 프록시: $(Get-WindowsProxy)", "브라우저가 이 주소에 쓰는 프록시: $bp",
-        '', '---- curl 연결 과정 ----', $trace) -join "`r`n"), (New-Object Text.UTF8Encoding $false))
-    $h = if (Test-Path $hdr) { [IO.File]::ReadAllText($hdr) } else { '' }
-    $blocks = @($h -split '(?m)^(?=HTTP/)' | Where-Object { $_.Trim() })
-    $last = if ($blocks.Count) { $blocks[-1] } else { '' }   # 넘겨주기(redirect) 끝의 마지막 응답
-    $server = if ($last -match '(?im)^server:\s*(.+)$') { $Matches[1].Trim() } else { '' }
-    $google = $last -match '(?im)^(x-guploader-uploadid|server:\s*(uploadserver|esf|gse|sffe|gws|google))'
-    $text = if (Test-Path $body) { [IO.File]::ReadAllText($body) } else { '' }
+        '', '---- 응답 머리글 ----') + $hl + @('', '---- 본문 앞부분 ----', $text.Substring(0, [math]::Min(4000, $text.Length))) -join "`r`n"), (New-Object Text.UTF8Encoding $false))
+    $server = [string]$r.Headers['server']
+    $google = $r.Headers.ContainsKey('x-guploader-uploadid') -or $server -match '(?i)uploadserver|esf|gse|sffe|gws|google'
     $title = if ($text -match '(?is)<title>(.*?)</title>') { ($Matches[1] -replace '\s+', ' ').Trim() } else { '' }
     $html = ($ctype -like 'text/html*') -or $text.TrimStart().StartsWith('<')
     $kind = 'other'
-    if ($code -eq 56 -and $err -match 'CONNECT tunnel failed, response (\d+)') { $kind = 'proxy'; $http = [int]$Matches[1] }
-    elseif ($code -eq 63) { $kind = 'ok' }
-    elseif ($code -ne 0 -and -not $http) { $kind = 'net' }
+    if (-not $r.Ok -and $r.Kind -eq 'proxy') { $kind = 'proxy' }
+    elseif (-not $r.Ok) { $kind = 'net' }
+    elseif ($http -eq 407) { $kind = 'proxy' }
     elseif (($http -eq 200 -or $http -eq 206) -and -not $html) { $kind = 'ok' }
     elseif ($text -match 'Too many users|Quota exceeded|download quota|할당량') { $kind = 'quota' }
     elseif ($final -match 'accounts\.google\.com' -or $text -match 'ServiceLogin|You need access|Request access|액세스 권한') { $kind = 'login' }
@@ -370,11 +348,11 @@ function Test-DriveFile($id) {
     elseif ($http -eq 200 -and $text -match 'name="uuid"') { $kind = 'confirm' }
     elseif (-not $google) { $kind = 'proxy' }
     elseif ($http -ge 400) { $kind = 'google' }
-    return [pscustomobject]@{ Kind = $kind; Http = $http; Curl = $code; Err = $err; Server = $server; Title = $title; Saved = $save }
+    return [pscustomobject]@{ Kind = $kind; Http = $http; Code = $(if ($r.Ok) { 0 } else { 1 }); NetKind = $r.Kind; Err = $r.Error; Server = $server; Title = $title; Saved = $save }
 }
 
 function Show-DriveDiag($d, $label) {
-    $info = "HTTP $($d.Http), curl $($d.Curl)"
+    $info = "HTTP $($d.Http)"
     if ($d.Server) { $info += ", Server: $($d.Server)" }
     if ($d.Title)  { $info += ", 페이지 제목: $($d.Title)" }
     switch ($d.Kind) {
@@ -392,9 +370,8 @@ function Show-DriveDiag($d, $label) {
                     Write-Info '    사내 IT에 drive.usercontent.google.com 파일 다운로드 허용을 요청하세요. 위 Server와 페이지 제목도 같이 알려 주세요.' }
         'google'  { Write-Bad "${label}: Google이 거절했는데 이유를 알 수 없어요 ($info)" }
         'net'     { Write-Bad "${label}: 응답을 받기 전에 연결이 끊겼어요 ($($d.Err))"
-                    if ($d.Err -match '\((6|7|28)\)') { Write-Info '    주소를 찾지 못했거나 연결이 막혔어요. 브라우저만 프록시를 쓰는 망일 수 있어요.' }
-                    elseif ($d.Err -match '\((35|60)\)') { Write-Info '    보안 연결(TLS) 단계에서 실패했어요. 회사 보안 장비가 막거나 인증서를 바꾸는 망이에요.' }
-                    elseif ($d.Err -match '\(56\)') { Write-Info '    연결 중에 끊겼어요. 대부분 회사 프록시나 방화벽이 막은 경우예요.' } }
+                    $hint = Get-NetHint $d.NetKind
+                    if ($hint) { Write-Info "    $hint" } }
         default   { Write-Bad "${label}: 예상하지 못한 응답이에요 ($info)" }
     }
     if ($d.Kind -ne 'ok' -and $d.Kind -ne 'confirm') {
@@ -403,33 +380,31 @@ function Show-DriveDiag($d, $label) {
     }
 }
 
-# Google Drive 파일을 curl 로 받는다. 끊기면 이어받고, 큰 파일의 "바이러스 검사 안 함" 확인 페이지도 넘긴다
+# Google Drive 파일을 aria2c 로 받는다. 끊기면 이어받고, 큰 파일의 "바이러스 검사 안 함" 확인 페이지도 넘긴다(쿠키는 $DriveJar 에 유지)
 function Get-Drive($id, $target) {
     New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
     $part = "$target.download"
-    $hdr  = "$target.headers"   # 응답 머리글. 압축이 아닌 파일(rosbag, 보정 파일)은 원래 파일 이름의 확장자를 여기서 가져온다
     $url  = "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
     $stall = 0
     while ($stall -lt $MaxTries) {
         $local = Get-Size $part
         if ($local) { Write-Info "이어받기: $(Format-Size $local)부터" }
-        $ca = Get-CurlArgs $url
-        & curl.exe -L -C - --fail --retry 3 --retry-delay 10 --connect-timeout 30 -Y 1024 -y 120 `
-            -b $DriveJar -c $DriveJar @ca -D $hdr -o $part $url
-        $code = $LASTEXITCODE
-        if ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $part }
-        if ($code -eq 22 -or $code -eq 56) {
+        if (-not (Test-Path $DriveJar)) { [IO.File]::WriteAllText($DriveJar, '') }
+        $code = Invoke-Aria2 $url $part @("--load-cookies=$DriveJar", "--save-cookies=$DriveJar")
+        if ($code -eq 99) { return $null }
+        if ($code -in 8, 13) { Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
+        if ($code -in 3, 22, 24) {
             # 403 같은 거절: 다시 해도 소용없는 경우면 기다리지 말고 이유를 알려 준다
             $d = Test-DriveFile $id
             if ($d.Kind -eq 'ok' -or $d.Kind -eq 'confirm') {
-                if ($local) { Write-Warn 'Google Drive가 이어받기 요청을 거절했어요. 처음부터 다시 받아요'; Remove-Item -Force $part }
+                if ($local) { Write-Warn 'Google Drive가 이어받기 요청을 거절했어요. 처음부터 다시 받아요'; Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
             } elseif ($d.Kind -ne 'net') {
                 Show-DriveDiag $d $id
                 return $null
             }
         }
         if ($code -ne 0) {
-            $stall = Step-Retry $stall $local (Get-Size $part) $MaxTries "curl $code"
+            $stall = Step-Retry $stall $local (Get-Size $part) $MaxTries "aria2c $code"
             continue
         }
         $ext = Get-ArchiveExt $part
@@ -459,12 +434,11 @@ function Get-Drive($id, $target) {
             $stall++
             continue
         }
-        if ($ext -eq '.bin' -and (Test-Path $hdr)) {
-            # 압축이 아니면 Drive 가 알려 준 원래 파일 이름(Content-Disposition)의 확장자를 쓴다. 예: .bag, .yaml, .txt
-            $cd = [regex]::Matches([IO.File]::ReadAllText($hdr), '(?im)^content-disposition:.*?filename="?([^";\r\n]+)')
-            if ($cd.Count) { $e = [IO.Path]::GetExtension($cd[$cd.Count - 1].Groups[1].Value); if ($e -match '^\.[A-Za-z0-9]{1,6}$') { $ext = $e.ToLower() } }
+        if ($ext -eq '.bin') {
+            # 압축이 아니면 Drive 가 알려 주는 원래 파일 이름(Content-Disposition)의 확장자를 쓴다. 예: .bag, .yaml, .txt
+            $hr = Invoke-Http $url -Range '0-0' -Max 0 -Cookies $script:DriveCookies
+            if ([string]$hr.Headers['content-disposition'] -match 'filename="?([^";]+)') { $e = [IO.Path]::GetExtension($Matches[1]); if ($e -match '^\.[A-Za-z0-9]{1,6}$') { $ext = $e.ToLower() } }
         }
-        Remove-Item -Force -ErrorAction SilentlyContinue $hdr
         $final = "$target$ext"
         Move-Item -Force $part $final
         return $final
@@ -497,7 +471,6 @@ function Read-Plain($prompt) {
 if ($DriveCheck) {
     Write-Host ''
     Write-Host '[Google Drive 진단] 파일마다 앞부분만 받아 봐요(데이터셋은 받지 않아요)' -ForegroundColor Cyan
-    Write-Host "  curl: $((& curl.exe -V | Select-Object -First 1))"
     $p = Get-WindowsProxy
     Write-Host "  윈도우 프록시: $(if ($p) { $p } else { '없음' }), HTTPS_PROXY: $(if ($env:HTTPS_PROXY) { $env:HTTPS_PROXY } else { '없음' })"
     Test-Site 'Google Drive' 'https://drive.google.com/' | Out-Null
@@ -516,9 +489,8 @@ if ($DriveCheck) {
 Write-Step 1 $T '점검'
 $uv = Find-Exe 'uv' $root
 if ($uv) { Write-Ok "uv : $uv" } else { Write-Bad 'uv가 없어요' }
-foreach ($e in 'curl.exe', 'tar.exe') {
-    if (Get-Command $e -ErrorAction SilentlyContinue) { Write-Ok $e } else { Write-Bad "없는 프로그램: $e (윈도우 10 1803 이후에는 기본으로 들어 있어요)" }
-}
+if (Get-Command 'tar.exe' -ErrorAction SilentlyContinue) { Write-Ok 'tar.exe' } else { Write-Bad '없는 프로그램: tar.exe (윈도우 10 1803 이후에는 기본으로 들어 있어요)' }
+Test-Aria2 | Out-Null
 if (-not (Test-Path $check)) { Write-Bad '없는 파일: pc\check_archive.py (git pull로 저장소를 최신으로 받으세요)' }
 if (-not (Test-Path (Join-Path $root 'server\datasets_install.sh'))) { Write-Bad '없는 파일: server\datasets_install.sh (git pull로 저장소를 최신으로 받으세요)' }
 if ($script:Fails) {
@@ -531,7 +503,7 @@ if ($Items | Where-Object { $_.Set -like 'goose*' }) { $sites['goose-dataset.de'
 if ($Items | Where-Object { $_.Set -eq 'RUGD' })     { $sites['rugd.vision'] = 'http://rugd.vision/' }
 foreach ($k in $sites.Keys) { Test-Site $k $sites[$k] | Out-Null }
 if ($script:Fails) {
-    Stop-Run '접속되지 않는 사이트가 있어요' ('위 [문제] 줄 아래의 curl 오류와 설명을 보세요. 브라우저에서는 열린다면 ' +
+    Stop-Run '접속되지 않는 사이트가 있어요' ('위 [문제] 줄 아래의 오류와 설명을 보세요. 브라우저에서는 열린다면 ' +
         '사내 IT에 프록시 주소를 물어 .env 에 HTTPS_PROXY=http://프록시주소:포트 를 적고 다시 실행하세요. ' +
         '한 사이트만 막혔다면 -Only로 나머지만 먼저 받으세요(예: -Only goose,gooseEx).')
 }
@@ -541,7 +513,7 @@ $driveOk = $false
 if ($DriveItems.Count) {
     $d1 = Invoke-Probe 'https://drive.google.com/'
     if ($d1.Code -ne 0) {
-        Write-Warn "Google Drive 접속 안 됨(curl $($d1.Code)). RELLIS-3D, TAS500, GO는 건너뛰고 나머지를 받아요. 접속되면 같은 명령을 다시 실행하세요."
+        Write-Warn "Google Drive 접속 안 됨($($d1.Msg)). RELLIS-3D, TAS500, GO는 건너뛰고 나머지를 받아요. 접속되면 같은 명령을 다시 실행하세요."
     } else {
         # 첫 페이지만 열리고 파일 받기는 막힌 망이 있어, 실제 파일 하나를 앞부분만 받아 본다
         $d = Test-DriveFile $DriveItems[0].Id
@@ -616,11 +588,6 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
         Skip-Wild 'CSIRO S3 저장소에 접속되지 않아요' ('위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면(401, AccessDenied 같은 오류가 떠도 열린 거예요) ' +
             'docs\5_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요.'); break
     }
-    $pa = $script:HostArgs[([uri]$script:WsEndpoint).Host]
-    if ($pa -and $pa.Count -gt 2) {
-        Skip-Wild 'CSIRO S3 저장소는 윈도우 로그인 인증 프록시로만 연결되는데, AWS CLI는 그 인증을 하지 못해요' `
-            'docs\5_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요(curl로 받아서 인증이 돼요).'; break
-    }
 
     Write-Info 'AWS CLI를 준비하는 중이에요(처음 한 번만)'
     & $uv tool install awscli | Out-Host
@@ -683,17 +650,16 @@ if ($doWild) {
         $done = $false
         $stall = 0
         if ($WildScenesLinks) {
-            # 링크 목록: 파일마다 curl 로 이어받기. 끝난 파일은 목록에 적어 다시 실행하면 건너뛴다
+            # 링크 목록: aria2c 로 받는다. 끝난 파일은 목록에 적어 다시 실행하면 건너뛴다
             $links = $script:WsLinks
             $doneFile = "$wdir.links_done.txt"
             $doneSet = New-Object 'System.Collections.Generic.HashSet[string]'
             if (Test-Path $doneFile) { foreach ($x in [IO.File]::ReadAllLines($doneFile)) { [void]$doneSet.Add($x) } }
             $utf8 = New-Object Text.UTF8Encoding $false
             $expired = $false
-            # aria2c 가 있으면 그것으로 받는다(목록이 aria2 형식이고, 동시에 여러 파일을 받아 빠르고, 폐기 확인 서버에 닿지 않는 망에서도 된다).
-            # 못 구하면 아래 curl 로 하나씩 받는다
+            # 목록이 aria2 형식이고, 동시에 여러 파일을 받아 빠르다
             $aria = Get-Aria2
-            if ($aria) { Write-Ok "aria2c 로 받아요(동시에 16개): $aria" } else { Write-Warn 'aria2c 를 쓸 수 없어서 curl 로 하나씩 받아요(느려요)' }
+            if ($aria) { Write-Ok "aria2c 로 받아요(동시에 16개)" }
             $ain = "$wdir.aria2_input.txt"; $asess = "$wdir.aria2_session.txt"; $alog = "$wdir.aria2.log"
             while ($aria -and $stall -lt $MaxTries) {
                 $todo = @($links | Where-Object { -not $doneSet.Contains($_.Rel) })
@@ -709,7 +675,7 @@ if ($doWild) {
                 [IO.File]::WriteAllText($ain, $sb.ToString(), (New-Object Text.UTF8Encoding $false))
                 Remove-Item -Force -ErrorAction SilentlyContinue $asess, $alog
                 New-Item -ItemType Directory -Force $wdir | Out-Null
-                $px = @(); if ($env:HTTPS_PROXY) { $px = @("--all-proxy=$env:HTTPS_PROXY") }
+                $px = @(Get-Aria2Proxy $todo[0].Url)
                 # -c 이어받기, --save-session: 끝나지 않았거나 실패한 것만 적어 둔다(거기 없는 것 = 다 받은 것)
                 & $aria -i $ain -d $wdir -c -j 16 -x 1 --auto-file-renaming=false --file-allocation=none `
                     --max-tries=5 --retry-wait=10 --connect-timeout=30 --timeout=120 `
@@ -739,42 +705,9 @@ if ($doWild) {
                 Write-Bad 'WildScenes 링크가 만료됐거나 거절됐어요(401·403)'
                 Write-Info "    포털($WsPortal)에서 링크 목록을 새로 받아 같은 명령을 다시 실행하세요. 받은 파일은 건너뛰어요."
                 Write-Info "    aria2c 기록: $alog"
+                if ($todo.Count) { Show-WsDenied $todo[0] }
             }
-            while (-not $aria -and $stall -lt $MaxTries) {
-                $todo = @($links | Where-Object { -not $doneSet.Contains($_.Rel) })
-                if (-not $todo.Count) { $done = $true; break }
-                $before = $doneSet.Count
-                $i = 0
-                $shown = 0
-                foreach ($it in $todo) {
-                    $i++
-                    if ($i % 20 -eq 1) { Write-Progress -Activity 'WildScenes 받기' -Status "$($doneSet.Count)/$($links.Count) 완료, 지금: $($it.Rel)" -PercentComplete (100 * $doneSet.Count / $links.Count) }
-                    $out = Join-Path $wdir $it.Rel
-                    New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
-                    $ca = Get-CurlArgs $it.Url
-                    $hdr = @($it.Headers | ForEach-Object { '-H', $_ })
-                    $msg = & curl.exe -sS -L -C - --fail --retry 3 --retry-delay 5 --connect-timeout 30 -Y 1024 -y 120 @ca @hdr `
-                        -o $out --stderr - $it.Url | Out-String
-                    $code = $LASTEXITCODE
-                    if ($code -eq 0) { [void]$doneSet.Add($it.Rel); [IO.File]::AppendAllText($doneFile, "$($it.Rel)`n", $utf8) }
-                    # 401·403 은 링크가 만료됐거나 거절된 것이라 다른 파일도 똑같다. 다시 시도하지 않고 바로 멈춘다
-                    elseif ($msg -match 'returned error: 40[13]') { $expired = $true; Write-Info "    $($it.Rel): $($msg.Trim())"; Show-WsDenied $it; break }
-                    else {
-                        if ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $out }
-                        # 실패 이유를 처음 몇 개만 보여 준다(전부는 기록 파일이 너무 길어진다)
-                        if ($shown -lt 3) { $shown++; Write-Warn "받지 못한 파일: $($it.Rel) (curl $code $($msg.Trim()))" }
-                    }
-                }
-                Write-Progress -Activity 'WildScenes 받기' -Completed
-                if ($expired) {
-                    Write-Bad 'WildScenes 링크가 만료됐거나 거절됐어요(401·403)'
-                    Write-Info "    포털($WsPortal)에서 링크 목록을 새로 받아 같은 명령을 다시 실행하세요. 받은 파일은 건너뛰어요."
-                    Write-Info '    새 목록으로도 바로 이 줄이 나오면, 위 "응답:" 줄들을 담당자에게 보내 주세요(서명 값은 가려 놨어요).'
-                    break
-                }
-                if ($doneSet.Count -gt $before) { $stall = 0; Write-Warn "남은 $($links.Count - $doneSet.Count)개를 다시 받아요"; Start-Sleep 10 }
-                else { $stall = Step-Retry $stall 0 0 $MaxTries 'WildScenes' }
-            }
+            if (-not $aria) { Write-Bad 'aria2c 가 없어서 WildScenes 를 받지 못했어요(위 aria2c 준비 [문제] 를 보세요)' }
         }
         while (-not $WildScenesLinks -and -not $done -and $stall -lt $MaxTries) {
             # sync 는 이미 받은 파일을 건너뛰므로 몇 번이고 다시 해도 된다

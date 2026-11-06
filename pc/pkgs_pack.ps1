@@ -77,8 +77,7 @@ function Split-Alts($clause) {
 Write-Step 1 $T '점검'
 if (Get-Command 'tar.exe' -ErrorAction SilentlyContinue) { Write-Ok 'tar.exe' }
 else { Write-Bad '없는 프로그램: tar.exe (윈도우 10 1803 이후에는 기본으로 들어 있어요)' }
-if (Get-Command 'curl.exe' -ErrorAction SilentlyContinue) { Write-Ok 'curl.exe' }
-else { Write-Bad '없는 프로그램: curl.exe (윈도우 10 1803 이후에는 기본으로 들어 있어요)' }
+Test-Aria2 | Out-Null
 if (-not (Test-Path (Join-Path $root 'server\pkgs_install.sh'))) { Write-Bad '없는 파일: server\pkgs_install.sh (git pull로 저장소를 최신으로 받으세요)' }
 Test-Site 'Ubuntu 패키지 저장소' "$UbuBase/dists/$Code/Release" | Out-Null
 if ($script:Fails) {

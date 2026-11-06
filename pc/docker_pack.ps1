@@ -74,9 +74,8 @@ function Get-VerKey($v) {
 
 # ------------------------------------------------------------------ 1. 점검
 Write-Step 1 $T '점검'
-foreach ($e in 'curl.exe', 'tar.exe') {
-    if (Get-Command $e -ErrorAction SilentlyContinue) { Write-Ok $e } else { Write-Bad "없는 프로그램: $e (윈도우 10 1803 이후에는 기본으로 들어 있어요)" }
-}
+if (Get-Command 'tar.exe' -ErrorAction SilentlyContinue) { Write-Ok 'tar.exe' } else { Write-Bad '없는 프로그램: tar.exe (윈도우 10 1803 이후에는 기본으로 들어 있어요)' }
+Test-Aria2 | Out-Null
 foreach ($f in 'server\docker_install.sh') {
     if (-not (Test-Path (Join-Path $root $f))) { Write-Bad "없는 파일: $f (git pull로 저장소를 최신으로 받으세요)" }
 }
@@ -142,16 +141,16 @@ foreach ($code in 'jammy', 'noble') {
 foreach ($plug in @(
         @{ Repo = 'docker/buildx';  Name = 'docker-buildx';  File = { param($t) "buildx-$t.linux-amd64" } },
         @{ Repo = 'docker/compose'; Name = 'docker-compose'; File = { param($t) 'docker-compose-linux-x86_64' } })) {
-    $ca = Get-CurlArgs 'https://github.com/'
-    $loc = & curl.exe -sS -o NUL -w '%{redirect_url}' @ca "https://github.com/$($plug.Repo)/releases/latest"
+    # releases/latest 가 넘겨주는 주소(…/tag/v1.2.3)에서 버전을 읽는다
+    $loc = [string](Invoke-Http "https://github.com/$($plug.Repo)/releases/latest" -NoRedirect -Max 0).Headers['location']
     if ($loc -match '/tag/(v[\d.]+)$') {
         $t = $Matches[1]
         $fn = & $plug.File $t
         # 파일 이름이 버전과 상관없이 같으므로, 공식 체크섬으로 확인한다(없으면 매번 새로 받아 예전 파일에 이어 붙지 않게)
         $sha = $null
-        $sums = @(& curl.exe -sS -L --fail @ca "https://github.com/$($plug.Repo)/releases/download/$t/checksums.txt" 2>$null)
-        if ($LASTEXITCODE -eq 0) {
-            foreach ($l in $sums) { if ($l -match "^([0-9a-f]{64})\s+\*?$([regex]::Escape($fn))\s*$") { $sha = $Matches[1] } }
+        $sr = Invoke-Http "https://github.com/$($plug.Repo)/releases/download/$t/checksums.txt" -Max 1048576
+        if ($sr.Ok -and $sr.Status -eq 200) {
+            foreach ($l in ($sr.Body -split "`r?`n")) { if ($l -match "^([0-9a-f]{64})\s+\*?$([regex]::Escape($fn))\s*$") { $sha = $Matches[1] } }
         }
         $plan += [pscustomobject]@{ Dir = 'plugins'; Url = "https://github.com/$($plug.Repo)/releases/download/$t/$fn"; Sha = $sha; Name = $plug.Name; Fresh = (-not $sha) }
         if ($sha) { Write-Ok "$($plug.Name) $t" } else { Write-Warn "$($plug.Name) ${t}: 공식 체크섬을 찾지 못해 새로 받아요(받은 뒤 확인은 못 해요)" }

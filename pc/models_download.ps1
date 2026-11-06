@@ -67,13 +67,13 @@ Test-Site 'Hugging Face' 'https://huggingface.co/' | Out-Null
 Test-Site 'PyPI (받기 도구)' 'https://pypi.org/simple/pip/' | Out-Null
 if (@($Models | Where-Object { $_.Code }).Count) { Test-Site 'GitHub (모델 코드)' 'https://github.com/' | Out-Null }
 if ($script:Fails) {
-    Stop-Run '접속되지 않는 사이트가 있어요' ('위 [문제] 줄 아래의 curl 오류와 설명을 보세요. 브라우저에서는 열린다면 ' +
+    Stop-Run '접속되지 않는 사이트가 있어요' ('위 [문제] 줄 아래의 오류와 설명을 보세요. 브라우저에서는 열린다면 ' +
         '사내 IT에 프록시 주소를 물어 .env 에 HTTPS_PROXY=http://프록시주소:포트 를 적고 다시 실행하세요.')
 }
 # 큰 파일은 이 주소들에서 내려온다. 막혀 있으면 받다가 실패한다
 foreach ($h in 'https://cas-bridge.xethub.hf.co/', 'https://cdn-lfs.hf.co/') {
     $r = Invoke-Probe $h
-    if ($r.Code -eq 0) { Write-Ok "인터넷: $h" } else { Write-Warn "인터넷: $h 접속 안 됨(curl $($r.Code)). 큰 가중치 파일을 받지 못할 수 있어요." }
+    if ($r.Code -eq 0) { Write-Ok "인터넷: $h" } else { Write-Warn "인터넷: $h 접속 안 됨($($r.Msg)). 큰 가중치 파일을 받지 못할 수 있어요." }
 }
 
 Write-Info '받기 도구(huggingface_hub)를 준비하는 중이에요(처음 한 번만)'
