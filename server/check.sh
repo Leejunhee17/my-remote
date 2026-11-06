@@ -61,11 +61,22 @@ main_nas() {   # 팀 폴더가 들어 있는 NAS, 없으면 첫 NAS
     done < <(nas_mounts)
     echo "$best"
 }
-# 시험 파일·주소 파일을 써도 되는 폴더인지. root 는 남이 바꿔치기할 수 없는 폴더에만 쓴다: root 소유이고 남이 못 쓰거나,
-# 스티키(남의 파일·폴더를 못 지움). 그렇지 않은 폴더에 root 가 쓰면, 그 폴더 주인이 링크를 심어 root 가 시스템 파일을 덮게 만들 수 있다
+# root 만 고칠 수 있는 폴더인지: 그 폴더부터 / 까지 모두 root 소유이고 남이 못 쓰거나 스티키(남의 파일·폴더를 못 지움).
+# 위 폴더 하나라도 남이 쓸 수 있으면, 그 사람이 아래 폴더를 다른 이름으로 옮기고 같은 이름의 링크를 심을 수 있다
+root_only() {
+    local p m; p=$(readlink -f "$1") && [ -d "$p" ] || return 1
+    while :; do
+        m=$(stat -c '%u %a' "$p") || return 1
+        [ "${m%% *}" = 0 ] || return 1
+        [ $(( 8#${m##* } & 8#1000 )) -ne 0 ] || [ $(( 8#${m##* } & 8#022 )) -eq 0 ] || return 1
+        [ "$p" = / ] && return 0; p=$(dirname "$p")
+    done
+}
+# 시험 파일·주소 파일을 써도 되는 폴더인지. root 는 남이 바꿔치기할 수 없는 폴더(root_only)에만 쓴다.
+# 그렇지 않은 폴더에 root 가 쓰면, 그 폴더를 고칠 수 있는 사람이 링크를 심어 root 가 시스템 파일을 덮게 만들 수 있다
 usable_dir() {
     [ -d "$1" ] && [ ! -L "$1" ] && [ -w "$1" ] || return 1
-    [ -z "$IS_ROOT" ] || [ -k "$1" ] || { [ "$(stat -c %u "$1")" = 0 ] && [ -z "$(find "$1" -maxdepth 0 -perm /022)" ]; }
+    [ -z "$IS_ROOT" ] || root_only "$1"
 }
 # 속도 측정과 상대 서버 찾기에 쓸 NAS 폴더: 직접 적은 폴더 → 팀 폴더의 tmp_transfer(공용 계정) → NAS/tmp → NAS
 nas_dir() {
@@ -385,6 +396,10 @@ sec_nas() {
 
     head_ "$NAS 바로 아래 (주인·권한)"
     local n=0 d st uid gid mode
+    read -r uid gid mode <<< "$(stat -c '%u %g %a' "$NAS")"
+    echo "  $(pad "$NAS (NAS 최상위)" 26) 주인 $(pad "$(who_uid "$uid")" 24) 그룹 $(pad "$(grp_name "$gid")" 10) $(pad "$mode" 5) $(who_writes "$mode")"
+    root_only "$NAS" || bad "NAS 최상위($NAS)를 root 말고도 고칠 수 있어요. 누구든 그 아래 폴더(팀 폴더, $NAS/tmp)를 옮기고 링크로 바꿔치기할 수 있어서, root 가 NAS 에 쓰지 않아요(점검의 NAS 속도, 1단계 팀 폴더, 3·4단계 데이터셋·모델 설치)" \
+        "NAS 최상위($NAS)를 root 소유 755 로 해 주세요(지금 root 말고도 고칠 수 있어요). 다른 팀은 그 아래 각자 폴더를 쓰면 돼요"
     while IFS= read -r -d '' d; do
         n=$((n + 1)); [ "$n" -le 60 ] || continue
         st=$(stat -c '%u %g %a' "$d" 2>/dev/null) || continue
@@ -407,6 +422,19 @@ sec_nas() {
     elif [ -d "$TEAM" ]; then
         read -r uid gid mode <<< "$(stat -c '%u %g %a' "$TEAM")"
         echo "  주인 $(who_uid "$uid"), 그룹 $(grp_name "$gid"), 권한 $mode ($(who_writes "$mode"))"
+        local grp=${ACC:+$(id -gn "$ACC" 2>/dev/null)}
+        [ "$uid" = 0 ] && [ $(( 8#$mode & 8#027 )) -eq 0 ] ||
+            mine "팀 폴더가 root 소유 750 이 아니에요(주인 $(who_uid "$uid"), 권한 $mode). 팀원이 datasets·models 를 지우거나 바꿀 수 있고, 750 이 아니면 다른 팀도 읽어요" \
+                 "NAS 최상위를 고친 뒤 팀 폴더 잠그기: chown root:${grp:-<공용 계정 그룹>} $TEAM && chmod 750 $TEAM (docs/8_NAS.md 의 '이미 있는 팀 폴더 잠그기')"
+        local bad_sub=() s
+        for s in datasets models originals; do
+            [ -e "$TEAM/$s" ] || [ -L "$TEAM/$s" ] || continue
+            # 안쪽 세 단계까지 root 소유이고 남이 못 쓰는지(링크는 권한이 없어서 뺀다). 처음 하나만 찾으면 멈춘다
+            [ ! -L "$TEAM/$s" ] && [ -z "$(find "$TEAM/$s" -maxdepth 3 ! -type l \( ! -uid 0 -o -perm /022 \) -print -quit 2>/dev/null)" ] || bad_sub+=("$s")
+        done
+        [ ${#bad_sub[@]} -eq 0 ] ||
+            mine "팀 폴더의 ${bad_sub[*]} 안에 root 소유가 아니거나 남이 쓸 수 있는 것이 있어요(팀원이 데이터셋·모델을 지우거나 바꿀 수 있어요)" \
+                 "팀 폴더를 잠근 뒤 ${bad_sub[*]} 를 root 소유로: docs/8_NAS.md 의 '이미 있는 팀 폴더 잠그기'"
         df -hP "$TEAM" | awk 'NR==2 {printf "  여기서 본 용량: 전체 %s, 쓴 것 %s, 남은 것 %s (할당량이 있으면 할당량이에요)\n", $2, $3, $4}'
         if [ -r "$TEAM" ] && [ -x "$TEAM" ]; then
             for n in datasets models; do [ -n "$(ls -A "$TEAM/$n" 2>/dev/null)" ] && ok "$TEAM/$n 에 설치돼 있어요(두 서버가 같이 써요. 다시 올리지 않아도 돼요)"; done
@@ -509,7 +537,7 @@ cmd_disk() {
     local dir=${1:?폴더를 적으세요: bash check.sh disk /data/autonomy_sw/tmp_transfer} size_gb=${SIZE_GB:-4} t0 t1 b f
     [[ "$size_gb" =~ ^[0-9]+$ ]] && [ "$size_gb" -ge 1 ] || size_gb=4
     [ -d "$dir" ] && [ -w "$dir" ] || { bad "$dir 에 쓸 수 없어요(없거나 권한 없음)"; exit 1; }
-    usable_dir "$dir" || { bad "root로 실행하면 다른 계정이 쓰는 폴더는 측정하지 않아요: $dir. 같은 디스크의 root 폴더(예: /app/inbox)에서 측정하거나, 공용 계정으로 실행하세요"; exit 1; }
+    usable_dir "$dir" || { bad "root로 실행하면 다른 계정이 쓰는 폴더는 측정하지 않아요(그 위 폴더까지 root 만 고칠 수 있어야 해요): $dir. 같은 디스크의 root 폴더(예: /app/inbox)에서 측정하거나, 공용 계정으로 실행하세요"; exit 1; }
     local free; free=$(df -Pk "$dir" | awk 'NR==2 {print int($4/1048576)}')
     [ "$free" -gt $((size_gb * 2)) ] || { bad "남은 공간이 ${free} GB라서 시험 파일(${size_gb} GB)을 쓰기 어려워요"; exit 1; }
     local jobs=${JOBS:-1} i cnt
@@ -677,7 +705,7 @@ sec_speed() {
     else
         head_ '상대 서버 찾기'
         warn "NAS에 지금 계정이 쓸 수 있는 폴더가 없어서 상대 서버 찾기와 NAS 속도는 건너뛰어요."
-        if [ -n "$IS_ROOT" ]; then echo "      root 는 root 소유(남이 못 쓰는) 폴더나 스티키 폴더에만 써요. 그런 NAS 폴더를 적어 주세요: bash check.sh <폴더>"
+        if [ -n "$IS_ROOT" ]; then echo "      root 는 위 폴더까지 root 만 고칠 수 있는(root 소유이고 남이 못 쓰거나 스티키) 폴더에만 써요. $(main_nas) 를 남도 고칠 수 있으면 위 'NAS 바로 아래' 의 [문제] 부터 고쳐요"
         else echo "      root 로 실행하거나, 1단계 admin_setup.sh 가 $TEAM/tmp_transfer 를 만든 뒤 다시 실행하거나, 쓸 수 있는 NAS 폴더를 적어 주세요: bash check.sh <폴더>"; fi
     fi
 
@@ -828,10 +856,13 @@ cmd_full() {
     masks=("$(hostname -f 2>/dev/null)=$label" "$(hostname 2>/dev/null)=$label" "$ME=$label" "$ACC=공용계정")
     i=0; while IFS=: read -r n _ u _; do [ "$u" -ge 1000 ] && [ "$u" -lt 60000 ] && [ "$n" != "$ACC" ] && { i=$((i + 1)); masks+=("$n=계정$i"); }; done < <(getent passwd)
     nasd=$(main_nas)
-    i=0; [ -n "$nasd" ] && for d in "$nasd"/*/; do n=$(basename "$d"); case "$n" in tmp|data|home|"$(basename "$TEAM")"|'*') continue ;; esac; i=$((i + 1)); masks+=("$n=폴더$i"); done 2>/dev/null
+    # 흔한 이름(tmp, backup 처럼 시스템 폴더나 이 스크립트에 나오는 말)은 사내 정보가 아니고, 가리면 /tmp 같은 경로까지 바뀌어 보고서를 못 읽는다
+    common() { [ -e "/$1" ] || [ -e "/var/$1" ] || [ -e "/usr/$1" ] || grep -qwF -- "$1" "${BASH_SOURCE[0]}" 2>/dev/null; }
+    i=0; [ -n "$nasd" ] && for d in "$nasd"/*/; do n=$(basename "$d"); case "$n" in tmp|data|home|"$(basename "$TEAM")"|'*') continue ;; esac; common "$n" && continue; i=$((i + 1)); masks+=("$n=폴더$i"); done 2>/dev/null
     i=0; for d in "$APP"/* "$APP"/.[!.]* /home/*; do
         [ -e "$d" ] || [ -L "$d" ] || continue; n=$(basename "$d")
         case "$n" in admin|autonomy_sw|inbox|upload|docker|state|shared|workspace|lost+found|.shared_old_*|.admin_old_*|"$ACC") continue ;; esac
+        common "$n" && continue
         getent passwd "$n" >/dev/null && continue   # 계정 이름은 위에서 가렸다
         i=$((i + 1)); masks+=("$n=서버폴더$i")
     done 2>/dev/null
