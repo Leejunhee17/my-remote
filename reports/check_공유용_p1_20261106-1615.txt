@@ -1,0 +1,204 @@
+[GPU 서버] 점검  (2026-11-06 16:14, 서버(…p1), root)
+
+== 운영체제·공용 계정 ==
+  Red Hat Enterprise Linux 9.8 (Plow), 커널 5.14.0-687.41.1.el9_8.x86_64
+  [주의] Ubuntu가 아니에요(Red Hat Enterprise Linux 9.8 (Plow)). 설치 스크립트는 Ubuntu 24.04 기준이에요(22.04도 돼요)
+  [정상] 공용 계정(공용계정)이 있어요
+
+== GPU ==
+  NVIDIA H200 NVL × 8, 드라이버 595.58.03
+  [정상] 드라이버 595.58.03 (CUDA 13 이미지도 돌아가요)
+  [정상] GPU 8장이 보여요
+  [정상] PCIe 카드라 Fabric Manager가 필요 없어요
+  [정상] NVLink 브리지로 묶인 GPU: [0,1,2,3] [4,5,6,7]
+      여러 장을 한 작업에 쓸 때는 같은 묶음 안에서 고르면 GPU끼리 빠르게 주고받아요(묶음 밖은 PCIe)
+  [주의] Persistence mode: Disabled. nvidia-persistenced를 켜 두면 GPU를 처음 쓸 때 기다리지 않아요
+
+== 저장 공간 ==
+  홈 /root: 전체 199 GB, 남은 공간 167 GB
+  /app: /dev/mapper/appvg-lv_app, SSD, 남은 공간 1775 GB
+  [정상] /app 주인이 root예요(팀원은 /app/autonomy_sw 에 써요)
+
+== 서버 폴더·권한 (읽기만 해요) ==
+  [/app 과 그 아래 두 단계]
+  /app                               주인 root(0)                그룹 root         755   주인만 씀
+  서버폴더1                          주인 root(0)                그룹 root         755   주인만 씀
+  [정상] /app 아래는 root·공용 계정 것만 있어요
+
+  [홈 폴더 /home]
+  공용계정                           주인 공용계정(1001)         그룹 공용계정     700   주인만 씀
+  계정2                              주인 계정2(1002)            그룹 계정2        700   주인만 씀
+  계정1                              주인 계정1(1000)            그룹 계정1        700   주인만 씀
+  계정3                              주인 계정3(1003)            그룹 계정3        700   주인만 씀
+
+  [설치 스크립트가 쓸 시스템 폴더]
+  /etc/gpu                           (없어요)
+  /etc/profile.d                     주인 root(0)                그룹 root         755   주인만 씀
+  /etc/cron.d                        주인 root(0)                그룹 root         755   주인만 씀
+  /etc/sudoers.d                     주인 root(0)                그룹 root         750   주인만 씀
+  /etc/systemd/system                주인 root(0)                그룹 root         600   주인만 씀
+  /etc/apparmor.d                    (없어요)
+  /etc/nvidia-container-runtime      주인 root(0)                그룹 root         755   주인만 씀
+  /etc/bash.bashrc                   (없어요)
+  /etc/subuid (파일)                 주인 root(0)                그룹 root         644   주인만 씀
+  /etc/subgid (파일)                 주인 root(0)                그룹 root         644   주인만 씀
+  /usr/local/bin                     주인 root(0)                그룹 root         755   주인만 씀
+  /usr/local/sbin                    주인 root(0)                그룹 root         755   주인만 씀
+  /usr/local/lib                     주인 root(0)                그룹 root         755   주인만 씀
+  /opt                               주인 root(0)                그룹 root         755   주인만 씀
+  /var/log                           주인 root(0)                그룹 root         755   주인만 씀
+  /서버폴더1                         주인 root(0)                그룹 root         1777  누구나 씀, 스티키(남의 파일은 못 지움)
+  /var/서버폴더1                     주인 root(0)                그룹 root         1777  누구나 씀, 스티키(남의 파일은 못 지움)
+  [정상] 시스템 폴더는 모두 root 만 고칠 수 있어요
+
+  [공용 계정(공용계정)]
+  uid=1001(공용계정) gid=1001(공용계정) groups=1001(공용계정),10(wheel),1002(app)
+  [문제] 공용 계정이 관리자 그룹에 있어요: wheel (팀원 누구나 root 가 될 수 있어요)
+  [문제] 공용 계정이 sudo 를 쓸 수 있어요
+  /etc/subuid 에 있어요(rootless 도커에 필요해요. 2단계 docker_install.sh 가 맞춰요)
+
+  [연결 옵션]
+  /        /dev/mapper/rootvg-lv_root xfs  rw 
+  /app     /dev/mapper/appvg-lv_app xfs  rw 
+  /home    /dev/mapper/rootvg-lv_home xfs  rw 
+  /서버폴더1 /dev/mapper/rootvg-lv_서버폴더1 xfs  rw 
+
+== 서버 프로그램 ==
+  [정상] 설치 스크립트에 필요한 명령이 모두 있어요
+  [문제] 서버 화면에서 쓰는 프로그램 중 없는 것: bc btop git git-lfs ibverbs-utils infiniband-diags iotop iperf3 lsof micro nano ncdu nvtop p7zip-full perftest pv rsync screen strace tmux tree wget zip 
+
+== 네트워크 카드 ==
+  이름            종류            상태    속도       MTU    IPv4
+  bond0           이더넷(가상)    up      20 Gbps    1500   IP-1
+      = eno16895np0 + eno16595np0,  모드 balance-rr(패킷을 카드마다 번갈아 보내요)
+        한 연결도 두 카드를 같이 쓰지만, 패킷 순서가 뒤섞여 보통 카드 하나 속도 안팎이에요. 여러 연결을 동시에 하면 합친 속도가 나와요
+  eno16595np0     이더넷          up      10 Gbps    1500   -
+  eno16605np1     이더넷          down               1500   -
+  eno16895np0     이더넷          up      10 Gbps    1500   -
+  eno16905np1     이더넷          down               1500   -
+  ibp105s0        InfiniBand      up      400 Gbps   2044   -
+  ibP1p140s0      InfiniBand      up      400 Gbps   2044   -
+  ibP1p180s0      InfiniBand      up      400 Gbps   2044   IP-2
+  ibP1p25s0       InfiniBand      up      400 Gbps   2044   -
+  ibp219s0        InfiniBand      up      400 Gbps   2044   -
+  ibp26s0         InfiniBand      up      400 Gbps   2044   IP-3
+  기본 경로: default via IP-4 dev bond0 proto static metric 300 
+
+== InfiniBand·RoCE (GPU 서버끼리 빠르게 주고받는 카드) ==
+  mlx5_0    포트 1  ACTIVE  400 Gb/sec (4X NDR)   ibp26s0      IP-3
+  mlx5_1    포트 1  ACTIVE  400 Gb/sec (4X NDR)   ibp105s0     IP 없음
+  mlx5_2    포트 1  ACTIVE  400 Gb/sec (4X NDR)   ibp219s0     IP 없음
+  mlx5_3    포트 1  ACTIVE  400 Gb/sec (4X NDR)   ibP1p25s0    IP 없음
+  mlx5_4    포트 1  ACTIVE  400 Gb/sec (4X NDR)   ibP1p140s0   IP 없음
+  mlx5_5    포트 1  ACTIVE  400 Gb/sec (4X NDR)   ibP1p180s0   IP-2
+  IP가 있는 포트는 NAS·IP 통신용이고, IP가 없는 포트는 보통 GPU 서버끼리 RDMA(NCCL)로만 쓰는 포트예요.
+
+== NAS (네트워크 저장소) ==
+  /data  ←  NAS주소  (nfs)
+      쓰는 네트워크 카드: ibP1p180s0 (400 Gbps)
+      옵션: rw vers=3 rsize=1048576 wsize=1048576 hard proto=rdma nconnect=24 sec=sys 
+  [정상] RDMA로 연결돼 있어요(빠른 방식)
+
+== NAS 용량 (/data) ==
+  전체 414T, 쓴 것 2.8T, 남은 것 396T (1% 찼어요)
+  파일 수: 전체 670123059840, 쓴 것 4242111342 (1%)
+  (NAS에 폴더별 할당량(quota)이 있으면 그 폴더에서 df 를 하면 할당량이 '전체'로 보여요)
+
+== /data 바로 아래 (주인·권한) ==
+  1 (파일)                   주인 root(0)                  그룹 root       644   주인만 씀
+  12 (파일)                  주인 root(0)                  그룹 root       644   주인만 씀
+  13 (파일)                  주인 root(0)                  그룹 root       644   주인만 씀
+  14 (파일)                  주인 root(0)                  그룹 root       644   주인만 씀
+  18 (파일)                  주인 root(0)                  그룹 root       644   주인만 씀
+  2 (파일)                   주인 root(0)                  그룹 root       644   주인만 씀
+  3 (파일)                   주인 root(0)                  그룹 root       644   주인만 씀
+  autonomy_sw                주인 공용계정(1001)           그룹 공용계정   755   주인만 씀
+  폴더1                      주인 root(0)                  그룹 root       755   주인만 씀
+  폴더2                      주인 root(0)                  그룹 root       755   주인만 씀
+  폴더3                      주인 root(0)                  그룹 root       755   주인만 씀
+  서버폴더1                  주인 root(0)                  그룹 root       755   주인만 씀
+  '이 서버에 없는 계정' 은 다른 팀 계정이거나, 두 서버의 계정 번호가 달라서 생겨요.
+
+== 계정 번호 (NFSv3 는 이름이 아니라 번호로 주인을 구분해요) ==
+  우리 공용 계정 공용계정: uid 1001, gid 1001
+  이 서버의 일반 계정(uid 1000 이상):
+    계정1            uid 1000
+    공용계정         uid 1001
+    계정2            uid 1002
+    계정3            uid 1003
+  두 서버의 공용 계정 번호가 같은지는 아래 '상대 서버 찾기' 에서 맞춰 봐요(속도 측정을 할 때).
+
+== 우리 팀 폴더 (/data/autonomy_sw) ==
+  주인 공용계정(1001), 그룹 공용계정, 권한 755 (주인만 씀)
+  여기서 본 용량: 전체 414T, 쓴 것 2.8T, 남은 것 396T (할당량이 있으면 할당량이에요)
+  [정상] /data/autonomy_sw/datasets 에 설치돼 있어요(두 서버가 같이 써요. 다시 올리지 않아도 돼요)
+  [정상] /data/autonomy_sw/models 에 설치돼 있어요(두 서버가 같이 써요. 다시 올리지 않아도 돼요)
+  바로 아래:
+    backup  (주인 uid 1001, 권한 755)
+    datasets  (주인 uid 1001, 권한 755)
+    inbox  (주인 uid 1001, 권한 755)
+    models  (주인 uid 1001, 권한 755)
+
+== 공용 계정(공용계정)이 쓸 수 있는 곳 ==
+  /data: 쓸 수 있어요
+  /data/서버폴더1: 쓸 수 없어요
+  /data/autonomy_sw: 쓸 수 있어요
+  /data/autonomy_sw/backup: 쓸 수 있어요
+
+== root squash (root 가 NAS에서 누구로 보이는지) ==
+  /data 가 root 소유(755)가 아니라서 확인하지 않았어요. 서버 관리 팀에 root squash 설정을 물어보세요.
+
+== 상대 서버 찾기 (NAS: /data/서버폴더1/.gpu_net) ==
+  다른 서버에서도 같은 점검을 실행하세요. 최대 10분 기다려요.
+  [정상] 상대 서버: 상대서버(…p2) (이더넷 IP-5, InfiniBand IP-6 IP-7 )
+  [정상] 두 서버의 공용 계정 번호가 같아요(uid 1001, gid 1001)
+
+== 서버 사이: 이더넷 (서버(…p1) ↔ 상대서버(…p2), 양쪽 동시에 10초) ==
+  쓰는 네트워크 카드: bond0 (20 Gbps)
+  보내기 → IP-5: 2.30 GB/s (18.4 Gbps)
+  받기 ← IP-5: 2.23 GB/s (17.8 Gbps)
+
+== 서버 사이: InfiniBand로 IP 통신 (IPoIB, IP-6) ==
+  쓰는 네트워크 카드: ibP1p180s0 (400 Gbps)
+  보내기 → IP-6: 23.32 GB/s (186.5 Gbps)
+  받기 ← IP-6: 27.36 GB/s (218.9 Gbps)
+  (TCP로 잰 값이에요. 두 서버를 묶어 학습할 때 쓰는 RDMA 는 CPU를 거치지 않아 보통 이보다 빨라요. 아래 RDMA 값을 보세요)
+
+== 서버 사이: RDMA (두 서버를 묶어 학습할 때 NCCL 이 쓰는 통신) ==
+  [주의] 양쪽에 perftest(ib_write_bw)가 있어야 측정할 수 있어요. 설치 방법: docs/4_네트워크.md 의 "InfiniBand 도구"
+
+== NAS 속도 (/data/서버폴더1) ==
+[서버(…p1)] /data/서버폴더1 속도 (NAS주소, 시험 파일 합계 4 GB, 동시에 파일 1개)
+  쓰기: 1.87 GB/s (14.9 Gbps)
+  읽기: 4.32 GB/s (34.6 Gbps)
+[서버(…p1)] /data/서버폴더1 속도 (NAS주소, 시험 파일 합계 4 GB, 동시에 파일 8개)
+  쓰기: 13.13 GB/s (105.1 Gbps)
+  읽기: 8.04 GB/s (64.3 Gbps)
+
+== 로컬 SSD (/app) ==
+[서버(…p1)] /app 속도 (/dev/mapper/appvg-lv_app, 시험 파일 합계 4 GB, 동시에 파일 1개)
+  쓰기: 3.16 GB/s (25.3 Gbps)
+  읽기: 13.09 GB/s (104.7 Gbps)
+[서버(…p1)] /app 속도 (/dev/mapper/appvg-lv_app, 시험 파일 합계 4 GB, 동시에 파일 8개)
+  쓰기: 3.56 GB/s (28.5 Gbps)
+  읽기: 23.90 GB/s (191.2 Gbps)
+
+== InfiniBand 망에 보이는 장비 (카드별) ==
+  ibhosts(infiniband-diags)가 없어서 못 봐요. 위 RDMA 측정이 되면 같은 망이에요.
+
+== 속도 요약 ==
+  서버 사이 이더넷: 받기 2.23 GB/s (17.8 Gbps), 보내기 2.30 GB/s (18.4 Gbps)
+  서버 사이 IPoIB: 받기 27.36 GB/s (218.9 Gbps), 보내기 23.32 GB/s (186.5 Gbps)
+  RDMA: perftest가 없어 측정 못 함
+  NAS 파일 1개: 쓰기 1.87 GB/s (14.9 Gbps) / 읽기 4.32 GB/s (34.6 Gbps)
+  NAS 동시 8개: 쓰기 13.13 GB/s (105.1 Gbps) / 읽기 8.04 GB/s (64.3 Gbps)
+  로컬 SSD 파일 1개: 쓰기 3.16 GB/s (25.3 Gbps) / 읽기 13.09 GB/s (104.7 Gbps)
+  로컬 SSD 동시 8개: 쓰기 3.56 GB/s (28.5 Gbps) / 읽기 23.90 GB/s (191.2 Gbps)
+
+############## 고칠 것 3개 ##############
+ 서버 관리 팀에 요청할 것(이 목록을 그대로 보내세요)
+  - 공용 계정(공용계정)의 sudo 권한을 없애 주세요(/etc/sudoers, /etc/sudoers.d/)
+  - 공용 계정(공용계정)을 관리자 그룹에서 빼 주세요: wheel 
+ 관리자가 직접 할 것
+  - 기초 프로그램 설치(docs/1_처음_설치.md 의 "1-1단계: 서버 기초 프로그램"): bc btop git git-lfs ibverbs-utils infiniband-diags iotop iperf3 lsof micro nano ncdu nvtop p7zip-full perftest pv rsync screen strace tmux tree wget zip 
+ 고친 뒤 다시 점검하세요: bash /data/autonomy_sw/inbox/check.sh
