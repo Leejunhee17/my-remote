@@ -44,12 +44,15 @@ $Items = @(
     @{ Set = 'gooseEx'; GB = 3;  Name = 'gooseEx_2d_test.zip';    Url = 'https://goose-dataset.de/storage/gooseEx_2d_test.zip' }
     @{ Set = 'RUGD';    GB = 5;  Name = 'RUGD_frames-with-annotations.zip'; Url = 'http://rugd.vision/data/RUGD_frames-with-annotations.zip' }
     @{ Set = 'RUGD';    GB = 1;  Name = 'RUGD_annotations.zip';   Url = 'http://rugd.vision/data/RUGD_annotations.zip' }
-    # CAVS 시맨틱 세그(실제 1,077장 + 합성 1,947장 + rosbag). 주소는 사이트의 "Download Dataset" 링크. 막히면 브라우저로 받아 datasets\CaSSeD 에 넣는다
-    @{ Set = 'CaSSeD';  GB = 38; Name = 'CaSSeD.tar.gz';          Url = 'https://www.cavs.msstate.edu/resources/downloads/CaSSeD/CaSSeD.tar.gz' }
+    # CAVS 시맨틱 세그(실제 1,077장 + 합성 1,947장 + rosbag). 주소는 사이트의 "Download Dataset" 링크(2026-11-06 확인). 막히면 브라우저로 받아 datasets\CaSSeD 에 넣는다
+    # Late: 사내망에서 접속되지 않아(타임아웃) 다른 것을 다 받은 뒤 맨 끝에 받는다
+    @{ Set = 'CaSSeD';  GB = 38; Name = 'CaSSeD.tar.gz';          Url = 'https://www.cavs.msstate.edu/resources/downloads/CaSSeD/CaSSeD.tar.gz'; Late = $true }
     # Freiburg Forest: 라벨이 있는 다중 스펙트럼 묶음. 라벨 없는 raw(15,000장)는 사이트에서 브라우저로 받아 datasets\freiburg_forest 에 넣는다
     @{ Set = 'freiburg_forest'; GB = 3; Name = 'freiburg_forest_multispectral_annotated.tar.gz'; Url = 'http://deepscene.cs.uni-freiburg.de/static/datasets/freiburg_forest_multispectral_annotated.tar.gz' }
 )
 $Items = @($Items | Where-Object { Want $_.Set })
+$LateItems = @($Items | Where-Object { $_.Late })
+$Items     = @($Items | Where-Object { -not $_.Late })
 
 # Google Drive 에만 있는 것. Drive 에 접속되면 curl 로 받고(이어받기), 안 되면 건너뛴다.
 # 브라우저로 받아 datasets\<폴더>\ 에 직접 넣어 둔 압축 파일도 검사해서 목록에 넣는다.
@@ -146,6 +149,12 @@ function Get-RemoteSize($url) {
 
 function Get-Url($url, $file) {
     New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
+    # 사이트에 접속되지 않을 때 브라우저로 받아 넣어 둔 파일이 있으면, 다시 받으려 하기 전에 그 파일부터 검사한다(다 받은 파일이면 그대로 쓴다)
+    if ((Test-Path $file) -and -not (Get-RemoteSize $url)) {
+        Write-Info '사이트에 접속되지 않아요. 넣어 둔 파일이 다 받아진 것인지 먼저 검사해요'
+        if ((Test-Archive $file) -eq 0) { return $file }
+        Write-Warn '넣어 둔 파일이 덜 받아졌거나 깨졌어요. 사이트에서 이어받기를 해 봐요'
+    }
     $stall = 0
     while ($stall -lt $MaxTries) {
         $remote = Get-RemoteSize $url
@@ -559,7 +568,7 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     Write-Ok "WildScenes에 접속했어요: s3://$wsPrefix"
 }
 
-$needGB = ($Items | Where-Object { -not (Test-Path "$(Join-Path (Join-Path $Dest $_.Set) $_.Name).ok") } |
+$needGB = (@($Items) + @($LateItems) | Where-Object { -not (Test-Path "$(Join-Path (Join-Path $Dest $_.Set) $_.Name).ok") } |
     ForEach-Object { $_.GB } | Measure-Object -Sum).Sum
 if (-not $needGB) { $needGB = 0 }
 if ($driveOk) {
@@ -577,18 +586,22 @@ Write-Ok "남은 공간 $free GB, 앞으로 받을 양 약 $needGB GB"
 # ------------------------------------------------------------------ 2. 받기
 Write-Step 2 $T '받기 (끊기면 이어받아요)'
 $result = [ordered]@{}
-$n = 0
-foreach ($it in $Items) {
-    $n++
-    $target = Join-Path (Join-Path $Dest $it.Set) $it.Name
-    $label  = "$($it.Set)/$($it.Name)"
-    if (Test-Path "$target.ok") { Write-Host "  ($n/$($Items.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
-    Write-Host ''
-    Write-Host "  ($n/$($Items.Count)) $label 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
-    $f = Get-Url $it.Url $target
-    if ($f) { Set-Done "$target.ok" $f; Write-Ok "$label 받았어요"; $result[$label] = '받음' }
-    else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
+# 직접 링크 목록을 차례로 받는다. $tag 는 화면의 번호 앞에 붙는 글자
+function Get-Items($list, $tag) {
+    $n = 0
+    foreach ($it in $list) {
+        $n++
+        $target = Join-Path (Join-Path $Dest $it.Set) $it.Name
+        $label  = "$($it.Set)/$($it.Name)"
+        if (Test-Path "$target.ok") { Write-Host "  ($tag$n/$($list.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
+        Write-Host ''
+        Write-Host "  ($tag$n/$($list.Count)) $label 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
+        $f = Get-Url $it.Url $target
+        if ($f) { Set-Done "$target.ok" $f; Write-Ok "$label 받았어요"; $result[$label] = '받음' }
+        else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
+    }
 }
+Get-Items $Items ''
 
 if ($doWild) {
     $wdir = Join-Path $Dest 'wildscenes'
@@ -710,6 +723,9 @@ if ($doOrad) {
         }
     }
 }
+
+# 접속이 잘 안 되는 사이트(CaSSeD)는 다른 것을 다 받은 뒤 맨 끝에
+Get-Items $LateItems '나중 '
 
 # 브라우저로 받아 직접 넣어 둔 압축 파일도 검사한다(스크립트가 받은 파일은 이미 .ok 가 있다)
 foreach ($set in $Manual) {
