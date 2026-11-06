@@ -1,0 +1,47 @@
+WildScenes 링크 점검  2026-11-06 15:49
+윈도우: Microsoft Windows NT 10.0.26200.0, PowerShell 5.1.26100.9549
+curl: curl 8.21.0 (Windows) libcurl/8.21.0 Schannel zlib/1.3.2 WinIDN WinLDAP
+목록 파일: 만든 시각 2026-11-06 15:33, 줄 153070개
+시험한 주소: https://s3.data.csiro.au/dapprd/000061541v003/data/WildScenes/WildScenes2d/K-01/camera_calibration.yaml?…
+주소 뒤에 붙은 값 이름: response-content-disposition, X-Amz-Algorithm, X-Amz-Date, X-Amz-SignedHeaders, X-Amz-Expires, X-Amz-Credential, X-Amz-Signature
+주소 모양: 길이 452, 공백 없음, 한글·특수 글자 없음, % 부호 9개, + 부호 0개
+링크 아래 옵션 줄: dir
+.env 의 HTTPS_PROXY: 없음
+윈도우 프록시 설정: 없음
+브라우저가 이 주소에 쓰는 프록시(PAC 포함): 없음
+자동 프록시 설정(PAC): 없음
+
+== curl 그대로(.env 설정 그대로)
+   결과: 받아져요 (HTTP 206, curl 0)
+   머리글: HTTP/1.1 206 Partial Content
+   머리글: Content-Type: application/octet-stream
+   머리글: Server: StorageGRID/12.0.0.9
+   머리글: x-amz-request-id: 1793947386070677
+
+== curl, 프록시 없이 바로
+   결과: 받아져요 (HTTP 206, curl 0)
+   머리글: HTTP/1.1 206 Partial Content
+   머리글: Content-Type: application/octet-stream
+   머리글: Server: StorageGRID/12.0.0.9
+   머리글: x-amz-request-id: 1793947583302189
+
+== .NET (브라우저처럼 시스템 프록시·윈도우 로그인 사용)
+   결과: 받아져요 (HTTP 206)
+   머리글: server: StorageGRID/12.0.0.9
+
+== 받기 스크립트와 같은 방법
+   점검이 고른 설정: 추가 인자 없음, 이 주소 전용 없음
+   처음 받기: 안 돼요 (curl 35, 파일 0 바이트) curl: (35) schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK (0x80092012) - �ش� �Լ����� �������� ���� �ı� ���θ� �˻����� ���߽��ϴ�.
+   받은 파일이 있는 채로 다시(이어받기): 안 돼요 (curl 35, 파일 0 바이트) curl: (35) schannel: next InitializeSecurityContext failed: CRYPT_E_NO_REVOCATION_CHECK (0x80092012) - �ش� �Լ����� �������� ���� �ı� ���θ� �˻����� ���߽��ϴ�.
+   받기 폴더의 같은 파일(datasets\wildscenes\K-01\camera_calibration.yaml): 없음
+   다 받은 파일 목록(wildscenes.links_done.txt): 없음
+
+== 지난번 받기 기록(datasets\download.log, 마지막 실행의 WildScenes·멈춤·문제 줄)
+   (해당 줄 없음)
+
+== 요약
+   [됨]    curl 그대로(.env 설정 그대로)
+   [됨]    curl, 프록시 없이 바로
+   [됨]    .NET(브라우저와 같은 시스템 프록시)
+   [안 됨]  받기 스크립트와 같은 방법: 처음 받기
+   [안 됨]  받기 스크립트와 같은 방법: 받은 파일이 있는 채로 다시(이어받기)
