@@ -238,23 +238,47 @@ function Invoke-Aws {
     finally { if ($pa) { $env:HTTPS_PROXY = $old } }
 }
 
+# 링크가 401·403 으로 거절될 때 서버가 돌려준 이유를 보여 준다(상태 줄, Server, WWW-Authenticate, 본문 앞부분). 주소의 ? 뒤(서명)는 가린다
+function Show-WsDenied($it) {
+    $tmp = [IO.Path]::GetTempFileName(); $hd = [IO.Path]::GetTempFileName()
+    try {
+        $ca = Get-CurlArgs $it.Url
+        $hdr = @($it.Headers | ForEach-Object { '-H', $_ })
+        & curl.exe -sS -L -r 0-1023 --connect-timeout 30 --max-time 60 @ca @hdr -D $hd -o $tmp $it.Url 2>&1 | Out-Null
+        Write-Info "    거절된 주소: $(($it.Url -split '\?')[0])?…  (목록의 머리글 줄 $($it.Headers.Count)개를 같이 보냈어요)"
+        foreach ($h in [IO.File]::ReadAllLines($hd)) {
+            if ($h -match '^(HTTP/|server:|www-authenticate:|x-amz-|content-type:|location:)' -and $h -notmatch 'Connection Established') { Write-Info "    응답: $(($h -replace '\?\S*', '?…').Trim())" }
+        }
+        $body = [IO.File]::ReadAllText($tmp)
+        if ($body) { Write-Info "    응답 본문: $((($body -replace '\s+', ' ') -replace '(Signature|Credential|AccessKeyId|Token)[^<]*', '$1…').Substring(0, [math]::Min(400, $body.Length)))" }
+    } catch { } finally { Remove-Item -Force -ErrorAction SilentlyContinue $tmp, $hd }
+}
+
 # 포털 "Get a list of file download links" 의 목록 파일에서 WildScenes2d 아래 파일만 고른다.
 # https 로 시작하는 줄이 파일 하나(서명이 붙은 임시 주소), 들여쓴 줄은 aria2 용 옵션이라 건너뛴다
 function Get-WsLinks($file) {
     $list = New-Object System.Collections.Generic.List[object]
     $script:WsLinkCount = 0
     $script:WsLinkSample = @()
+    $last = $null
     foreach ($l in [IO.File]::ReadAllLines($file)) {
+        # 들여쓴 aria2 옵션 줄. header= 는 바로 위 링크에 필요한 머리글(인증 등)이라 curl 에도 넘긴다. 나머지(out= 등)는 쓰지 않는다
+        if ($l -match '^\s+(\S+?)=(.*)$') {
+            if ($last -and $Matches[1] -ieq 'header') { $last.Headers.Add($Matches[2].Trim()) }
+            continue
+        }
+        $last = $null
         # 줄 앞 BOM·공백, "url = " 같은 앞말이 붙어 있어도 주소만 꺼낸다
         $u = [regex]::Match($l, 'https://\S+').Value.Trim('"')
-        if (-not $u -or $l -match '^\s+\S+=') { continue }   # 들여쓴 aria2 옵션 줄은 건너뛴다
+        if (-not $u) { continue }
         $script:WsLinkCount++
         # 경로의 %2F 같은 부호를 먼저 풀어야 폴더 이름이 보인다
         $path = [uri]::UnescapeDataString(($u -split '\?')[0])
         if ($script:WsLinkSample.Count -lt 3) { $script:WsLinkSample += $path }
         $m = [regex]::Match($path, '(?i)/WildScenes_?2d/(.+)$')
         if (-not $m.Success) { continue }
-        $list.Add([pscustomobject]@{ Url = $u; Rel = ($m.Groups[1].Value -replace '/', '\') })
+        $last = [pscustomobject]@{ Url = $u; Rel = ($m.Groups[1].Value -replace '/', '\'); Headers = (New-Object System.Collections.Generic.List[string]) }
+        $list.Add($last)
     }
     return ,$list
 }
@@ -678,12 +702,13 @@ if ($doWild) {
                     $out = Join-Path $wdir $it.Rel
                     New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
                     $ca = Get-CurlArgs $it.Url
-                    $msg = & curl.exe -sS -L -C - --fail --retry 3 --retry-delay 5 --connect-timeout 30 -Y 1024 -y 120 @ca `
+                    $hdr = @($it.Headers | ForEach-Object { '-H', $_ })
+                    $msg = & curl.exe -sS -L -C - --fail --retry 3 --retry-delay 5 --connect-timeout 30 -Y 1024 -y 120 @ca @hdr `
                         -o $out --stderr - $it.Url | Out-String
                     $code = $LASTEXITCODE
                     if ($code -eq 0) { [void]$doneSet.Add($it.Rel); [IO.File]::AppendAllText($doneFile, "$($it.Rel)`n", $utf8) }
                     # 401·403 은 링크가 만료됐거나 거절된 것이라 다른 파일도 똑같다. 다시 시도하지 않고 바로 멈춘다
-                    elseif ($msg -match 'returned error: 40[13]') { $expired = $true; Write-Info "    $($it.Rel): $($msg.Trim())"; break }
+                    elseif ($msg -match 'returned error: 40[13]') { $expired = $true; Write-Info "    $($it.Rel): $($msg.Trim())"; Show-WsDenied $it; break }
                     else {
                         if ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $out }
                         # 실패 이유를 처음 몇 개만 보여 준다(전부는 기록 파일이 너무 길어진다)
@@ -694,6 +719,7 @@ if ($doWild) {
                 if ($expired) {
                     Write-Bad 'WildScenes 링크가 만료됐거나 거절됐어요(401·403)'
                     Write-Info "    포털($WsPortal)에서 링크 목록을 새로 받아 같은 명령을 다시 실행하세요. 받은 파일은 건너뛰어요."
+                    Write-Info '    새 목록으로도 바로 이 줄이 나오면, 위 "응답:" 줄들을 담당자에게 보내 주세요(서명 값은 가려 놨어요).'
                     break
                 }
                 if ($doneSet.Count -gt $before) { $stall = 0; Write-Warn "남은 $($links.Count - $doneSet.Count)개를 다시 받아요"; Start-Sleep 10 }
