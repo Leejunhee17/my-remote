@@ -275,6 +275,42 @@ function Get-File($url, $file, $md5, $tries, $sha256) {
     return $false
 }
 
+# aria2c(파일 많은 목록을 동시에 받는 도구). 공식 윈도우판을 받아 지문을 확인하고 저장소의 tools\aria2 에 둔다.
+# 윈도우판은 인증서를 검증하면서 "폐기 확인 정보 없음"(CRYPT_E_NO_REVOCATION_CHECK)만 넘어가서(SCH_CRED_IGNORE_NO_REVOCATION_CHECK),
+# 폐기 확인 서버에 닿지 않는 회사망에서도 보안 확인을 끄지 않고 받아진다. 받을 때는 .NET 을 쓴다(브라우저처럼 시스템 프록시를 따른다)
+$Aria2Url    = 'https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip'
+$Aria2ZipSha = '67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288'
+$Aria2ExeSha = 'be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2'
+function Get-Aria2 {
+    $dir = Join-Path (Split-Path $PSScriptRoot -Parent) 'tools\aria2'
+    $exe = Join-Path $dir 'aria2c.exe'
+    if ((Test-Path $exe) -and (Get-FileHash $exe -Algorithm SHA256).Hash -eq $Aria2ExeSha.ToUpper()) { return $exe }
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $zip = Join-Path $dir 'aria2.zip'
+    try {
+        if (-not ((Test-Path $zip) -and (Get-FileHash $zip -Algorithm SHA256).Hash -eq $Aria2ZipSha.ToUpper())) {
+            Write-Info 'aria2c 를 준비하는 중이에요(처음 한 번, 2.5 MB)'
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $wc = New-Object Net.WebClient
+            $wc.Proxy = [Net.WebRequest]::GetSystemWebProxy()
+            $wc.Proxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials
+            $wc.DownloadFile($Aria2Url, $zip)
+        }
+        if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $Aria2ZipSha.ToUpper()) { Remove-Item -Force $zip; Write-Warn 'aria2c 묶음의 지문이 맞지 않아 지웠어요'; return $null }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $z = [IO.Compression.ZipFile]::OpenRead($zip)
+        try {
+            $e = $z.Entries | Where-Object { $_.Name -eq 'aria2c.exe' } | Select-Object -First 1
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($e, $exe, $true)
+        } finally { $z.Dispose() }
+        if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $Aria2ExeSha.ToUpper()) { Remove-Item -Force $exe; Write-Warn 'aria2c.exe 의 지문이 맞지 않아 지웠어요'; return $null }
+        return $exe
+    } catch {
+        Write-Warn "aria2c 를 받지 못했어요(github.com 접속을 확인하세요): $($_.Exception.Message)"
+        return $null
+    }
+}
+
 # 지문은 업로드가 끝난 뒤(몇 시간 뒤, 다른 날, NAS를 거친 서버 2)에 맞춰 보므로 화면에만 두지 않고 저장소 맨 위에 쌓아 둔다
 function Save-Fingerprint($what, $fp) {
     $f = Join-Path $root '지문_기록.txt'

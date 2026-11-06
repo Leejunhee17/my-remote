@@ -690,7 +690,57 @@ if ($doWild) {
             if (Test-Path $doneFile) { foreach ($x in [IO.File]::ReadAllLines($doneFile)) { [void]$doneSet.Add($x) } }
             $utf8 = New-Object Text.UTF8Encoding $false
             $expired = $false
-            while ($stall -lt $MaxTries) {
+            # aria2c 가 있으면 그것으로 받는다(목록이 aria2 형식이고, 동시에 여러 파일을 받아 빠르고, 폐기 확인 서버에 닿지 않는 망에서도 된다).
+            # 못 구하면 아래 curl 로 하나씩 받는다
+            $aria = Get-Aria2
+            if ($aria) { Write-Ok "aria2c 로 받아요(동시에 16개): $aria" } else { Write-Warn 'aria2c 를 쓸 수 없어서 curl 로 하나씩 받아요(느려요)' }
+            $ain = "$wdir.aria2_input.txt"; $asess = "$wdir.aria2_session.txt"; $alog = "$wdir.aria2.log"
+            while ($aria -and $stall -lt $MaxTries) {
+                $todo = @($links | Where-Object { -not $doneSet.Contains($_.Rel) })
+                if (-not $todo.Count) { $done = $true; break }
+                $before = $doneSet.Count
+                Write-Info "남은 파일 $($todo.Count)개 / 전체 $($links.Count)개"
+                # 이번에 받을 것만 aria2 입력 파일로(주소 줄 + 들여쓴 옵션 줄). 저장 위치는 wildscenes 아래 상대 경로
+                $sb = New-Object Text.StringBuilder
+                foreach ($it in $todo) {
+                    [void]$sb.Append("$($it.Url)`n  out=$($it.Rel -replace '\\', '/')`n")
+                    foreach ($h in $it.Headers) { [void]$sb.Append("  header=$h`n") }
+                }
+                [IO.File]::WriteAllText($ain, $sb.ToString(), (New-Object Text.UTF8Encoding $false))
+                Remove-Item -Force -ErrorAction SilentlyContinue $asess, $alog
+                New-Item -ItemType Directory -Force $wdir | Out-Null
+                $px = @(); if ($env:HTTPS_PROXY) { $px = @("--all-proxy=$env:HTTPS_PROXY") }
+                # -c 이어받기, --save-session: 끝나지 않았거나 실패한 것만 적어 둔다(거기 없는 것 = 다 받은 것)
+                & $aria -i $ain -d $wdir -c -j 16 -x 1 --auto-file-renaming=false --file-allocation=none `
+                    --max-tries=5 --retry-wait=10 --connect-timeout=30 --timeout=120 `
+                    --summary-interval=60 --console-log-level=warn --download-result=hide `
+                    --save-session=$asess --log=$alog --log-level=notice @px
+                $acode = $LASTEXITCODE
+                $left = New-Object 'System.Collections.Generic.HashSet[string]'
+                if (Test-Path $asess) { foreach ($x in [IO.File]::ReadAllLines($asess)) { if ($x -match '^\s+out=(.+)$') { [void]$left.Add(($Matches[1].Trim() -replace '/', '\')) } } }
+                foreach ($it in $todo) {
+                    $f = Join-Path $wdir $it.Rel
+                    if (-not $left.Contains($it.Rel) -and (Test-Path $f) -and -not (Test-Path "$f.aria2")) {
+                        [void]$doneSet.Add($it.Rel); [IO.File]::AppendAllText($doneFile, "$($it.Rel)`n", $utf8)
+                    }
+                }
+                Write-Info "aria2c 끝(코드 $acode): 이번에 $($doneSet.Count - $before)개를 받았어요. 남은 것 $($links.Count - $doneSet.Count)개"
+                if ($doneSet.Count -eq $links.Count) { $done = $true; break }
+                # 하나도 못 받았고 401·403(만료·거절)이면 다시 해도 소용없다
+                $alines = if (Test-Path $alog) { @([IO.File]::ReadAllLines($alog)) } else { @() }
+                $denied = @($alines | Where-Object { $_ -match 'status=40[13]|Authorization failed' })
+                if ($doneSet.Count -eq $before -and $denied.Count) { $expired = $true; Write-Info "    $(($denied[0] -replace '\?\S*', '?…').Trim())"; break }
+                $errs = @($alines | Where-Object { $_ -match '(?i)\b(ERROR|exception)\b' } | Select-Object -First 3)
+                $errs | ForEach-Object { Write-Warn "aria2c: $(($_ -replace '\?\S*', '?…').Trim())" }
+                if ($doneSet.Count -gt $before) { $stall = 0; Start-Sleep 10 }
+                else { $stall = Step-Retry $stall 0 0 $MaxTries 'WildScenes(aria2c)' }
+            }
+            if ($aria -and $expired) {
+                Write-Bad 'WildScenes 링크가 만료됐거나 거절됐어요(401·403)'
+                Write-Info "    포털($WsPortal)에서 링크 목록을 새로 받아 같은 명령을 다시 실행하세요. 받은 파일은 건너뛰어요."
+                Write-Info "    aria2c 기록: $alog"
+            }
+            while (-not $aria -and $stall -lt $MaxTries) {
                 $todo = @($links | Where-Object { -not $doneSet.Contains($_.Rel) })
                 if (-not $todo.Count) { $done = $true; break }
                 $before = $doneSet.Count
