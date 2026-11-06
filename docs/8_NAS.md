@@ -45,6 +45,7 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 │   └── server_setup/<날짜>/       gpu-setup.tar, gpu-pkgs.tar, gpu-docker.tar(서버 2가 가져가요). root 소유
 ├── docker_images/<이름>/          팀원이 만든 도커 이미지 .tar. 공용 계정 소유
 ├── backup/<이름>/                 실험 결과·체크포인트. 공용 계정 소유
+├── inbox/                        관리자가 두 서버에서 같이 쓸 파일(0단계 check.sh 등)을 한 번 올리는 곳. 공용 계정이 써요
 └── tmp_transfer/                 서버 사이 임시 전달. 14일 지나면 지워요. 공용 계정 소유
 ```
 
@@ -56,6 +57,7 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 | `datasets/`, `models/`, `originals/` | root(설치 스크립트) | 팀원이 실수로 지우거나 바꾸지 못하게 해요 |
 | `docker_images/<이름>`, `backup/<이름>` | 그 팀원 | 이름별로 나눠 누가 얼마나 쓰는지 주간 보고서로 봐요 |
 | `tmp_transfer/` | 누구나 | 옮긴 뒤 지우는 임시 공간이에요 |
+| `inbox/` | 관리자(FileZilla) | 한 번 올려 두 서버에서 실행해요. 다 쓰면 올린 사람이 지워요 |
 
 - 계정 하나를 같이 쓰니 사람별 권한은 나눌 수 없어요. 서버에서처럼 "이름별 폴더 + 사용량 보고" 로 관리해요.
 - 컨테이너 안에서 `--user` 로 만든 파일을 NAS로 옮기면 주인 번호가 이상하게 보여요. NAS로 옮길 때는 서버 화면(컨테이너 밖)에서 `rsync` 로 옮겨요.
