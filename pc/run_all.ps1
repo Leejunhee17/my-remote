@@ -56,6 +56,7 @@ foreach ($k in $result.Keys) {
 Write-Host ''
 if ($script:Fails) {
     Write-Host ' 할 일을 한 뒤 같은 명령을 다시 실행하세요. 끝난 것은 건너뛰어요. 그 작업만 하려면 -Run 뒤에 이름을 적어요.' -ForegroundColor Yellow
+    Write-Host ' 원인을 모르겠으면 .\pc\check.ps1 로 접근 PC 를 점검해 결과를 올려 주세요(담당자가 읽어요).' -ForegroundColor Yellow
 } else {
     Write-Host ' 모두 끝났어요. 올리기·설치는 각 작업 끝의 안내를 따르세요(docs\1_처음_설치.md 의 "전체 흐름").' -ForegroundColor Green
 }

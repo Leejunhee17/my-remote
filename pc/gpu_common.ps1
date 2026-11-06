@@ -56,6 +56,7 @@ function Stop-Run($what, $fix) {
     Write-Host "할 일: $fix"
     Write-Host '할 일을 한 뒤 같은 명령을 다시 실행하세요. 끝난 것은 건너뛰고 이어서 해요.'
     Write-Host "해결되지 않으면 이 기록 파일을 담당자에게 보내 주세요: $script:LogPath"
+    Write-Host '접근 PC 문제 같으면 .\pc\check.ps1 로 점검 결과를 올려 주세요(담당자가 읽어요).'
     Stop-Transcript | Out-Null
     [GPU.Power]::SetThreadExecutionState([uint32]2147483648) | Out-Null
     exit 1
@@ -377,6 +378,42 @@ function Get-Fingerprint([string[]]$files) {
     $ms.Position = 0
     $h = [Security.Cryptography.SHA256]::Create().ComputeHash($ms)
     return (($h | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+
+# ---- 점검 결과를 reports\ 에 남겨 git 으로 올리기(check.ps1, wildscenes_check.ps1) ----
+# 가리기: 주소의 ? 뒤 값, 사내 IP, 서명·키·토큰처럼 보이는 값
+function Hide-Text($s) {
+    if (-not $s) { return '' }
+    $s = $s -replace '\?[^\s"<>]*', '?…'
+    $s = $s -replace '(^|[^0-9.])(10\.\d{1,3}|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}', '$1(사내 IP)'
+    $s = $s -replace '(?i)(Signature|Credential|AccessKeyId|Security-Token|Token|Expires)([=:>]\s*)[^&\s<"]+', '$1$2…'
+    $s = $s -replace '(AKIA|ASIA)[0-9A-Z]{16}', '(키)'
+    $s = $s -replace 'hf_[A-Za-z0-9]{20,}', '(토큰)'
+    return $s
+}
+# 프록시는 주소 대신 종류와 포트만
+function Proxy-Label($p) { if (-not $p) { return '없음' } try { $u = [uri]$p; return "있음($($u.Scheme), 포트 $($u.Port))" } catch { return '있음' } }
+
+# 줄 목록을 UTF-8(BOM 없음)로 쓴다
+function Save-Report($lines, $file) {
+    New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
+    [IO.File]::WriteAllText($file, (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+}
+
+# 물어본 뒤 그 파일 하나만 커밋해 올린다(커밋 검사가 사내 정보를 한 번 더 본다)
+function Push-Report($file, $msg) {
+    $a = Read-Host ' 이 파일을 git 으로 올릴까요? [Y/n]'
+    if ($a -match '^[nN]') { Write-Host " 올리지 않았어요. 나중에: git add reports && git commit -m `"$msg`" && git push"; return }
+    Push-Location $root
+    try {
+        & git add -- $file
+        & git commit -m $msg -- $file
+        if ($LASTEXITCODE -ne 0) { Write-Host ' [문제] 커밋하지 못했어요. 위 메시지를 보세요(커밋 검사가 멈췄다면 파일에서 그 줄을 지우고 다시 실행하세요).' -ForegroundColor Red; return }
+        & git pull --rebase --autostash
+        & git push
+        if ($LASTEXITCODE -eq 0) { Write-Host ' 올렸어요. 담당자에게 알려 주세요.' -ForegroundColor Green }
+        else { Write-Host ' [문제] 올리지 못했어요. 인터넷 연결을 확인하고 git push 를 다시 하세요.' -ForegroundColor Red }
+    } finally { Pop-Location }
 }
 
 # 실행 중 접근 PC 절전 막기(끝나면 원래대로)

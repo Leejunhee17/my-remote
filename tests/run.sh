@@ -102,6 +102,12 @@ t_static() {
         case "$out" in *'6번째 줄을 읽지 못했어요'*) ok '.env 의 이상한 줄은 몇 번째인지 알려 줘요' ;; *) no '.env 의 이상한 줄 알림' "$out" ;; esac
         if grep -qx '  .env 에서 읽은 설정: GPU_T1, GPU_T2, GPU_T3' <<< "$out"; then ok '.env 는 이름만 보여 주고 값은 안 보여 줘요'; else no '.env 이름만 보여 주기' "$out"; fi
     else skip '.env 읽기: pwsh 가 없어요(GitHub Actions 에서는 돌아요)'; fi
+    if command -v pwsh >/dev/null; then
+        # 점검 결과(reports\)에 쓰는 가리기: 주소 뒤 서명, 사내 IP, AWS 키, HF 토큰. 프록시는 종류·포트만. 예시 IP 는 실행할 때 만든다
+        local ip="10.$((1+1)).3.4" key="AKIA$(printf 'A%.0s' {1..16})" tk="hf_$(printf 'b%.0s' {1..34})"
+        out=$(pwsh -NoProfile -Command ". ./pc/gpu_common.ps1; Hide-Text 'get https://s3.example/a?X-Amz-Signature=abc from $ip key $key tok $tk'; Proxy-Label 'http://proxy.example:8080'" 2>&1)
+        case "$out" in *'get https://s3.example/a?… from (사내 IP) key (키) tok (토큰)'*'있음(http, 포트 8080)'*) ok '점검 결과 가리기(pwsh)' ;; *) no '점검 결과 가리기(pwsh)' "$out" ;; esac
+    else skip '점검 결과 가리기: pwsh 가 없어요(GitHub Actions 에서는 돌아요)'; fi
     # 사내 IP(사설 대역)는 저장소에 없어야 한다. 이 시험 파일의 예시 IP 는 실행할 때 만든다
     bad=$(git grep -nIE '(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' -- . ':!*.xlsx' | grep -v 'check.sh send 10\.0\.0\.2')
     [ -z "$bad" ] && ok '사설 IP가 없어요' || no '사설 IP가 있어요' "$bad"

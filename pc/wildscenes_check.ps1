@@ -19,18 +19,8 @@ $outFile = Join-Path $root "reports\wildscenes_check_공유용_$stamp.txt"
 $lines = New-Object System.Collections.Generic.List[string]
 function Add-Line($s) { $lines.Add($s); Write-Host $s }
 
-# 가리기: 주소의 ? 뒤 값, 사내 IP, 서명·키처럼 보이는 값
-function Hide-Text($s) {
-    if (-not $s) { return '' }
-    $s = $s -replace '\?[^\s"<>]*', '?…'
-    $s = $s -replace '(^|[^0-9.])(10\.\d{1,3}|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}', '$1(사내 IP)'
-    $s = $s -replace '(?i)(Signature|Credential|AccessKeyId|Security-Token|Token|Expires)([=:>]\s*)[^&\s<"]+', '$1$2…'
-    $s = $s -replace '(AKIA|ASIA)[0-9A-Z]{16}', '(키)'
-    return $s
-}
 # Via 머리글 같은 곳의 사내 장비 이름은 빼고 제품 이름(괄호 안)만 남긴다
 function Hide-Via($v) { if ($v -match '\(([^)]+)\)') { return "… ($($Matches[1]))" } return '… (이름 가림)' }
-function Proxy-Label($p) { if (-not $p) { return '없음' } try { $u = [uri]$p; return "있음($($u.Scheme), 포트 $($u.Port))" } catch { return '있음' } }
 
 Write-Host "[접근 PC] WildScenes 링크 점검  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))"
 if (-not $Links -or -not (Test-Path $Links)) {
@@ -143,21 +133,10 @@ Add-Line ''
 Add-Line '== 요약'
 foreach ($k in $res.Keys) { Add-Line ("   {0}  {1}" -f $(if ($res[$k]) { '[됨]  ' } else { '[안 됨]' }), $k) }
 
-New-Item -ItemType Directory -Force (Split-Path $outFile) | Out-Null
-[IO.File]::WriteAllText($outFile, (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+Save-Report $lines $outFile
 Write-Host ''
 Write-Host " 결과 파일: $outFile" -ForegroundColor Green
 Write-Host ' 서명·키, 프록시 주소, 사내 IP 는 가려 두었어요. 올리기 전에 한 번 열어 보세요.'
+Write-Host ' 접근 PC 전체(프로그램·.env·다른 사이트·디스크)는 .\pc\check.ps1 로 점검해요.'
 if ($NoPush) { exit 0 }
-$a = Read-Host ' 이 파일을 git 으로 올릴까요? [Y/n]'
-if ($a -match '^[nN]') { Write-Host ' 올리지 않았어요. 나중에: git add reports && git commit -m "WildScenes 링크 점검 결과" && git push'; exit 0 }
-Push-Location $root
-try {
-    & git add -- $outFile
-    & git commit -m "WildScenes 링크 점검 결과($stamp)" -- $outFile
-    if ($LASTEXITCODE -ne 0) { Write-Host ' [문제] 커밋하지 못했어요. 위 메시지를 보세요(커밋 검사가 멈췄다면 파일에서 그 줄을 지우고 다시 실행하세요).' -ForegroundColor Red; exit 1 }
-    & git pull --rebase --autostash
-    & git push
-    if ($LASTEXITCODE -eq 0) { Write-Host ' 올렸어요. 담당자에게 알려 주세요.' -ForegroundColor Green }
-    else { Write-Host ' [문제] 올리지 못했어요. 인터넷 연결을 확인하고 git push 를 다시 하세요.' -ForegroundColor Red }
-} finally { Pop-Location }
+Push-Report $outFile "WildScenes 링크 점검 결과($stamp)"

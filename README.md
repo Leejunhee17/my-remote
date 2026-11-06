@@ -23,6 +23,7 @@ cd D:\gpu
 git config core.hooksPath .githooks                                   # 커밋 검사 켜기(한 번)
 copy .env.example .env                                                # 접근 PC 설정 만들기(한 번)
 notepad .env                                                          # HF_TOKEN, 필요하면 HTTPS_PROXY 적기
+powershell -ExecutionPolicy Bypass -File .\pc\check.ps1                # 접근 PC 점검(결과를 reports\ 로 git 에 올려요)
 powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 설치 스크립트·기초 프로그램·도커·데이터셋·모델 받기
 ```
 
@@ -44,7 +45,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 
 | 이럴 때 | 문서 |
 |---|---|
-| 서버를 처음 설치해요(Ubuntu로 다시 설치한 뒤). 접근 PC 설정(`.env`)과 한 번에 받기도 여기 | `docs/1_처음_설치.md` |
+| 서버를 처음 설치해요(Ubuntu로 다시 설치한 뒤). 접근 PC 설정(`.env`)·점검과 한 번에 받기도 여기 | `docs/1_처음_설치.md` |
 | 팀원 추가, GPU 배분, 알림 기준, 도커·드라이버 관리 | `docs/2_서버_운영.md` |
 | 잠금·알림·사람 구분이 왜 이렇게 생겼는지 알고 싶어요 | `docs/3_구조와_보안.md` |
 | 두 서버와 NAS 사이 속도, 큰 파일 옮기는 방법, 점검 결과 올리기 | `docs/4_네트워크.md` |
@@ -61,7 +62,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 
 | 단계 | 접근 PC | GPU 서버 (root) |
 |---|---|---|
-| 0. 서버 점검 | | `check.sh` (서버·NAS·네트워크를 한 번에. 보고서는 공용 계정 홈에) |
+| 0. 점검 | `pc\check.ps1` (프로그램·.env·사이트 접속·디스크를 한 번에. 결과는 `reports\` 로 git 에) | `check.sh` (서버·NAS·네트워크를 한 번에. 보고서는 공용 계정 홈에) |
 | 1. 관리자 기본 설정 | `pc\setup_pack.ps1` | `admin_setup.sh` (**맨 먼저**: `/app` 잠금) |
 | 1-1. 서버 기초 프로그램 | `pc\pkgs_pack.ps1` | `pkgs_install.sh` (tmux, nvtop, rsync 등. 없는 것만) |
 | 2. 도커 | `pc\docker_pack.ps1` | `docker_install.sh` |
@@ -79,12 +80,12 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 |---|---|
 | `docs/` | 관리자 문서(위 문서 지도) |
 | `team/` | 팀원에게 줄 규칙과 사용법 |
-| `pc/` | 접근 PC에서 실행하는 받기·묶기 스크립트(`run_all.ps1` 은 한 번에) |
+| `pc/` | 접근 PC에서 실행하는 점검(`check.ps1`)과 받기·묶기 스크립트(`run_all.ps1` 은 한 번에) |
 | `.env.example` | 접근 PC 설정 예시. 복사해 `.env` 를 만들고 토큰·프록시를 적어요(`.env` 는 git에 올라가지 않아요) |
 | `server/` | GPU 서버에서 root 로 실행하는 점검·설치 스크립트 |
 | `server/bin/` | 팀원이 쓰는 `docker`, `nvidia-smi` 뒤에서 이름표·경고·"GPU별 사용자" 표를 붙이는 도우미와 정기 점검(`gpu`). `admin_setup.sh` 가 `/app/admin/bin` 에 설치해요 |
 | `lists/` | 받을 모델 목록 |
-| `reports/` | 서버 점검 결과 중 사내 정보를 가린 공유용만 올리는 곳 |
+| `reports/` | 서버·접근 PC 점검 결과 중 사내 정보를 가린 공유용만 올리는 곳 |
 | `.githooks/` | 커밋 전에 사내 정보·`.env`·토큰이 들어가지 않았는지 보는 검사(`git config core.hooksPath .githooks`) |
 | `tests/` | 자동 시험(`bash tests/run.sh`). 가짜 `/app`·docker·nvidia-smi 로 스크립트를 실제로 돌려 봐요 |
 | `.github/workflows/` | 푸시할 때마다 GitHub 에서 자동 시험을 돌리는 설정 |
