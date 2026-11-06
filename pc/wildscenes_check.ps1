@@ -132,6 +132,48 @@ foreach ($p in $px) {
 }
 $res['.NET(브라우저와 같은 시스템 프록시)'] = Test-DotNet
 
+# 받기 스크립트(datasets_download.ps1)와 똑같이: 점검(Test-Site)이 고른 설정을 붙이고, 같은 curl 옵션으로 이 파일 하나를 끝까지 받는다
+Add-Line '== 받기 스크립트와 같은 방법'
+Test-Site 'CSIRO S3 저장소' "https://$site/" | Out-Null
+$ha = $script:HostArgs[$site]
+Add-Line "   점검이 고른 설정: 추가 인자 $(if ($script:CurlExtra.Count) { $script:CurlExtra -join ' ' } else { '없음' }), 이 주소 전용 $(if ($ha) { (@($ha) | ForEach-Object { if ($_ -match '://') { '(프록시)' } else { $_ } }) -join ' ' } else { '없음' })"
+$tmpd = Join-Path ([IO.Path]::GetTempPath()) "ws_check_$stamp"
+New-Item -ItemType Directory -Force $tmpd | Out-Null
+$tf = Join-Path $tmpd 'f'
+foreach ($round in 1, 2) {
+    # 2번째는 이미 받은 파일이 있는 상태(-C - 이어받기)에서 다시 받는다. 받기 스크립트가 다시 실행될 때와 같다
+    $ca = Get-CurlArgs $url
+    $msg = & curl.exe -sS -L -C - --fail --retry 3 --retry-delay 5 --connect-timeout 30 -Y 1024 -y 120 @ca -o $tf --stderr - $url | Out-String
+    $code = $LASTEXITCODE
+    $sz = if (Test-Path $tf) { (Get-Item $tf).Length } else { 0 }
+    $what = if ($round -eq 1) { '처음 받기' } else { '받은 파일이 있는 채로 다시(이어받기)' }
+    Add-Line "   $($what): $(if ($code -eq 0) { '받아져요' } else { '안 돼요' }) (curl $code, 파일 $sz 바이트)$(if ($msg.Trim()) { ' ' + (Hide-Text $msg.Trim()) })"
+    $res["받기 스크립트와 같은 방법: $what"] = ($code -eq 0)
+}
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $tmpd
+$rel = [regex]::Match([uri]::UnescapeDataString(($url -split '\?')[0]), '(?i)/WildScenes_?2d/(.+)$').Groups[1].Value -replace '/', '\'
+$local = Join-Path $root "datasets\wildscenes\$rel"
+Add-Line "   받기 폴더의 같은 파일(datasets\wildscenes\$rel): $(if (Test-Path $local) { "있음, $((Get-Item $local).Length) 바이트" } else { '없음' })"
+$doneF = Join-Path $root 'datasets\wildscenes.links_done.txt'
+Add-Line "   다 받은 파일 목록(wildscenes.links_done.txt): $(if (Test-Path $doneF) { "$(([IO.File]::ReadAllLines($doneF)).Count)개" } else { '없음' })"
+Add-Line ''
+
+# 지난번 받기 기록(datasets\download.log)의 마지막 실행에서 WildScenes 와 멈춤·문제 줄만(가려서)
+$log = Join-Path $root 'datasets\download.log'
+Add-Line '== 지난번 받기 기록(datasets\download.log, 마지막 실행의 WildScenes·멈춤·문제 줄)'
+if (Test-Path $log) {
+    $all = [IO.File]::ReadAllLines($log)
+    $start = 0
+    for ($k = $all.Count - 1; $k -ge 0; $k--) { if ($all[$k] -match '\[접근 PC\] 세그멘테이션 데이터셋 받기') { $start = $k; break } }
+    $pick = @($all[$start..($all.Count - 1)] | Where-Object { $_ -match '(?i)wildscenes|CSIRO|S3|멈춤|멈춘 이유|할 일|\[문제\]|curl' } | Select-Object -Last 60)
+    foreach ($l in $pick) {
+        if ($env:USERPROFILE) { $l = $l.Replace($env:USERPROFILE, '%USERPROFILE%') }   # 윈도우 계정 이름은 가린다
+        Add-Line "   $(Hide-Text $l.TrimEnd())"
+    }
+    if (-not $pick.Count) { Add-Line '   (해당 줄 없음)' }
+} else { Add-Line '   기록 파일 없음' }
+Add-Line ''
+
 Add-Line '== 요약'
 foreach ($k in $res.Keys) { Add-Line ("   {0}  {1}" -f $(if ($res[$k]) { '[됨]  ' } else { '[안 됨]' }), $k) }
 
