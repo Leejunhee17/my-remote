@@ -535,18 +535,28 @@ Write-Info '검사용 Python을 준비하는 중이에요(처음 한 번만)'
 if ($LASTEXITCODE -ne 0) { Stop-Run 'uv가 Python 3.12를 받지 못했어요' '인터넷(github.com) 접속을 확인하고 다시 실행하세요.' }
 Write-Ok 'Python 3.12를 준비했어요'
 
+# WildScenes 준비. 안 되면 스크립트를 멈추지 않고 WildScenes 만 건너뛰고 나머지를 받는다(do … while 안의 break 로 빠져나온다)
+$script:WsSkip = ''
+function Skip-Wild($what, $fix) {
+    Write-Bad "WildScenes: $what"
+    Write-Info "    할 일: $fix"
+    Write-Warn 'WildScenes 는 건너뛰고 나머지 데이터셋을 받아요. 고친 뒤 같은 명령을 다시 실행하면 WildScenes 만 받아요'
+    $script:doWild = $false
+    $script:WsSkip = $what
+}
+do {
 if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
-    if (-not (Test-Path $WildScenesLinks)) { Stop-Run "링크 목록 파일을 찾지 못했어요: $WildScenesLinks" '-WildScenesLinks 뒤(또는 .env 의 WILDSCENES_LINKS)에 포털에서 받은 .txt 파일의 전체 경로를 적어 다시 실행하세요.' }
+    if (-not (Test-Path $WildScenesLinks)) { Skip-Wild "링크 목록 파일을 찾지 못했어요: $WildScenesLinks" '-WildScenesLinks 뒤(또는 .env 의 WILDSCENES_LINKS)에 포털에서 받은 .txt 파일의 전체 경로를 적어 다시 실행하세요.'; break }
     $script:WsLinks = Get-WsLinks $WildScenesLinks
     if (-not $script:WsLinks.Count) {
         Write-Info "    목록 파일의 주소 줄: $($script:WsLinkCount)개"
         $script:WsLinkSample | ForEach-Object { Write-Info "    예: $_" }
-        Stop-Run '링크 목록에 WildScenes2d 파일이 없어요' "포털($WsPortal)의 Download → Get a list of file download links 에서 받은 .txt 파일인지 확인하세요."
+        Skip-Wild '링크 목록에 WildScenes2d 파일이 없어요' "포털($WsPortal)의 Download → Get a list of file download links 에서 받은 .txt 파일인지 확인하세요."; break
     }
     Write-Ok "WildScenes 링크 목록: 2D 파일 $($script:WsLinks.Count)개"
     $f0 = $script:Fails   # 앞의 Google Drive 진단 실패는 세지 않는다(CSIRO 접속만 본다)
     Test-Site 'CSIRO S3 저장소' "https://$(([uri]$script:WsLinks[0].Url).Host)/" | Out-Null
-    if ($script:Fails -gt $f0) { Stop-Run 'CSIRO S3 저장소에 접속되지 않아요' '위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면 아래 기록 파일을 담당자에게 보내 주세요.' }
+    if ($script:Fails -gt $f0) { Skip-Wild 'CSIRO S3 저장소에 접속되지 않아요' '위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면 아래 기록 파일을 담당자에게 보내 주세요.'; break }
 } elseif ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) {
     if ($wsEnv) {
         Write-Ok 'WildScenes 접속 정보는 .env 에서 읽었어요(약 48시간만 유효해요. 거절되면 포털에서 새로 받아 .env 를 고치세요)'
@@ -577,29 +587,30 @@ if ($doWild -and $WildScenesLinks -and -not (Test-Path (Join-Path $Dest 'wildsce
     $f0 = $script:Fails
     Test-Site 'CSIRO S3 저장소' $script:WsEndpoint | Out-Null
     if ($script:Fails -gt $f0) {
-        Stop-Run 'CSIRO S3 저장소에 접속되지 않아요' ('위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면(401, AccessDenied 같은 오류가 떠도 열린 거예요) ' +
-            'docs\5_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요.')
+        Skip-Wild 'CSIRO S3 저장소에 접속되지 않아요' ('위 [문제] 줄 아래 설명을 보세요. 브라우저에서는 열린다면(401, AccessDenied 같은 오류가 떠도 열린 거예요) ' +
+            'docs\5_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요.'); break
     }
     $pa = $script:HostArgs[([uri]$script:WsEndpoint).Host]
     if ($pa -and $pa.Count -gt 2) {
-        Stop-Run 'CSIRO S3 저장소는 윈도우 로그인 인증 프록시로만 연결되는데, AWS CLI는 그 인증을 하지 못해요' `
-            'docs\5_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요(curl로 받아서 인증이 돼요).'
+        Skip-Wild 'CSIRO S3 저장소는 윈도우 로그인 인증 프록시로만 연결되는데, AWS CLI는 그 인증을 하지 못해요' `
+            'docs\5_데이터셋.md 의 "WildScenes 링크 목록으로 받기"를 따라 -WildScenesLinks를 붙여 실행하세요(curl로 받아서 인증이 돼요).'; break
     }
 
     Write-Info 'AWS CLI를 준비하는 중이에요(처음 한 번만)'
     & $uv tool install awscli | Out-Host
-    if ($LASTEXITCODE -ne 0) { Stop-Run 'AWS CLI를 준비하지 못했어요' 'PyPI(pypi.org) 접속을 확인하고 다시 실행하세요.' }
+    if ($LASTEXITCODE -ne 0) { Skip-Wild 'AWS CLI를 준비하지 못했어요' 'PyPI(pypi.org) 접속을 확인하고 다시 실행하세요.'; break }
 
     Write-Info 'WildScenes2d 폴더를 찾는 중이에요'
-    $wsPrefix = Find-WsPrefix $wsDir
-    if (-not $wsPrefix) {
+    $script:WsPrefix = Find-WsPrefix $wsDir
+    if (-not $script:WsPrefix) {
         Write-Host '  원격 폴더 내용:'
         Invoke-Aws s3 ls "s3://$wsDir" | Out-Host
-        Stop-Run 'WildScenes2d 폴더를 찾지 못했어요' ("접속 정보가 틀렸거나 48시간이 지났을 수 있어요. 포털($WsPortal)에서 접속 정보를 새로 받아 다시 실행하세요. " +
-            'SSL·certificate 오류가 보이면 회사 보안 장비 때문이니 아래 기록 파일을 담당자에게 보내 주세요.')
+        Skip-Wild 'WildScenes2d 폴더를 찾지 못했어요' ("접속 정보가 틀렸거나 48시간이 지났을 수 있어요. 포털($WsPortal)에서 접속 정보를 새로 받아 다시 실행하세요. " +
+            'SSL·certificate 오류가 보이면 회사 보안 장비 때문이니 아래 기록 파일을 담당자에게 보내 주세요.'); break
     }
-    Write-Ok "WildScenes에 접속했어요: s3://$wsPrefix"
+    Write-Ok "WildScenes에 접속했어요: s3://$script:WsPrefix"
 }
+} while ($false)
 
 $needGB = (@($Items) + @($LateItems) | Where-Object { -not (Test-Path "$(Join-Path (Join-Path $Dest $_.Set) $_.Name).ok") } |
     ForEach-Object { $_.GB } | Measure-Object -Sum).Sum
@@ -669,7 +680,8 @@ if ($doWild) {
                         -o $out --stderr - $it.Url | Out-String
                     $code = $LASTEXITCODE
                     if ($code -eq 0) { [void]$doneSet.Add($it.Rel); [IO.File]::AppendAllText($doneFile, "$($it.Rel)`n", $utf8) }
-                    elseif ($msg -match 'returned error: 403') { $expired = $true; Write-Info "    $($it.Rel): $($msg.Trim())"; break }
+                    # 401·403 은 링크가 만료됐거나 거절된 것이라 다른 파일도 똑같다. 다시 시도하지 않고 바로 멈춘다
+                    elseif ($msg -match 'returned error: 40[13]') { $expired = $true; Write-Info "    $($it.Rel): $($msg.Trim())"; break }
                     else {
                         if ($code -eq 33 -or $code -eq 36) { Remove-Item -Force -ErrorAction SilentlyContinue $out }
                         # 실패 이유를 처음 몇 개만 보여 준다(전부는 기록 파일이 너무 길어진다)
@@ -678,7 +690,7 @@ if ($doWild) {
                 }
                 Write-Progress -Activity 'WildScenes 받기' -Completed
                 if ($expired) {
-                    Write-Bad 'WildScenes 링크가 만료됐어요(403)'
+                    Write-Bad 'WildScenes 링크가 만료됐거나 거절됐어요(401·403)'
                     Write-Info "    포털($WsPortal)에서 링크 목록을 새로 받아 같은 명령을 다시 실행하세요. 받은 파일은 건너뛰어요."
                     break
                 }
@@ -689,16 +701,16 @@ if ($doWild) {
         while (-not $WildScenesLinks -and -not $done -and $stall -lt $MaxTries) {
             # sync 는 이미 받은 파일을 건너뛰므로 몇 번이고 다시 해도 된다
             $before = Get-Size $wdir
-            Invoke-Aws s3 sync "s3://$wsPrefix" $wdir --only-show-errors | Out-Host
+            Invoke-Aws s3 sync "s3://$script:WsPrefix" $wdir --only-show-errors | Out-Host
             $code = $LASTEXITCODE
             if ($code -eq 0) {
                 Write-Info '빠진 파일이 없는지 확인하는 중이에요'
-                $left = @(Invoke-Aws s3 sync "s3://$wsPrefix" $wdir --dryrun | Where-Object { $_ -match '\(dryrun\)' })
+                $left = @(Invoke-Aws s3 sync "s3://$script:WsPrefix" $wdir --dryrun | Where-Object { $_ -match '\(dryrun\)' })
                 if ($LASTEXITCODE -eq 0 -and $left.Count -eq 0) { $done = $true; break }
                 Write-Warn "아직 $($left.Count)개가 남았어요"
             } else {
                 # 접속 정보가 만료됐으면 기다려도 소용없다
-                Invoke-Aws s3 ls "s3://$wsPrefix" | Out-Null
+                Invoke-Aws s3 ls "s3://$script:WsPrefix" | Out-Null
                 if ($LASTEXITCODE -ne 0) {
                     Write-Bad 'WildScenes 접속 정보가 만료됐거나 막혔어요'
                     Write-Info "    포털($WsPortal)에서 접속 정보를 새로 받아 같은 명령(-WildScenes)을 다시 실행하세요. 받은 파일은 건너뛰어요."
@@ -714,6 +726,8 @@ if ($doWild) {
             Write-Ok "wildscenes를 받았어요(파일 $($m.Count)개)"; $result['wildscenes'] = '받음'
         } else { $result['wildscenes'] = '실패' }
     }
+} elseif ($script:WsSkip) {
+    $result['wildscenes'] = "건너뜀($script:WsSkip. 고친 뒤 다시 실행)"
 } elseif (Want 'wildscenes') {
     $result['wildscenes'] = '건너뜀(받으려면 -WildScenes 또는 -WildScenesLinks 를 붙여 실행)'
 }
