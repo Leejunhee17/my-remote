@@ -363,7 +363,7 @@ sec_nic() {
         ndip=$(ip -4 -br addr show "$nd" 2>/dev/null | awk '{print $3}')
         echo "  $(pad "$hca" 10)포트 $(basename "$p")  $(pad "$(cut -d: -f2 "$p/state" | tr -d ' ')" 8)$(pad "$(cat "$p/rate")" 22)$(pad "${nd:--}" 13)${ndip:-IP 없음}"
     done
-    echo "  IP가 있는 포트는 NAS·IP 통신용이고, IP가 없는 포트는 보통 GPU 서버끼리 RDMA(NCCL)로만 쓰는 포트예요."
+    echo "  IP가 있는 포트는 NAS·IP 통신용이고, IP가 없는 포트는 보통 GPU 서버끼리 RDMA(CPU를 거치지 않고 메모리끼리 바로 주고받는 빠른 통신)로만 쓰는 포트예요. GPU 사이 통신 라이브러리인 NCCL 이 이 포트를 써요."
 }
 
 # ================================================================== NAS
@@ -392,7 +392,7 @@ sec_nas() {
     head_ "NAS 용량 ($NAS)"
     df -hP "$NAS" | awk 'NR==2 {printf "  전체 %s, 쓴 것 %s, 남은 것 %s (%s 찼어요)\n", $2, $3, $4, $5}'
     df -iP "$NAS" 2>/dev/null | awk 'NR==2 && $2 > 0 {printf "  파일 수: 전체 %s, 쓴 것 %s (%s)\n", $2, $3, $5}'
-    echo "  (NAS에 폴더별 할당량(quota)이 있으면 그 폴더에서 df 를 하면 할당량이 '전체'로 보여요)"
+    echo "  (NAS에 폴더별 할당량(quota)이 걸려 있으면, 그 폴더에서 df 로 본 '전체' 용량은 실제로는 할당량이에요)"
 
     head_ "$NAS 바로 아래 (주인·권한)"
     local n=0 d st uid gid mode
@@ -747,7 +747,7 @@ sec_speed() {
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
         [ -n "$peer" ] && { wait_file "$R/$peer.nasdone" "$pf" 900 && rm -f "$R/$peer.nasdone"; }
     fi
-    [ -n "$local_dir" ] || echo "  (로컬 SSD는 $APP/autonomy_sw·$APP/upload(공용 계정), root 소유 $APP/inbox·$APP(root) 에 쓸 수 있을 때 재요)"
+    [ -n "$local_dir" ] || echo "  (로컬 SSD 속도는 쓸 수 있는 폴더가 있을 때만 재요. 공용 계정은 $APP/autonomy_sw 나 $APP/upload 에, root 는 root 소유인 $APP/inbox 나 $APP 에 쓸 수 있어야 해요)"
 }
 
 # NAS 에 남긴 주소·완료 표시와 폴더를 지운다. 나중에 끝나는 쪽(B)의 NAS 완료 표시는 A 가 본 뒤 지운다
