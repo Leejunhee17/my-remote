@@ -39,7 +39,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 | 인터넷 | 돼요. 여기서 내려받아요 | 안 돼요 |
 | 접속 | | HIWARE(서버에 접속할 때 거치는 사내 접속 관리 시스템)를 거쳐요. 팀원은 모두 공용 계정 하나(PuTTY, FileZilla). 관리자는 root(PuTTY만 돼요). 파일은 공용 계정 FileZilla로 올려요 |
 | 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD(작업 폴더·도커), NAS `/data`(다른 팀과 같이 써요). 데이터셋·모델은 NAS의 우리 팀 폴더 `/data/autonomy_sw` 에 한 번만 두고 두 서버가 같이 읽어요(`docs/8_NAS.md`) |
-| 주요 위치 | `D:\gpu` | 데이터셋 `/data/autonomy_sw/datasets`, 모델 `/data/autonomy_sw/models`(NAS), 도우미·명단·설정 `/app/admin`(셋 다 root 만 고침), 작업 `/app/autonomy_sw/<이름>`, 기록·알림 `/app/state`, 올리는 곳 NAS `/data/autonomy_sw/inbox`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
+| 주요 위치 | `D:\gpu` | 데이터셋 `/data/autonomy_sw/datasets`, 모델 `/data/autonomy_sw/models`(NAS, 팀원이 넣음), 도우미·명단·설정 `/app/admin`(root 만 고침), 작업 `/app/autonomy_sw/<이름>`, 기록·알림 `/app/state`, 올리는 곳 NAS `/data/autonomy_sw/inbox`(공용 계정) → root 가 확인한 설치 파일 `/app/inbox`(root 만 고침), 도커 `/app/docker` |
 
 ## 문서 지도
 
@@ -58,17 +58,17 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 
 ## 설치 순서 한눈에
 
-자세한 명령과 확인 방법은 `docs/1_처음_설치.md` 에 있어요. 준비 → 설치 → 권한·규칙 설정 순서예요. 서버 2대 모두 같은 순서로 하되, 4·5단계(데이터셋·모델)는 두 서버 중 한 곳에서 한 번만 해요. 두 서버가 같이 보는 NAS에 들어가서 다른 서버에서도 바로 보여요.
+일은 관리자(0·1·2·3·6·7단계, root)와 사용자(4·5단계, 공용 계정)로 나뉘어요. 관리자는 `docs/1_처음_설치.md` 대로 준비 → 설치 → 권한·규칙 설정 순서로, 서버 2대에서 각각 해요. 사용자는 데이터셋·모델을 정해진 NAS 폴더에 넣기만 하면 돼요(`docs/5_데이터셋.md`, `docs/6_모델.md`). 두 서버가 같이 보는 NAS에 들어가서 한 곳에서 한 번만 하면 돼요.
 
-| 단계 | 접근 PC | GPU 서버 (root) |
+| 단계 | 접근 PC | GPU 서버 |
 |---|---|---|
-| 0. 점검 | `pc\check.ps1` (프로그램·.env·사이트 접속·디스크를 한 번에. 결과는 `reports\` 로 git 에) | `check.sh` (서버·NAS·네트워크를 한 번에. 보고서는 공용 계정 홈에) |
-| 1. 준비 | `pc\setup_pack.ps1` | `prepare.sh` (`/app` 잠금, `gpu fetch`, NAS 팀 폴더. 설치보다 먼저) |
-| 2. 서버 기초 프로그램 | `pc\pkgs_pack.ps1` | `pkgs_install.sh` (tmux, nvtop, rsync 등. 없는 것만) |
-| 3. 도커 | `pc\docker_pack.ps1` | `docker_install.sh` |
-| 4. 데이터셋 풀기 | `pc\datasets_download.ps1` | `datasets_unpack.sh` (한 서버에서 한 번만) |
-| 5. 사전학습 모델 넣기 | `pc\models_download.ps1` | `models_place.sh` (한 서버에서 한 번만) |
-| 6. 권한·규칙 설정 | (1단계 묶음에 들어 있어요) | `admin_setup.sh` (이름 고르기, 도우미, 알림, 정기 점검. 하나가 안 돼도 멈추지 않아요) |
+| 0. 점검 | `pc\check.ps1` (프로그램·.env·사이트 접속·디스크를 한 번에. 결과는 `reports\` 로 git 에) | root: `check.sh` (서버·NAS·네트워크를 한 번에. 보고서는 공용 계정 홈에) |
+| 1. 준비 | `pc\setup_pack.ps1` | root: `prepare.sh` (`/app` 잠금, `gpu fetch`, NAS 팀 폴더. 설치보다 먼저) |
+| 2. 서버 기초 프로그램 | `pc\pkgs_pack.ps1` | root: `pkgs_install.sh` (tmux, nvtop, rsync 등. 없는 것만) |
+| 3. 도커 | `pc\docker_pack.ps1` | root: `docker_install.sh` |
+| 4. 데이터셋 넣기 (사용자) | `pc\datasets_download.ps1` | 공용 계정: `datasets_unpack.sh` (한 서버에서 한 번만) |
+| 5. 사전학습 모델 넣기 (사용자) | `pc\models_download.ps1` | 공용 계정: `models_place.sh` (한 서버에서 한 번만) |
+| 6. 권한·규칙 설정 | (1단계 묶음에 들어 있어요) | root: `admin_setup.sh` (이름 고르기, 도우미, 알림, 정기 점검. 하나가 안 돼도 멈추지 않아요) |
 | 7. 팀원에게 알리고 확인 | | 공용 계정으로 접속 |
 
 서버 화면(컨테이너 밖)에서 쓰는 tmux, nvtop, rsync 같은 프로그램은 서버에 인터넷이 없어서 관리자가 2단계 묶음으로 직접 설치해요(`docs/1_처음_설치.md` 의 "2단계: 서버 기초 프로그램"). 학습 도구는 팀원이 도커 이미지에 넣어 와요.
@@ -98,7 +98,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 - 문법: bash·Python·PowerShell 문법, shellcheck, `.ps1` BOM·줄 끝, `.ps1` 에서 한글이 붙은 변수(`"$n번째"`), 올리면 안 되는 파일(`.env` 포함), 사설 IP
 - 접근 PC 설정: `.env` 읽기(주석·따옴표·이미 정한 값이 우선하는지, 값은 화면에 안 나오는지), `.env.example` 에 값이 비어 있는지
 - 문서: 코드 블록 짝, 문서에 나온 스크립트·문서·절 이름이 실제로 있는지, 문제 해결 표의 메시지가 스크립트에 있는지
-- 설치: 데이터셋·모델 설치를 정상·깨진 파일·빈 목록·끼워 넣은 파일로 돌려 봐요
+- 데이터셋·모델 넣기: 정상·깨진 파일·빠진 파일·빈 목록·같은 이름 폴더·나눠 올리기로 돌려 봐요
 - 서버 도우미: 정기 점검, GPU 현황, 주간 보고서, docker 래퍼 경고, `gpu fetch`, 공유용 보고서 가리기
 - 커밋 검사: 사설 IP, 가릴 낱말, 원본 보고서, 엑셀 안의 글자, `.env` 파일, 토큰·키처럼 보이는 값(HF, GitHub, AWS, 개인 키)
 - 준비와 권한·규칙 설정: `prepare.sh`, `admin_setup.sh` 를 진짜 `/app` 에 돌리고, 공용 계정으로 접속해 이름 고르기까지 해 봐요

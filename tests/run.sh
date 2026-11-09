@@ -156,7 +156,7 @@ t_docs() {
     [ -z "$bad" ] && ok 'README 폴더 표의 경로가 모두 있어요' || no 'README 폴더 표에 없는 경로' "$bad"
 }
 
-# ================================================================== 3. 데이터셋·모델 설치
+# ================================================================== 3. 데이터셋·모델 넣기(사용자가 공용 계정으로)
 mk_datasets() {   # $1 폴더(NAS inbox 의 datasets 처럼). 압축 1개 + wildscenes 파일 2개와 맞는 체크섬 목록
     local d=$1; mkdir -p "$d/goose" "$d/wildscenes/a"
     ( cd "$d" && echo z > z.txt && zip -q goose/g.zip z.txt && rm z.txt
@@ -165,97 +165,95 @@ mk_datasets() {   # $1 폴더(NAS inbox 의 datasets 처럼). 압축 1개 + wild
       echo 'files=2 bytes=6' > wildscenes.ok )
     cp server/datasets_unpack.sh "$d/"
 }
-# 데이터는 NAS inbox($T/nas/inbox/datasets)에 두고, 목록과 스크립트만 root 전용 폴더($2)에 복사해 실행한다(gpu fetch 가 하는 것처럼)
+# 올린 그 자리(NAS inbox 의 datasets)에서 바로 실행한다. 시험은 root 로 돌 수 있어서 root 막기를 끈다
 DSRC=$T/nas/inbox/datasets
-run_ds() { mkdir -p "$T/nas/datasets" "$2"; cp "$DSRC/MANIFEST.sha256" "$DSRC/datasets_unpack.sh" "$2/"
-           HOME=$1 GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$2/datasets_unpack.sh" > "$LOG" 2>&1; }
-fresh_ds() { rm -rf "$T/nas" "$1"; mk_datasets "$DSRC"; }
+run_ds() { mkdir -p "$T/nas/datasets"; GPU_TEST_ROOT_OK=1 GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$DSRC/datasets_unpack.sh" > "$LOG" 2>&1; }
+fresh_ds() { rm -rf "$T/nas"; mk_datasets "$DSRC"; }
 t_installers() {
     head_ '데이터셋·모델 넣기'
-    local H=$T/inst/home D=$T/inst/ds
-    mkdir -p "$H"
-    fresh_ds "$D"
-    run_ds "$H" "$D"; t '데이터셋: 정상으로 풀어요' bash -c 'grep -q "다 풀었어요" "$1" && [ -f "$2/goose/z.txt" ]' _ "$LOG" "$T/nas/datasets"
-    t '데이터셋: wildscenes 는 목록의 파일을 그 자리에 옮겨요' test -f "$T/nas/datasets/wildscenes/a/1.png" -a -f "$T/nas/datasets/wildscenes/2.png"
-    t '데이터셋: 임시 폴더를 남기지 않아요' bash -c '! ls -d "$1"/.gpu_tmp_* >/dev/null 2>&1' _ "$T/nas/datasets"
-    run_ds "$H" "$D"; t '데이터셋: 다시 실행하면 푼 것은 건너뛰어요' has "$LOG" '이미 풀었어요'
-    fresh_ds "$D"; echo bad > "$DSRC/wildscenes/2.png"
-    run_ds "$H" "$D"; t '데이터셋: 바뀐 파일은 체크섬으로 잡고 넣지 않아요' bash -c 'grep -q "wildscenes/2.png: 체크섬이 맞지 않아요" "$1" && [ ! -e "$2/wildscenes/2.png" ]' _ "$LOG" "$T/nas/datasets"
-    fresh_ds "$D"; echo x > "$DSRC/wildscenes/a/evil.sh"
-    run_ds "$H" "$D"; t '데이터셋: 목록에 없는 파일은 옮기지 않아요' test ! -e "$T/nas/datasets/wildscenes/a/evil.sh"
-    fresh_ds "$D"; ln -s /etc/passwd "$DSRC/goose/link"
-    run_ds "$H" "$D"; t '데이터셋: 올린 폴더에 링크가 있으면 멈춰요' has "$LOG" '올린 폴더에 링크가 있어요'
-    fresh_ds "$D"; : > "$DSRC/MANIFEST.sha256"
-    run_ds "$H" "$D"; t '데이터셋: 빈 체크섬 목록이면 멈춰요' has "$LOG" '비었거나 모양이 이상해요'
-    fresh_ds "$D"; echo 'garbage' >> "$DSRC/MANIFEST.sha256"
-    run_ds "$H" "$D"; t '데이터셋: 모양이 다른 줄이 있으면 멈춰요' has "$LOG" '비었거나 모양이 이상해요'
-    fresh_ds "$D"; grep -v wildscenes "$DSRC/MANIFEST.sha256" > "$DSRC/m" && mv "$DSRC/m" "$DSRC/MANIFEST.sha256"
-    run_ds "$H" "$D"; t '데이터셋: 예전 목록(wildscenes 체크섬 없음)이면 멈춰요' has "$LOG" '체크섬 목록에 wildscenes 파일이 없어요'
-    fresh_ds "$D"; rm "$DSRC/goose/g.zip"
-    run_ds "$H" "$D"; t '데이터셋: 빠진 파일은 먼저 알려 주고 멈춰요' has "$LOG" '없는 파일: goose/g.zip'
+    local N=$T/nas/datasets
+    fresh_ds
+    run_ds; t '데이터셋: 정상으로 풀어요' bash -c 'grep -q "다 풀었어요" "$1" && [ -f "$2/goose/z.txt" ]' _ "$LOG" "$N"
+    t '데이터셋: wildscenes 는 목록의 파일을 그 자리에 옮겨요' test -f "$N/wildscenes/a/1.png" -a -f "$N/wildscenes/2.png"
+    t '데이터셋: 기록 파일은 올린 곳에 남겨요' bash -c 'ls "$1"/datasets_unpack_*.log >/dev/null' _ "$DSRC"
+    run_ds; t '데이터셋: 다시 실행하면 푼 것은 건너뛰어요(옮긴 파일이 올린 곳에 없어도)' bash -c 'grep -q "이미 풀었어요" "$1" && grep -q "다 풀었어요" "$1"' _ "$LOG"
+    fresh_ds; echo bad > "$DSRC/wildscenes/2.png"
+    run_ds; t '데이터셋: 깨진 파일은 체크섬으로 잡고 넣지 않아요' bash -c 'grep -q "wildscenes/2.png: 체크섬이 맞지 않아요" "$1" && [ ! -e "$2/wildscenes/2.png" ]' _ "$LOG" "$N"
+    fresh_ds; : > "$DSRC/MANIFEST.sha256"
+    run_ds; t '데이터셋: 빈 체크섬 목록이면 멈춰요' has "$LOG" '비었거나 모양이 이상해요'
+    fresh_ds; echo 'garbage' >> "$DSRC/MANIFEST.sha256"
+    run_ds; t '데이터셋: 모양이 다른 줄이 있으면 멈춰요' has "$LOG" '비었거나 모양이 이상해요'
+    fresh_ds; grep -v wildscenes "$DSRC/MANIFEST.sha256" > "$DSRC/m" && mv "$DSRC/m" "$DSRC/MANIFEST.sha256"
+    run_ds; t '데이터셋: 예전 목록(wildscenes 체크섬 없음)이면 멈춰요' has "$LOG" '체크섬 목록에 wildscenes 파일이 없어요'
+    fresh_ds; rm "$DSRC/goose/g.zip"
+    run_ds; t '데이터셋: 빠진 파일은 먼저 알려 주고 멈춰요' has "$LOG" '없는 파일: goose/g.zip'
     # 넣을 곳에 원래 있던 폴더: 이름이 다르면 그대로 두고, 같은 이름인데 스크립트가 넣은 것이 아니면 건너뛴다
-    fresh_ds "$D"; mkdir -p "$T/nas/datasets/other" "$T/nas/datasets/goose"; echo k > "$T/nas/datasets/other/keep"; echo k > "$T/nas/datasets/goose/keep"
-    run_ds "$H" "$D"
-    t '데이터셋: 같은 이름의 남의 폴더는 덮어쓰지 않고 알려요' bash -c 'grep -q "goose 가 이미 있는데 이 스크립트가 넣은 폴더가 아니에요" "$1" && [ -f "$2/goose/keep" ] && [ ! -e "$2/goose/z.txt" ]' _ "$LOG" "$T/nas/datasets"
-    t '데이터셋: 원래 있던 다른 폴더는 그대로 둬요' test -f "$T/nas/datasets/other/keep" -a -f "$T/nas/datasets/wildscenes/2.png"
+    fresh_ds; mkdir -p "$N/other" "$N/goose"; echo k > "$N/other/keep"; echo k > "$N/goose/keep"
+    run_ds
+    t '데이터셋: 같은 이름의 남의 폴더는 덮어쓰지 않고 알려요' bash -c 'grep -q "goose 가 이미 있는데 이 스크립트가 넣은 폴더가 아니에요" "$1" && [ -f "$2/goose/keep" ] && [ ! -e "$2/goose/z.txt" ]' _ "$LOG" "$N"
+    t '데이터셋: 원래 있던 다른 폴더는 그대로 둬요' test -f "$N/other/keep" -a -f "$N/wildscenes/2.png"
 
     # 나눠 올리기: 폴더째 안 올린 데이터셋은 건너뛰고, 폴더 안의 압축은 그 폴더에 풀고, 압축이 아닌 파일은 경로대로 둔다
-    fresh_ds "$D"
+    fresh_ds
     ( cd "$DSRC" && mkdir -p ORAD-3D/training_zip rellis_full && echo s > s.txt && zip -q ORAD-3D/training_zip/seq1.zip s.txt && rm s.txt
       echo bag > rellis_full/rosbag_00000_synced.bag
       sha256sum ORAD-3D/training_zip/seq1.zip rellis_full/rosbag_00000_synced.bag >> MANIFEST.sha256
       echo "0000000000000000000000000000000000000000000000000000000000000000  CaSSeD/CaSSeD.tar.gz" >> MANIFEST.sha256
       rm -rf goose )
-    run_ds "$H" "$D"
-    t '데이터셋: 안 올린 데이터셋(goose·CaSSeD)은 건너뛰어요' bash -c 'grep -q "이번에 올리지 않은 데이터셋(건너뛰어요): CaSSeD goose" "$1" && ! [ -e "$2/goose" ]' _ "$LOG" "$T/nas/datasets"
-    t '데이터셋: 폴더 안의 압축은 그 폴더에 풀어요' test -f "$T/nas/datasets/ORAD-3D/training_zip/s.txt"
-    t '데이터셋: 압축이 아닌 파일(rosbag)은 같은 경로에 둬요' test -f "$T/nas/datasets/rellis_full/rosbag_00000_synced.bag"
+    run_ds
+    t '데이터셋: 안 올린 데이터셋(goose·CaSSeD)은 건너뛰어요' bash -c 'grep -q "이번에 올리지 않은 데이터셋(건너뛰어요): CaSSeD goose" "$1" && ! [ -e "$2/goose" ]' _ "$LOG" "$N"
+    t '데이터셋: 폴더 안의 압축은 그 폴더에 풀어요' test -f "$N/ORAD-3D/training_zip/s.txt"
+    t '데이터셋: 압축이 아닌 파일(rosbag)은 같은 경로에 둬요' test -f "$N/rellis_full/rosbag_00000_synced.bag"
+    # 넣을 곳(NAS 의 datasets)이 없으면 관리자에게 알리라고 멈춘다
+    fresh_ds; GPU_TEST_ROOT_OK=1 GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$DSRC/datasets_unpack.sh" > "$LOG" 2>&1
+    t '데이터셋: 넣을 곳이 없으면 관리자에게 알리라고 멈춰요' has "$LOG" '관리자에게 NAS 팀 폴더를 준비해 달라고'
     if is_root; then
-        # 넣을 NAS 폴더나 그 위를 남도 고칠 수 있으면 root 는 쓰지 않는다
-        fresh_ds "$D"; mkdir -p "$T/nas/datasets"; chmod 777 "$T/nas"
-        run_ds "$H" "$D"; t '데이터셋: 넣을 곳을 남도 고칠 수 있으면 멈춰요' has "$LOG" 'root 말고도 고칠 수 있어요'
-        chmod 755 "$T/nas"
-        # 목록과 스크립트를 남도 고칠 수 있는 곳에서 root 로 실행하면 멈춘다(gpu fetch 로 복사한 곳에서 실행해야 해요)
-        fresh_ds "$D"; mkdir -p "$D"; chmod 777 "$D"
-        run_ds "$H" "$D"; t '데이터셋: 목록을 남도 고칠 수 있는 곳에서 실행하면 멈춰요' has "$LOG" 'gpu fetch datasets'
-        chmod 755 "$D"
-    else skip '데이터셋 넣을 곳·목록 위치 권한: root 가 아니라서 건너뛰어요'; fi
+        fresh_ds; mkdir -p "$N"
+        GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$DSRC/datasets_unpack.sh" > "$LOG" 2>&1
+        t '데이터셋: root 로 실행하면 공용 계정으로 하라고 멈춰요' bash -c 'grep -q "root 말고 공용 계정으로 실행하세요" "$1" && [ ! -e "$2/goose" ]' _ "$LOG" "$N"
+    else skip '데이터셋 root 막기: root 가 아니라서 건너뛰어요'; fi
 
-    # 모델: 데이터는 NAS inbox 에, 목록과 스크립트는 따로. 목록에 있는 파일만 확인해서 옮기고, 올린 폴더의 json.py 같은 파일이 실행되지 않는다
-    local M=$T/inst/models MSRC=$T/nas/inbox/models
-    rm -rf "$T/nas" "$M"; mkdir -p "$MSRC/org__m" "$T/nas/models" "$M"
-    ( cd "$MSRC" && echo '{"a":1}' > org__m/config.json && echo '{"repo":"org/m","license":"mit"}' > org__m/gpu_model.json
-      echo extra > org__m/extra.py
-      python3 -I -c "
+    # 모델: 올린 자리에서 실행한다. 목록에 있는 파일만 확인해서 옮기고, 올린 폴더의 json.py 같은 파일을 모듈로 읽지 않는다
+    local MSRC=$T/nas/inbox/models MD=$T/nas/models
+    mk_models() {
+        rm -rf "$T/nas"; mkdir -p "$MSRC/org__m" "$MD"
+        ( cd "$MSRC" && echo '{"a":1}' > org__m/config.json && echo '{"repo":"org/m","license":"mit"}' > org__m/gpu_model.json
+          python3 -I -c "
 import zipfile
 with zipfile.ZipFile('org__m/code.zip','w') as z:
     z.writestr('top/ok/a.py','x'); z.writestr('top//$T/inst/escaped','x'); z.writestr('top/../../escaped2','x')"
-      sha256sum org__m/config.json org__m/code.zip > MANIFEST.sha256
-      for m in json os zipfile struct sys; do echo "open('$T/inst/PWNED','w')" > $m.py; done )
-    cp server/models_place.sh "$MSRC/"
-    run_mp() { cp "$MSRC/MANIFEST.sha256" "$MSRC/models_place.sh" "$M/"; for m in json os zipfile struct sys; do cp "$MSRC/$m.py" "$M/"; done
-               HOME=$H GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$M/models_place.sh" > "$LOG" 2>&1; }
+          sha256sum org__m/config.json org__m/code.zip > MANIFEST.sha256
+          for m in json os zipfile struct sys; do echo "open('$T/inst/PWNED','w')" > $m.py; done )
+        cp server/models_place.sh "$MSRC/"
+    }
+    run_mp() { GPU_TEST_ROOT_OK=1 GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$MSRC/models_place.sh" > "$LOG" 2>&1; }
+    mkdir -p "$T/inst"; mk_models
     run_mp
-    t '모델: 정상으로 넣어요' has "$LOG" '이번에 올린 모델 1개가 모두 정상'
-    t '모델: 올린 폴더의 json.py 등이 실행되지 않아요(python -I)' test ! -e "$T/inst/PWNED"
-    t '모델: 목록에 없는 파일은 옮기지 않아요' test ! -e "$T/nas/models/org/m/extra.py"
-    t '모델: 코드 묶음을 풀어요' test -f "$T/nas/models/org/m/code/ok/a.py"
-    t '모델: 코드 묶음이 폴더 밖에 쓰지 않아요' test ! -e "$T/inst/escaped" -a ! -e "$T/escaped2" -a ! -e "$T/nas/models/escaped2"
-    run_mp; t '모델: 다시 실행하면 넣은 모델은 건너뛰어요' has "$LOG" 'org/m: 이미 있어요'
+    t '모델: 정상으로 넣어요' bash -c 'grep -q "이번에 올린 모델 1개가 모두 정상" "$1" && [ -f "$2/org/m/config.json" ] && [ -f "$2/org/m/gpu_model.json" ]' _ "$LOG" "$MD"
+    t '모델: 지금 폴더의 json.py 등을 모듈로 읽지 않아요(python -I)' test ! -e "$T/inst/PWNED"
+    t '모델: 코드 묶음을 풀어요' test -f "$MD/org/m/code/ok/a.py"
+    t '모델: 코드 묶음이 폴더 밖에 쓰지 않아요' test ! -e "$T/inst/escaped" -a ! -e "$T/escaped2" -a ! -e "$MD/escaped2"
+    run_mp; t '모델: 다시 실행하면 넣은 모델은 건너뛰어요(옮긴 파일이 올린 곳에 없어도)' bash -c 'grep -q "org/m: 이미 있어요" "$1" && grep -q "모두 정상" "$1"' _ "$LOG"
     # 나눠 올리기: 목록에는 있지만 이번에 폴더째 안 올린 모델은 건너뛰고, 올린 모델만 넣는다
-    rm -rf "$T/nas/models"; mkdir -p "$T/nas/models"
+    mk_models
     echo "0000000000000000000000000000000000000000000000000000000000000000  org__absent/model.safetensors" >> "$MSRC/MANIFEST.sha256"
     run_mp
-    t '모델: 안 올린 모델 폴더는 건너뛰어요' bash -c 'grep -q "이번에 올리지 않은 모델(건너뛰어요): org/absent" "$1" && grep -q "이번에 올린 모델 1개가 모두 정상" "$1" && [ -f "$2/org/m/config.json" ]' _ "$LOG" "$T/nas/models"
+    t '모델: 안 올린 모델 폴더는 건너뛰어요' bash -c 'grep -q "이번에 올리지 않은 모델(건너뛰어요): org/absent" "$1" && grep -q "이번에 올린 모델 1개가 모두 정상" "$1" && [ -f "$2/org/m/config.json" ]' _ "$LOG" "$MD"
     # 같은 이름의 남의 폴더(gpu_model.json 없음)는 덮어쓰지 않는다. 다른 폴더는 그대로 둔다
-    rm -rf "$T/nas/models"; mkdir -p "$T/nas/models/org/m" "$T/nas/models/mine"; echo k > "$T/nas/models/org/m/keep"; echo k > "$T/nas/models/mine/keep"
+    mk_models; mkdir -p "$MD/org/m" "$MD/mine"; echo k > "$MD/org/m/keep"; echo k > "$MD/mine/keep"
     run_mp
-    t '모델: 같은 이름의 남의 폴더는 덮어쓰지 않고 알려요' bash -c 'grep -q "org/m 가 이미 있는데 이 스크립트가 넣은 폴더가 아니에요" "$1" && [ -f "$2/org/m/keep" ] && [ ! -e "$2/org/m/config.json" ] && [ -f "$2/mine/keep" ]' _ "$LOG" "$T/nas/models"
-    # 바뀐 파일과 이상한 gpu_model.json
-    rm -rf "$T/nas/models"; mkdir -p "$T/nas/models"; echo '{"a":2}' > "$MSRC/org__m/config.json"
-    run_mp; t '모델: 바뀐 파일은 체크섬으로 잡고 "넣은 모델" 로 치지 않아요' bash -c 'grep -q "config.json: 체크섬이 맞지 않아요" "$1" && [ ! -e "$2/org/m/gpu_model.json" ]' _ "$LOG" "$T/nas/models"
-    echo '{"a":1}' > "$MSRC/org__m/config.json"; echo '{"repo":"evil/x"}' > "$MSRC/org__m/gpu_model.json"
+    t '모델: 같은 이름의 남의 폴더는 덮어쓰지 않고 알려요' bash -c 'grep -q "org/m 가 이미 있는데 이 스크립트가 넣은 폴더가 아니에요" "$1" && [ -f "$2/org/m/keep" ] && [ ! -e "$2/org/m/config.json" ] && [ -f "$2/mine/keep" ]' _ "$LOG" "$MD"
+    # 깨진 파일과 이상한 gpu_model.json
+    mk_models; echo '{"a":2}' > "$MSRC/org__m/config.json"
+    run_mp; t '모델: 깨진 파일은 체크섬으로 잡고 "넣은 모델" 로 치지 않아요' bash -c 'grep -q "config.json: 체크섬이 맞지 않아요" "$1" && [ ! -e "$2/org/m/gpu_model.json" ]' _ "$LOG" "$MD"
+    echo '{"a":1}' > "$MSRC/org__m/config.json"
+    run_mp; t '모델: 깨진 파일만 다시 올리면 마저 넣어요' bash -c 'grep -q "모두 정상" "$1" && [ -f "$2/org/m/gpu_model.json" ]' _ "$LOG" "$MD"
+    mk_models; echo '{"repo":"other/x"}' > "$MSRC/org__m/gpu_model.json"
     run_mp; t '모델: gpu_model.json 의 모델 이름이 폴더와 다르면 넣지 않아요' has "$LOG" 'gpu_model.json 이 이상해요'
+    if is_root; then
+        mk_models; GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$MSRC/models_place.sh" > "$LOG" 2>&1
+        t '모델: root 로 실행하면 공용 계정으로 하라고 멈춰요' bash -c 'grep -q "root 말고 공용 계정으로 실행하세요" "$1" && [ ! -e "$2/org" ]' _ "$LOG" "$MD"
+    else skip '모델 root 막기: root 가 아니라서 건너뛰어요'; fi
 }
 
 # ================================================================== 4. gpu (정기 점검·현황·보고서)
@@ -312,27 +310,23 @@ t_wrapper() {
     t '--gpus all 이면 경고해요' has "$LOG" '--gpus all'
 }
 
-# ================================================================== 6. gpu fetch (올린 파일 들여오기)
+# ================================================================== 6. gpu fetch (올린 설치 묶음 들여오기)
 t_fetch() {
     head_ 'gpu fetch'
     is_root || { skip 'root 가 아니라서 건너뛰어요(fetch 는 root 전용)'; return; }
     setup_app; chmod 755 "$APPT/inbox"
     local FN=$T/fnas; rm -rf "$FN"; mkdir -p "$FN/inbox"; echo "NAS_DIR=$FN" > "$APPT/admin/gpu.conf"
-    mk_datasets "$FN/inbox/datasets"; echo x > "$FN/inbox/other.txt"
-    gpu fetch datasets > "$LOG" 2>&1
-    t 'NAS inbox 에서 목록과 스크립트만 복사하고 지문을 보여 줘요' bash -c 'grep -q "지문(sha256)" "$1" && [ -f "$2/datasets/MANIFEST.sha256" ] && [ -f "$2/datasets/datasets_unpack.sh" ] && [ ! -e "$2/datasets/goose" ]' _ "$LOG" "$APPT/inbox"
-    t '지문은 목록과 스크립트를 이어 붙인 값이에요(접근 PC와 같은 방법)' has "$LOG" "$(cat "$FN/inbox/datasets/MANIFEST.sha256" "$FN/inbox/datasets/datasets_unpack.sh" | sha256sum | cut -d' ' -f1)"
-    t '지문을 보는 줄과 실행 줄이 따로예요(&& 로 잇지 않아요)' lacks "$LOG" '&& bash'
-    t 'NAS inbox 의 다른 파일은 건드리지 않아요' test -f "$FN/inbox/other.txt" -a -d "$FN/inbox/datasets/goose"
-    rm "$FN/inbox/datasets/MANIFEST.sha256"; ln -s /etc/passwd "$FN/inbox/datasets/MANIFEST.sha256"
-    gpu fetch datasets > "$LOG" 2>&1
-    t '목록이 링크면 복사하지 않고 멈춰요' bash -c 'grep -q "멈춤" "$1" && [ ! -e "$2/datasets" ]' _ "$LOG" "$APPT/inbox"
-    echo t > "$FN/inbox/gpu-pkgs.tar"
+    echo x > "$FN/inbox/other.txt"; echo t > "$FN/inbox/gpu-pkgs.tar"
     gpu fetch gpu-pkgs.tar > "$LOG" 2>&1
-    t '설치 묶음(.tar)은 NAS inbox 에서 통째로 복사해요' bash -c 'grep -q "지문(sha256)" "$1" && cmp -s "$2/gpu-pkgs.tar" "$3/inbox/gpu-pkgs.tar"' _ "$LOG" "$APPT/inbox" "$FN"
-    rm -rf "$FN/inbox/datasets"; mkdir -p "$FN/inbox/datasets/datasets"
+    t '설치 묶음(.tar)은 NAS inbox 에서 통째로 복사하고 지문을 보여 줘요' bash -c 'grep -q "지문(sha256): $(sha256sum "$3/inbox/gpu-pkgs.tar" | cut -d" " -f1)" "$1" && cmp -s "$2/gpu-pkgs.tar" "$3/inbox/gpu-pkgs.tar"' _ "$LOG" "$APPT/inbox" "$FN"
+    t '지문을 보는 줄과 실행 줄이 따로예요(&& 로 잇지 않아요)' bash -c '! grep -q "지문(sha256).*&&" "$1"' _ "$LOG"
+    t 'NAS inbox 의 다른 파일은 건드리지 않아요' test -f "$FN/inbox/other.txt" -a -f "$FN/inbox/gpu-pkgs.tar"
+    rm "$FN/inbox/gpu-pkgs.tar"; ln -s /etc/passwd "$FN/inbox/gpu-pkgs.tar"
+    gpu fetch gpu-pkgs.tar > "$LOG" 2>&1
+    t '묶음이 링크면 복사하지 않고 멈춰요' bash -c 'grep -q "멈춤" "$1" && [ ! -e "$2/gpu-pkgs.tar" ]' _ "$LOG" "$APPT/inbox"
+    mkdir -p "$FN/inbox/datasets"
     gpu fetch datasets > "$LOG" 2>&1
-    t '한 겹 더 들어간 폴더는 알려 주고 멈춰요' has "$LOG" '한 겹 더'
+    t '데이터셋은 공용 계정으로 넣으라고 알려요' has "$LOG" '공용 계정으로 넣어요'
 }
 
 # ================================================================== 7. 점검(check.sh)과 공유용 보고서(사내 정보 가리기)
@@ -504,8 +498,8 @@ t_system() {
     t '/app, /app/admin 을 root 소유로 잠가요' test "$(stat -c %U /app /app/admin | sort -u)" = root
     t '예전 /app/shared 를 없애고 프로그램은 치워요' bash -c 'ls -d /app/.shared_old_*/tools/bin/git >/dev/null && [ ! -e /app/shared ] && [ ! -e /app/admin/tools ]'
     t '예전 설정은 /app/admin 으로 옮기고, 데이터셋은 NAS로 옮기는 명령을 알려 줘요' bash -c '[ -f /app/admin/gpu.conf ] && [ -f /app/.shared_old_*/datasets/x/f ] && grep -q "rsync -a --no-links /app/.shared_old_.*/datasets/" "$1"' _ "$T/prepare.log"
-    t 'NAS 팀 폴더(root·공용 계정 그룹 750)와 datasets·models·originals(root 755)를 만들어요' test "$(stat -c '%U %G %a' /srv/gpunas/autonomy_sw)|$(stat -c '%U %a' /srv/gpunas/autonomy_sw/{datasets,models,originals} | sort -u)" = "root $(id -gn gputest) 750|root 755"
-    t '팀원은 NAS 데이터셋을 읽기만 해요' bash -c 'runuser -u gputest -- ls /srv/gpunas/autonomy_sw/datasets >/dev/null && ! runuser -u gputest -- touch /srv/gpunas/autonomy_sw/datasets/g 2>/dev/null'
+    t 'NAS 팀 폴더(root·공용 계정 그룹 750)와 originals(root 755)를 만들어요' test "$(stat -c '%U %G %a' /srv/gpunas/autonomy_sw)|$(stat -c '%U %a' /srv/gpunas/autonomy_sw/originals)" = "root $(id -gn gputest) 750|root 755"
+    t '팀원(공용 계정)이 NAS 의 datasets·models 에 넣을 수 있어요' bash -c 'runuser -u gputest -- touch /srv/gpunas/autonomy_sw/datasets/g /srv/gpunas/autonomy_sw/models/g && rm -f /srv/gpunas/autonomy_sw/{datasets,models}/g'
     t '예전 작업 폴더(/app/workspace)를 /app/autonomy_sw 로 옮겨요' bash -c '[ -f /app/autonomy_sw/kim/result.txt ] && [ ! -e /app/workspace ]'
     t '서버 번호 2를 고르면 0~3번이 다른팀이에요' grep -qE '^0[[:space:]]+다른팀' /app/admin/gpu_alloc.txt
     t '접속 설정과 정기 점검을 만들어요' test -f /etc/profile.d/gpu.sh -a -f /etc/cron.d/gpu
@@ -526,7 +520,7 @@ t_system() {
     t 'NAS: 팀원 폴더(backup/<이름>)는 공용 계정 것이에요' test "$(stat -c %U /srv/gpunas/autonomy_sw/backup /srv/gpunas/autonomy_sw/backup/홍길동 | sort -u)" = gputest
     chmod 777 /srv/gpunas
     bash "$P/prepare.sh" < /dev/null > "$LOG" 2>&1
-    t 'NAS: 위 폴더를 남도 고칠 수 있으면 NAS 팀 폴더를 손대지 않고 알려 줘요' has "$LOG" 'root 말고도 고칠 수 있어요'
+    t 'NAS: 위 폴더를 남도 고칠 수 있으면 NAS 팀 폴더를 손대지 않고 알려 줘요' has "$LOG" 'root 말고도 고칠 수 있어서, root 가 팀 폴더를 만들지 않았어요'
     chmod 755 /srv/gpunas
 }
 

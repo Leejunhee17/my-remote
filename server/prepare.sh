@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# [GPU 서버 · 관리자(root) 전용] 1단계 준비. 설치 스크립트(기초 프로그램·도커·데이터셋·모델)를 안전하게 돌릴 자리를 만든다. 여러 번 실행해도 된다.
+# [GPU 서버 · 관리자(root) 전용] 1단계 준비. 관리자 설치 스크립트(기초 프로그램·도커)를 안전하게 돌릴 자리와 NAS 팀 폴더를 만든다. 여러 번 실행해도 된다.
 #   cd /app/inbox && tar xf gpu-setup.tar && bash prepare.sh
 # 하는 일
 #   - /app 을 root 소유로 잠그고, /app/admin(도우미·설정), /app/inbox(root 가 지문을 확인한 설치 파일을 두는 곳),
 #     팀원 작업 공간(/app/autonomy_sw)과 기록 폴더(/app/state)를 만든다
 #   - 알림 기준과 NAS 위치를 적은 /app/admin/gpu.conf 를 만든다
-#   - NAS 팀 폴더(/data/autonomy_sw)와 그 안의 datasets·models 등을 만든다(데이터셋·모델을 여기에 푼다)
+#   - NAS 팀 폴더(/data/autonomy_sw)와 그 안의 datasets·models 등을 만든다(4·5단계에서 사용자가 데이터셋·모델을 여기에 넣는다)
 #   - 올린 파일을 /app/inbox 로 옮기는 gpu 명령(gpu fetch)을 /app/admin/bin 에 설치한다
 # 팀원 맞이 설정(이름 고르기, docker·nvidia-smi 도우미, 알림, 정기 점검)은 설치를 다 끝낸 뒤 admin_setup.sh 가 한다
 # root 가 공용 계정이 고칠 수 있는 곳에서 설치하면, 미리 심어 둔 링크를 따라가 시스템 파일을 덮어쓸 수 있다. 그래서 이 잠금이 설치보다 먼저다
@@ -122,13 +122,13 @@ grep -q '^NAS_DIR=' "$S/gpu.conf" ||   # 예전 버전으로 만든 설정에는
 chmod 644 "$S/gpu.conf"
 # ------------------------------------------------------------------ NAS 팀 폴더
 # 데이터셋·모델은 NAS 팀 폴더(gpu.conf 의 NAS_DIR, 기본 /data/autonomy_sw)에 한 번만 두고 두 서버가 같이 읽는다.
-# 팀 폴더는 root 소유·그룹 공용 계정 750(다른 팀은 못 봄), datasets·models·originals 는 root 소유 755(팀원은 읽기만),
-# backup·docker_images·tmp_transfer 는 공용 계정 소유. /data 가 root 소유라 공용 계정이 이 경로를 바꿔치기할 수 없다
+# 팀 폴더는 root 소유·그룹 공용 계정 750(다른 팀은 못 봄), originals(관리자가 설치 묶음을 보관하는 곳)만 root 소유 755,
+# 나머지(datasets·models·backup 등)는 공용 계정 소유라 팀원이 쓴다. 이미 있는 폴더는 그 폴더의 주인만 바꾸고 안의 파일은 그대로 둔다
 NAS_DIR=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$S/gpu.conf" | tail -1); NAS_DIR=${NAS_DIR:-/data/autonomy_sw}
 { [[ "$NAS_DIR" =~ ^/[A-Za-z0-9._/-]+$ ]] && [[ "$NAS_DIR" != *..* ]]; } ||
     stop "gpu.conf 의 NAS_DIR 이 이상해요: $NAS_DIR" "$S/gpu.conf 에 NAS_DIR=/data/autonomy_sw 처럼 적으세요"
 if ! safe_dir "$(dirname "$NAS_DIR")"; then
-    warn "NAS($(dirname "$NAS_DIR"))가 없거나 root 말고도 고칠 수 있어요. 데이터셋·모델을 설치할 수 없어요. NAS 연결을 서버 관리 팀에 확인하세요"
+    warn "NAS($(dirname "$NAS_DIR"))가 없거나 root 말고도 고칠 수 있어서, root 가 팀 폴더를 만들지 않았어요. NAS 연결을 서버 관리 팀에 확인하세요(docs/8_NAS.md)"
 elif [ -L "$NAS_DIR" ] || { [ -e "$NAS_DIR" ] && ! safe_dir "$NAS_DIR"; }; then
     warn "NAS 팀 폴더($NAS_DIR)가 링크이거나, root 소유가 아니거나, 다른 사람이 쓸 수 있어요. 안을 확인하고 chown root:$(id -gn "$ACC") $NAS_DIR && chmod 750 $NAS_DIR 한 뒤 다시 실행하세요"
 elif ! { mkdir -p "$NAS_DIR" && chown root:"$(id -gn "$ACC")" "$NAS_DIR" && chmod 750 "$NAS_DIR"; } 2>/dev/null; then
@@ -136,10 +136,10 @@ elif ! { mkdir -p "$NAS_DIR" && chown root:"$(id -gn "$ACC")" "$NAS_DIR" && chmo
 else
     for n in datasets models originals backup docker_images tmp_transfer inbox; do
         d=$NAS_DIR/$n; [ -L "$d" ] && { warn "$d 가 링크라 건너뛰어요. 확인하고 지운 뒤 다시 실행하세요"; continue; }
-        case $n in datasets|models|originals) o=root:root ;; *) o=$ACC:$ACC ;; esac
+        case $n in originals) o=root:root ;; *) o=$ACC:$ACC ;; esac
         mkdir -p "$d" && chown "$o" "$d" && chmod 755 "$d"
     done
-    ok "NAS 팀 폴더 $NAS_DIR: datasets·models·originals 는 root만 고치고, backup·docker_images·tmp_transfer·inbox 는 팀원이 써요"
+    ok "NAS 팀 폴더 $NAS_DIR: datasets·models·backup·docker_images·tmp_transfer·inbox 는 팀원이 쓰고, originals 는 root만 고쳐요"
 fi
 
 # ------------------------------------------------------------------ 2. gpu 명령
@@ -153,7 +153,6 @@ echo "${c_g}############################ 완료 ############################${c_
 echo " 다음 단계(docs/1_처음_설치.md). 올린 파일은 모두 $S/bin/gpu fetch 로 옮기고 지문을 확인한 뒤 실행해요"
 echo "  2) 기초 프로그램: $S/bin/gpu fetch gpu-pkgs.tar → cd /app/inbox && tar xf gpu-pkgs.tar && bash pkgs_install.sh"
 echo "  3) 도커:         $S/bin/gpu fetch gpu-docker.tar → cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh"
-echo "  4) 데이터셋:     $S/bin/gpu fetch datasets → bash /app/inbox/datasets/datasets_unpack.sh (두 서버 중 한 곳에서 한 번만)"
-echo "  5) 모델:         $S/bin/gpu fetch models → bash /app/inbox/models/models_place.sh (두 서버 중 한 곳에서 한 번만)"
 echo "  6) 권한·규칙 설정: 설치를 다 끝낸 뒤 cd /app/inbox && bash admin_setup.sh"
+echo "  (4·5단계 데이터셋·모델은 사용자가 공용 계정으로 넣어요. 2단계가 끝나면 언제든 돼요)"
 echo "${c_g}##############################################################${c_0}"

@@ -2,10 +2,10 @@
 
 두 GPU 서버가 같이 쓰는 NAS(`/data`)에 무엇을 어디에 두고, 누가 쓸 수 있고, 용량이 얼마나 필요한지 정리했어요.
 NAS는 팀마다 나눠 받는 공간이 아니라 여러 팀이 각자 알아서 쓰는 곳이에요. 그래서 우리 팀은 **`/data/autonomy_sw` 한 폴더 아래에만** 둬요.
-**데이터셋과 모델은 NAS에 한 번만 설치하고 두 서버가 같이 읽어요.** 측정해 보니 NAS가 충분히 빨라서(동시 읽기 11 GB/s, `docs/4_네트워크.md`) 서버마다 따로 설치할 필요가 없어요.
+**데이터셋과 모델은 NAS에 한 번만 두고 두 서버가 같이 읽어요.** 측정해 보니 NAS가 충분히 빨라서(동시 읽기 11 GB/s, `docs/4_네트워크.md`) 서버마다 따로 설치할 필요가 없어요.
 2026-11-06에 두 서버에서 점검한 결과는 `reports/check_공유용_…_20261106-*.txt` 에 있어요. NAS 점검은 서버·네트워크 점검과 함께 `check.sh` 하나로 해요.
 
-> **2026-11-06 점검에서 바뀐 것: 지금은 팀 폴더가 잠겨 있지 않아요.** 11-03에는 `/data` 가 root 소유 755(root 만 고치고 누구나 읽는 권한)였는데, 지금은 공용 계정(팀원이 같이 쓰는 서버 계정)이 `/data` 에 쓸 수 있어요. 팀 폴더(`/data/autonomy_sw`)와 `datasets`·`models`·`backup`·`inbox` 도 공용 계정 소유 755라 팀원 누구든 데이터셋·모델을 지우거나 바꿀 수 있고, 다른 팀도 읽을 수 있어요. 아래 "이미 있는 팀 폴더 잠그기" 대로 고쳐요. 고치기 전에는 root 가 NAS에 쓰지 않아서 `check.sh` 의 NAS 속도 측정, 1단계의 팀 폴더 만들기, 3·4단계 설치를 건너뛰거나 멈춰요.
+> **2026-11-06 점검에서 바뀐 것: 지금은 팀 폴더가 잠겨 있지 않아요.** 11-03에는 `/data` 가 root 소유 755(root 만 고치고 누구나 읽는 권한)였는데, 지금은 공용 계정(팀원이 같이 쓰는 서버 계정)이 `/data` 에 쓸 수 있어요. 팀 폴더(`/data/autonomy_sw`)도 공용 계정 소유 755라 다른 팀도 읽을 수 있어요. 아래 "이미 있는 팀 폴더 잠그기" 대로 고쳐요. 그 안의 `datasets`·`models`·`backup`·`inbox` 가 공용 계정 소유인 것은 정한 대로예요(팀원이 써요). 고치기 전에는 root 가 NAS에 쓰지 않아서 `check.sh` 의 NAS 속도 측정과 1단계의 팀 폴더 만들기를 건너뛰어요. 사용자의 4·5단계(데이터셋·모델)는 공용 계정으로 하니 상관없어요.
 
 ## 지금 아는 것과 모르는 것
 
@@ -33,24 +33,24 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 ## 정한 원칙
 
 1. **우리 팀 폴더(`/data/autonomy_sw`) 아래에만 만들어요.** 다른 팀 폴더와 NAS 최상위는 건드리지 않아요.
-2. **데이터셋·모델은 NAS에 한 번만 두고, 팀원은 읽기만 해요.** 팀 폴더와 `datasets`·`models`·`originals` 는 root 소유예요. 넣는 일은 두 서버 중 한 곳의 root 가 한 번 해요.
+2. **데이터셋·모델은 NAS에 한 번만 두고 두 서버가 같이 읽어요.** 넣는 일은 사용자(공용 계정) 몫이고, 규칙은 자리뿐이에요. 데이터셋은 `datasets/<데이터셋 폴더>/`, 모델은 `models/<만든 곳>/<모델>/` 에 둬요(`docs/5_데이터셋.md`, `docs/6_모델.md`). root 소유는 팀 폴더 자체와 `originals` 뿐이에요.
 3. **root 는 root 만 고칠 수 있는 NAS 폴더에만 써요.** 우리 NAS는 root squash 를 하지 않아서, root 가 팀원이 쓸 수 있는 폴더에 쓰면 누가 심어 둔 링크를 따라 서버의 시스템 파일을 덮어쓸 수 있어요.
-   - `/data` 가 root 소유(755)라 그 아래 root 소유 팀 폴더는 공용 계정이 바꿔치기할 수 없어요. `prepare.sh` 와 설치 스크립트는 경로 전체가 root 만 고칠 수 있는지 확인한 뒤에만 써요.
-   - `backup`·`docker_images`·`tmp_transfer` 처럼 팀원이 쓰는 폴더는 공용 계정 권한(`runuser -u "$(cat /etc/gpu/account)" --`)으로만 다뤄요.
-4. **NAS에서 실행할 파일을 가져올 때는 지문(파일 내용으로 계산한 sha256 값)을 확인해요.** 설치 묶음(`.tar`)은 NAS 의 `inbox` 에서 `/app/inbox` 로 새로 복사하고(`gpu fetch`) 지문을 맞춘 뒤 실행해요. 데이터셋·모델은 파일마다 root 전용 임시 폴더로 복사해 체크섬을 확인한 뒤에 넣어요.
+   - `/data` 가 root 소유(755)라 그 아래 root 소유 팀 폴더는 공용 계정이 바꿔치기할 수 없어요. `prepare.sh` 는 경로 전체가 root 만 고칠 수 있는지 확인한 뒤에만 써요.
+   - `datasets`·`models`·`backup`·`docker_images`·`tmp_transfer`·`inbox` 처럼 팀원이 쓰는 폴더는 root 가 다루지 않거나, 공용 계정 권한(`runuser -u "$(cat /etc/gpu/account)" --`)으로만 다뤄요.
+4. **NAS에서 실행할 파일을 가져올 때는 지문(파일 내용으로 계산한 sha256 값)을 확인해요.** 설치 묶음(`.tar`)은 NAS 의 `inbox` 에서 `/app/inbox` 로 새로 복사하고(`gpu fetch`) 지문을 맞춘 뒤 실행해요.
 5. **두 서버의 공용 계정 번호(uid·gid)가 같아야 해요.** NFSv3는 이름이 아니라 번호로 주인을 구분해요. 다르면 한 서버에서 만든 파일을 다른 서버에서 못 고치고, 팀 폴더(그룹으로만 읽기)도 못 읽어요.
 
 ## 폴더 구조
 
 ```text
 /data/autonomy_sw/                  root 소유, 그룹 공용 계정, 750 (다른 팀은 못 봐요)
-├── datasets/                     데이터셋(4단계 스크립트가 풀어요. 원래 있던 다른 폴더도 그대로 둬요). root 소유 755, 팀원은 읽기만
-├── models/                       사전학습 모델(5단계 스크립트가 넣어요). root 소유 755, 팀원은 읽기만
+├── datasets/<데이터셋 폴더>/       데이터셋(사용자가 4단계에서 넣어요). 공용 계정 소유
+├── models/<만든 곳>/<모델>/        사전학습 모델(사용자가 5단계에서 넣어요). 공용 계정 소유
 ├── originals/
 │   └── server_setup/<날짜>/       설치 묶음 보관본(최근 3판). root 소유
 ├── docker_images/<이름>/          팀원이 만든 도커 이미지 .tar. 공용 계정 소유
 ├── backup/<이름>/                 실험 결과·체크포인트. 공용 계정 소유
-├── inbox/                        관리자가 올리는 곳(0단계 check.sh, 설치 묶음 .tar, datasets/, models/). 다른 파일이 있어도 괜찮아요. 공용 계정이 써요
+├── inbox/                        올리는 곳(관리자: check.sh, 설치 묶음 .tar / 사용자: datasets/, models/). 다른 파일이 있어도 괜찮아요. 공용 계정 소유
 └── tmp_transfer/                 서버 사이 임시 전달. 14일 지나면 지워요. 공용 계정 소유
 ```
 
@@ -59,10 +59,11 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 | 폴더 | 누가 써요 | 왜 이렇게 |
 |---|---|---|
 | 팀 폴더 | root(만들기만) | 다른 팀이 못 보게 750, 그룹은 공용 계정. GO 같은 비상업 라이선스 데이터셋이 있어요 |
-| `datasets/`, `models/`, `originals/` | root(설치 스크립트) | 팀원이 실수로 지우거나 바꾸지 못하게 해요 |
+| `datasets/`, `models/` | 사용자(공용 계정) | 규칙은 자리뿐이에요. 같은 이름의 폴더를 덮어쓰지만 않으면 돼요 |
+| `originals/` | root | 관리자가 설치 묶음을 보관하는 곳이에요 |
 | `docker_images/<이름>`, `backup/<이름>` | 그 팀원 | 이름별로 나눠 누가 얼마나 쓰는지 주간 보고서로 봐요 |
 | `tmp_transfer/` | 누구나 | 옮긴 뒤 지우는 임시 공간이에요 |
-| `inbox/` | 관리자(FileZilla) | 한 번 올려 두 서버에서 실행해요. 다 쓰면 올린 사람이 지워요 |
+| `inbox/` | 관리자·사용자(FileZilla) | 한 번 올려 두 서버에서 써요. 다 쓰면 올린 사람이 지워요 |
 
 - 계정 하나를 같이 쓰니 사람별 권한은 나눌 수 없어요. 서버에서처럼 "이름별 폴더 + 사용량 보고" 로 관리해요.
 - 컨테이너 안에서 `--user` 로 만든 파일을 NAS로 옮기면 주인 번호가 이상하게 보여요. NAS로 옮길 때는 서버 화면(컨테이너 밖)에서 `rsync` 로 옮겨요.
@@ -88,8 +89,8 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 1단계 준비(`prepare.sh`)가 만들어요. 따로 할 일은 없어요.
 
 - `/app/admin/gpu.conf` 의 `NAS_DIR`(기본 `/data/autonomy_sw`)을 읽어요.
-- 그 위 폴더(`/data`)가 NAS로 연결돼 있고 root 만 고칠 수 있으면, 팀 폴더와 `datasets`·`models`·`originals`(root 소유), `backup`·`docker_images`·`tmp_transfer`(공용 계정 소유)를 만들어요. 팀원별 폴더(`backup/<이름>`, `docker_images/<이름>`)는 6단계 `admin_setup.sh` 가 명단을 보고 만들어요.
-- NAS가 없거나, root squash 로 root 가 쓸 수 없거나, 팀 폴더를 root 말고도 고칠 수 있으면 `[주의]` 를 남기고 만들지 않아요. 그러면 4·5단계(데이터셋·모델)도 멈춰요.
+- 그 위 폴더(`/data`)가 NAS로 연결돼 있고 root 만 고칠 수 있으면, 팀 폴더와 `originals`(root 소유), `datasets`·`models`·`inbox`·`backup`·`docker_images`·`tmp_transfer`(공용 계정 소유)를 만들어요. 이미 있는 폴더는 그 폴더의 주인만 맞추고 안의 파일은 그대로 둬요. 팀원별 폴더(`backup/<이름>`, `docker_images/<이름>`)는 6단계 `admin_setup.sh` 가 명단을 보고 만들어요.
+- NAS가 없거나, root squash 로 root 가 쓸 수 없거나, 팀 폴더를 root 말고도 고칠 수 있으면 `[주의]` 를 남기고 만들지 않아요. 이미 `datasets`·`models` 가 있고 공용 계정이 쓸 수 있으면 4·5단계는 그대로 할 수 있어요.
 - 예전 `/app/shared` 에 데이터셋·모델이 있으면 NAS로 옮기는 명령을 화면에 보여 줘요. `tmux` 안에서 실행하세요.
 
 ```bash
@@ -110,19 +111,19 @@ QUICK=1 bash /app/inbox/check.sh                       # 팀 폴더의 주인·�
 T=/data/autonomy_sw; G=$(id -gn <계정이름>)
 stat -c '%U %a' /data                                              # root 755 인지 다시 확인
 chown root:$G $T && chmod 750 $T                                   # 팀 폴더: root 만 고치고, 공용 계정 그룹만 읽어요
-find $T/datasets $T/models -type l | head                          # 링크가 있으면 무엇을 가리키는지 보고 지운 뒤 계속해요
-chown -R -h root:root $T/datasets $T/models && chmod -R u+rwX,go+rX,go-w $T/datasets $T/models   # 팀원은 읽기만
 ls -ld $T $T/*
 ```
 
-- `backup`·`inbox` 는 공용 계정 소유 그대로 둬요(팀원이 쓰는 곳). `docker_images`·`tmp_transfer`·`originals` 는 1단계 `prepare.sh` 가 만들어요.
+- `datasets`·`models`·`backup`·`inbox` 는 공용 계정 소유 그대로 둬요(팀원이 쓰는 곳). `docker_images`·`tmp_transfer`·`originals` 는 1단계 `prepare.sh` 가 만들어요.
 - 다 되면 두 서버에서 `check.sh` 를 다시 실행해 팀 폴더 줄에 `[문제]` 가 없는지 봐요.
 
 ## 쓰는 법
 
-### 한 서버에서: 데이터셋·모델 넣기
+### 사용자: 데이터셋·모델 넣기
 
-`docs/1_처음_설치.md` 의 4·5단계 그대로예요. 스크립트가 `/data/autonomy_sw/datasets`, `models` 에 넣어요. 두 서버 중 한 곳에서 한 번만 하면 다른 서버에서도 바로 보여요. 아래는 서버 1에서 한 경우로 적었어요.
+사용자가 공용 계정으로 `/data/autonomy_sw/datasets`, `models` 에 넣어요(`docs/5_데이터셋.md`, `docs/6_모델.md`). 두 서버 중 한 곳에서 한 번만 하면 다른 서버에서도 바로 보여요.
+
+### 관리자: 설치 묶음 보관
 
 설치 묶음은 NAS inbox 에 올린 그대로 두 서버가 함께 써요. 두 서버에서 모두 설치한 뒤 보관하고 싶으면 root 가 `originals` 로 옮겨 둬요.
 
@@ -133,7 +134,7 @@ mkdir -p $P && cp /app/inbox/gpu-setup.tar /app/inbox/gpu-pkgs.tar /app/inbox/gp
 ls /data/autonomy_sw/originals/server_setup                 # 날짜 폴더가 4개 이상이면 가장 오래된 것을 지워요(최근 3판만)
 ```
 
-### 다른 서버: 설치 묶음만 가져와 설치
+### 관리자: 다른 서버에도 설치
 
 데이터셋·모델은 이미 NAS에 넣은 것을 그대로 읽어서 할 일이 없어요. 설치 묶음 세 개만 NAS inbox 에서 가져와요. 지문은 접근 PC의 `D:\gpu\지문_기록.txt` 와 맞춰요.
 
@@ -182,6 +183,6 @@ NAS는 팀마다 나눠 주는 공간이 아니라서 폴더나 할당량을 요
 - `/data/tmp` 를 누구나 쓰는 임시 폴더(1777)로 쓰는 건지. 지금은 root 만 쓸 수 있어요.
 - **`/data` 최상위를 누가 왜 공용 계정이 쓸 수 있게 바꿨는지**(11-03 root 소유 755 → 11-06 공용 계정이 씀). root 소유 755로 돌려 달라고 해요. 다른 팀도 이 때문에 남의 폴더를 옮기거나 지울 수 있어요.
 
-- `/data/autonomy_sw` 를 우리 팀 폴더로 쓴다고 알려요. 나중에 root squash 를 켜면 root 가 이 폴더에 설치할 수 없게 되니, 켤 계획이 있는지도 물어봐요.
+- `/data/autonomy_sw` 를 우리 팀 폴더로 쓴다고 알려요. 나중에 root squash 를 켜면 root 가 팀 폴더를 만들거나 관리할 수 없게 되니, 켤 계획이 있는지도 물어봐요.
 - 두 서버의 공용 계정 uid·gid가 다를 때: 같은 번호로 맞춰 줄 수 있는지.
 - `backup/` 폴더에 스냅숏(예: 하루 한 번, 7일 보관)을 걸 수 있는지. 걸 수 있으면 실수로 지운 체크포인트를 되살릴 수 있어요.

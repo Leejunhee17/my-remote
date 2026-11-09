@@ -398,7 +398,7 @@ sec_nas() {
     local n=0 d st uid gid mode
     read -r uid gid mode <<< "$(stat -c '%u %g %a' "$NAS")"
     echo "  $(pad "$NAS (NAS 최상위)" 26) 주인 $(pad "$(who_uid "$uid")" 24) 그룹 $(pad "$(grp_name "$gid")" 10) $(pad "$mode" 5) $(who_writes "$mode")"
-    root_only "$NAS" || bad "NAS 최상위($NAS)를 root 말고도 고칠 수 있어요. 누구든 그 아래 폴더(팀 폴더, $NAS/tmp)를 옮기고 링크로 바꿔치기할 수 있어요. 그래서 root 로는 NAS 에 쓰지 않아요(이 점검의 NAS 속도 측정, 1단계 팀 폴더 만들기, 4·5단계 데이터셋·모델 넣기)" \
+    root_only "$NAS" || bad "NAS 최상위($NAS)를 root 말고도 고칠 수 있어요. 누구든 그 아래 폴더(팀 폴더, $NAS/tmp)를 옮기고 링크로 바꿔치기할 수 있어요. 그래서 root 로는 NAS 에 쓰지 않아요(이 점검의 NAS 속도 측정, 1단계 팀 폴더 만들기)" \
         "NAS 최상위($NAS)를 root 소유 755 로 해 주세요(지금 root 말고도 고칠 수 있어요). 다른 팀은 그 아래 각자 폴더를 쓰면 돼요"
     while IFS= read -r -d '' d; do
         n=$((n + 1)); [ "$n" -le 60 ] || continue
@@ -424,20 +424,20 @@ sec_nas() {
         echo "  주인 $(who_uid "$uid"), 그룹 $(grp_name "$gid"), 권한 $mode ($(who_writes "$mode"))"
         local grp=${ACC:+$(id -gn "$ACC" 2>/dev/null)}
         [ "$uid" = 0 ] && [ $(( 8#$mode & 8#027 )) -eq 0 ] ||
-            mine "팀 폴더가 root 소유 750 이 아니에요(주인 $(who_uid "$uid"), 권한 $mode). 팀원이 datasets·models 를 지우거나 바꿀 수 있고, 750 이 아니면 다른 팀도 읽어요" \
+            mine "팀 폴더가 root 소유 750 이 아니에요(주인 $(who_uid "$uid"), 권한 $mode). 팀 폴더를 옮기거나 바꿔치기할 수 있고, 750 이 아니면 다른 팀도 읽어요" \
                  "NAS 최상위를 고친 뒤 팀 폴더 잠그기: chown root:${grp:-<공용 계정 그룹>} $TEAM && chmod 750 $TEAM (docs/8_NAS.md 의 '이미 있는 팀 폴더 잠그기')"
         local bad_sub=() s
-        for s in datasets models originals; do
+        for s in originals; do   # datasets·models 는 팀원(공용 계정)이 넣는 곳이라 root 소유가 아니어도 된다
             [ -e "$TEAM/$s" ] || [ -L "$TEAM/$s" ] || continue
             # 안쪽 세 단계까지 root 소유이고 남이 못 쓰는지(링크는 권한이 없어서 뺀다). 처음 하나만 찾으면 멈춘다
             [ ! -L "$TEAM/$s" ] && [ -z "$(find "$TEAM/$s" -maxdepth 3 ! -type l \( ! -uid 0 -o -perm /022 \) -print -quit 2>/dev/null)" ] || bad_sub+=("$s")
         done
         [ ${#bad_sub[@]} -eq 0 ] ||
-            mine "팀 폴더의 ${bad_sub[*]} 안에 root 소유가 아니거나 남이 쓸 수 있는 것이 있어요(팀원이 데이터셋·모델을 지우거나 바꿀 수 있어요)" \
+            mine "팀 폴더의 ${bad_sub[*]}(관리자가 설치 묶음을 보관하는 곳) 안에 root 소유가 아니거나 남이 쓸 수 있는 것이 있어요" \
                  "팀 폴더를 잠근 뒤 ${bad_sub[*]} 를 root 소유로: docs/8_NAS.md 의 '이미 있는 팀 폴더 잠그기'"
         df -hP "$TEAM" | awk 'NR==2 {printf "  여기서 본 용량: 전체 %s, 쓴 것 %s, 남은 것 %s (할당량이 있으면 할당량이에요)\n", $2, $3, $4}'
         if [ -r "$TEAM" ] && [ -x "$TEAM" ]; then
-            for n in datasets models; do [ -n "$(ls -A "$TEAM/$n" 2>/dev/null)" ] && ok "$TEAM/$n 에 설치돼 있어요(두 서버가 같이 써요. 다시 올리지 않아도 돼요)"; done
+            for n in datasets models; do [ -n "$(ls -A "$TEAM/$n" 2>/dev/null)" ] && ok "$TEAM/$n 에 들어 있어요(두 서버가 같이 써요. 다시 올리지 않아도 돼요)"; done
             [ -n "$(ls -A "$TEAM/datasets" 2>/dev/null)$(ls -A "$TEAM/models" 2>/dev/null)" ] || echo "  데이터셋·모델은 아직 없어요(4·5단계에서 넣어요)"
             echo "  바로 아래:"; find "$TEAM" -mindepth 1 -maxdepth 1 -printf '    %f  (주인 uid %U, 권한 %m)\n' 2>/dev/null | sort | head -30
         else
@@ -449,7 +449,7 @@ sec_nas() {
 
     if id "$ACC" >/dev/null 2>&1; then
         head_ "공용 계정($ACC)이 쓸 수 있는 곳"
-        for d in "$NAS" "$NAS/tmp" "$TEAM" "$TEAM/tmp_transfer" "$TEAM/backup"; do
+        for d in "$NAS" "$NAS/tmp" "$TEAM" "$TEAM/inbox" "$TEAM/datasets" "$TEAM/models" "$TEAM/tmp_transfer" "$TEAM/backup"; do
             [ -d "$d" ] && { acc_writes "$d" && echo "  $d: 쓸 수 있어요" || echo "  $d: 쓸 수 없어요"; }
         done
     fi

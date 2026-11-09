@@ -802,17 +802,13 @@ if ($skipped.Count) {
 Write-Host ''
 Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 폴더(통째로):' -ForegroundColor Green
 Write-Host "   $Dest  ($(Format-Size $total))"
-if ((Split-Path -Leaf $Dest) -ne 'datasets') { Write-Host '   폴더 이름이 datasets 가 아니면, 올리기 전에 datasets 로 바꾸세요(서버 명령이 이 이름만 받아요).' -ForegroundColor Yellow }
+if ((Split-Path -Leaf $Dest) -ne 'datasets') { Write-Host '   폴더 이름이 datasets 가 아니면, 올리기 전에 datasets 로 바꾸세요(서버에서 실행할 명령이 이 이름으로 돼 있어요).' -ForegroundColor Yellow }
 Write-Host ''
-Save-Fingerprint 'datasets 폴더' (Get-Fingerprint @((Join-Path $Dest 'MANIFEST.sha256'), (Join-Path $Dest 'datasets_unpack.sh')))
-Write-Host '   (MANIFEST.sha256과 datasets_unpack.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
 Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @('wildscenes/')
 Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 NAS 의 /data/autonomy_sw/inbox 에 datasets 폴더째 올리세요. 몇 개씩 나눠 올려도 돼요.' -ForegroundColor Green
-Write-Host ' 2) root(PuTTY)로 목록과 스크립트만 /app/inbox 에 복사하고 지문을 봐요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
-Write-Host '   /app/admin/bin/gpu fetch datasets'
-Write-Host ' 3) 같으면 실행하세요. 두 서버 중 한 곳에서 한 번만 하면 돼요(NAS에 들어가서 다른 서버에서도 보여요). 데이터 파일은 하나씩 복사해 체크섬을 확인한 뒤 넣어요. 다 끝나면 NAS inbox 의 datasets 는 지워 공간을 비우세요.' -ForegroundColor Green
-Write-Host '   bash /app/inbox/datasets/datasets_unpack.sh'
+Write-Host ' 2) 공용 계정으로 서버에 접속해(PuTTY) 실행하세요. 두 서버 중 한 곳에서 한 번만 하면 돼요(NAS에 들어가서 다른 서버에서도 보여요).' -ForegroundColor Green
+Write-Host '   bash /data/autonomy_sw/inbox/datasets/datasets_unpack.sh'
 Write-Host ' 자세한 순서: docs\5_데이터셋.md'
 Write-Host '##############################################################'
 # 작업 스케줄러가 실행한 것이면: 못 받은 것(한도·끊김으로 실패, Drive 접속 안 됨)이 없을 때 자동 받기를 끈다
