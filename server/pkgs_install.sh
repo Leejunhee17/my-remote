@@ -22,7 +22,7 @@ stop() {
 }
 info() { sed -n "s/^$1=//p" pkgs_info.txt; }
 installed() { [ "$(dpkg-query -W -f='${db:Status-Status}' "$1" 2>/dev/null)" = installed ]; }
-# 폴더와 그 위의 모든 폴더가 root 소유이고 root 만 쓸 수 있는지(스티키 폴더는 바꿔치기를 못 해서 괜찮다). admin_setup.sh 와 같음
+# 폴더와 그 위의 모든 폴더가 root 소유이고 root 만 쓸 수 있는지(스티키 폴더는 바꿔치기를 못 해서 괜찮다). prepare.sh 와 같음
 safe_dir() {
     local p m; p=$(readlink -f "$1") && [ -d "$p" ] || return 1
     while :; do
@@ -40,7 +40,7 @@ step 1 '점검'
 [ "$(id -u)" = 0 ] || stop 'root 계정이 아니에요' 'HIWARE에서 root로 접속해(PuTTY) 다시 실행하세요.'
 command -v apt-get >/dev/null && command -v dpkg-query >/dev/null || stop 'apt-get 이 없어요(Ubuntu 가 아니에요)' '이 묶음은 Ubuntu 24.04 용이에요. 운영체제를 확인하세요: cat /etc/os-release'
 # 공용 계정이 체크섬을 확인한 뒤에 .deb 를 바꿔치기하지 못하게, 이 폴더와 그 위가 root 만 고칠 수 있는 곳이어야 한다
-safe_dir "$HERE" || stop "$HERE 나 그 위 폴더를 root 말고도 고칠 수 있어요" '묶음은 root 만 고치는 /app/inbox 에 풀어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh'
+safe_dir "$HERE" || stop "$HERE 나 그 위 폴더를 root 말고도 고칠 수 있어요" '묶음은 root 만 고치는 /app/inbox 에 풀어요. 준비를 먼저 하세요: cd /app/inbox && bash prepare.sh'
 for f in MANIFEST_pkgs.sha256 pkgs_info.txt debs/Packages; do [ -f "$f" ] || stop "묶음 안의 파일이 없어요: $f" "묶음을 풀었는지 확인하세요: cd $HERE && tar xf gpu-pkgs.tar"; done
 [ -z "$(find debs -type l -print -quit)" ] || stop '묶음 안에 링크가 있어요' '접근 PC에서 pkgs_pack.ps1 로 새 묶음을 만들어 다시 올리세요.'
 chmod -R go-w debs MANIFEST_pkgs.sha256 pkgs_info.txt   # 윈도우에서 묶은 tar 는 누구나 쓸 수 있는 권한으로 풀릴 수 있다

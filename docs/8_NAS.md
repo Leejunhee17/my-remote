@@ -35,7 +35,7 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 1. **우리 팀 폴더(`/data/autonomy_sw`) 아래에만 만들어요.** 다른 팀 폴더와 NAS 최상위는 건드리지 않아요.
 2. **데이터셋·모델은 NAS에 한 번만 두고, 팀원은 읽기만 해요.** 팀 폴더와 `datasets`·`models`·`originals` 는 root 소유예요. 설치는 서버 1의 root 가 한 번 해요.
 3. **root 는 root 만 고칠 수 있는 NAS 폴더에만 써요.** 우리 NAS는 root squash 를 하지 않아서, root 가 팀원이 쓸 수 있는 폴더에 쓰면 누가 심어 둔 링크를 따라 서버의 시스템 파일을 덮어쓸 수 있어요.
-   - `/data` 가 root 소유(755)라 그 아래 root 소유 팀 폴더는 공용 계정이 바꿔치기할 수 없어요. `admin_setup.sh` 와 설치 스크립트는 경로 전체가 root 만 고칠 수 있는지 확인한 뒤에만 써요.
+   - `/data` 가 root 소유(755)라 그 아래 root 소유 팀 폴더는 공용 계정이 바꿔치기할 수 없어요. `prepare.sh` 와 설치 스크립트는 경로 전체가 root 만 고칠 수 있는지 확인한 뒤에만 써요.
    - `backup`·`docker_images`·`tmp_transfer` 처럼 팀원이 쓰는 폴더는 공용 계정 권한(`runuser -u "$(cat /etc/gpu/account)" --`)으로만 다뤄요.
 4. **NAS에서 실행할 파일을 가져올 때는 지문(파일 내용으로 계산한 sha256 값)을 확인해요.** 설치 묶음(`.tar`)은 `/app/upload` 를 거쳐 `/app/inbox` 로 새로 복사하고 지문을 맞춘 뒤 실행해요.
 5. **두 서버의 공용 계정 번호(uid·gid)가 같아야 해요.** NFSv3는 이름이 아니라 번호로 주인을 구분해요. 다르면 한 서버에서 만든 파일을 다른 서버에서 못 고치고, 팀 폴더(그룹으로만 읽기)도 못 읽어요.
@@ -85,22 +85,22 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 
 ## 처음 만들기
 
-`admin_setup.sh` 가 만들어요. 따로 할 일은 없어요.
+1단계 준비(`prepare.sh`)가 만들어요. 따로 할 일은 없어요.
 
 - `/app/admin/gpu.conf` 의 `NAS_DIR`(기본 `/data/autonomy_sw`)을 읽어요.
-- 그 위 폴더(`/data`)가 NAS로 연결돼 있고 root 만 고칠 수 있으면, 팀 폴더와 `datasets`·`models`·`originals`(root 소유), `backup`·`docker_images`·`tmp_transfer`(공용 계정 소유)와 팀원별 폴더를 만들어요.
-- NAS가 없거나, root squash 로 root 가 쓸 수 없거나, 팀 폴더를 root 말고도 고칠 수 있으면 `[주의]` 를 남기고 만들지 않아요. 그러면 데이터셋·모델 설치도 멈춰요.
+- 그 위 폴더(`/data`)가 NAS로 연결돼 있고 root 만 고칠 수 있으면, 팀 폴더와 `datasets`·`models`·`originals`(root 소유), `backup`·`docker_images`·`tmp_transfer`(공용 계정 소유)를 만들어요. 팀원별 폴더(`backup/<이름>`, `docker_images/<이름>`)는 6단계 `admin_setup.sh` 가 명단을 보고 만들어요.
+- NAS가 없거나, root squash 로 root 가 쓸 수 없거나, 팀 폴더를 root 말고도 고칠 수 있으면 `[주의]` 를 남기고 만들지 않아요. 그러면 4·5단계(데이터셋·모델)도 멈춰요.
 - 예전 `/app/shared` 에 데이터셋·모델이 있으면 NAS로 옮기는 명령을 화면에 보여 줘요. `tmux` 안에서 실행하세요.
 
 ```bash
-# [서버 1] root. admin_setup.sh 뒤에 확인
+# [서버 1] root. prepare.sh 뒤에 확인
 ls -ld /data/autonomy_sw /data/autonomy_sw/*                                 # 주인·권한
 QUICK=1 bash /app/inbox/check.sh                       # 팀 폴더의 주인·권한·용량, 공용 계정이 쓸 수 있는지(속도 측정 없이)
 ```
 
 ## 이미 있는 팀 폴더 잠그기
 
-팀 폴더를 공용 계정이 먼저 만들었으면(2026-11-06 지금 상태) `admin_setup.sh` 는 `[주의]` 만 남기고 손대지 않아요. 아래 순서로 root 가 직접 잠가요. **순서를 바꾸지 마세요.** 위 폴더를 먼저 잠가야 아래 폴더를 바꿔치기할 수 없어요.
+팀 폴더를 공용 계정이 먼저 만들었으면(2026-11-06 지금 상태) `prepare.sh` 는 `[주의]` 만 남기고 손대지 않아요. 아래 순서로 root 가 직접 잠가요. **순서를 바꾸지 마세요.** 위 폴더를 먼저 잠가야 아래 폴더를 바꿔치기할 수 없어요.
 
 1. **서버 관리 팀에 `/data` 를 root 소유 755로 돌려 달라고 해요.** `check.sh` 의 "서버 관리 팀에 요청할 것" 에 나와요. 이것이 안 되면 2단계부터 하지 마세요. `/data` 를 남이 고칠 수 있으면 팀 폴더를 잠가도 폴더째 옮기고 링크로 바꿔치기할 수 있어요.
 2. 팀원에게 잠시 팀 폴더를 쓰지 말라고 알리고, 서버 1에서 root 로 실행해요.
@@ -115,14 +115,14 @@ chown -R -h root:root $T/datasets $T/models && chmod -R u+rwX,go+rX,go-w $T/data
 ls -ld $T $T/*
 ```
 
-- `backup`·`inbox` 는 공용 계정 소유 그대로 둬요(팀원이 쓰는 곳). `docker_images`·`tmp_transfer`·`originals` 는 1단계 `admin_setup.sh` 가 만들어요.
+- `backup`·`inbox` 는 공용 계정 소유 그대로 둬요(팀원이 쓰는 곳). `docker_images`·`tmp_transfer`·`originals` 는 1단계 `prepare.sh` 가 만들어요.
 - 다 되면 두 서버에서 `check.sh` 를 다시 실행해 팀 폴더 줄에 `[문제]` 가 없는지 봐요.
 
 ## 쓰는 법
 
 ### 서버 1: 데이터셋·모델 설치
 
-`docs/1_처음_설치.md` 의 3·4단계 그대로예요. 설치 스크립트가 `/data/autonomy_sw/datasets`, `models` 에 풀어요. 한 번만 하면 서버 2에서도 바로 보여요.
+`docs/1_처음_설치.md` 의 4·5단계 그대로예요. 설치 스크립트가 `/data/autonomy_sw/datasets`, `models` 에 풀어요. 한 번만 하면 서버 2에서도 바로 보여요.
 
 설치가 끝나면 서버 2가 쓸 설치 묶음을 NAS에 남겨 둬요.
 
@@ -147,9 +147,10 @@ cp $P/gpu-setup.tar $P/gpu-pkgs.tar $P/gpu-docker.tar /app/inbox/ && sha256sum /
 `originals` 와 `/app/inbox` 는 둘 다 root 만 고칠 수 있어서 `/app/upload` 를 거치지 않아요. 지문이 `지문_기록.txt` 와 같을 때만 다음 줄을 실행해요.
 
 ```bash
-cd /app/inbox && tar xf gpu-setup.tar && bash admin_setup.sh       # 1단계
-cd /app/inbox && tar xf gpu-pkgs.tar && bash pkgs_install.sh       # 1-1단계
-cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh   # 2단계
+cd /app/inbox && tar xf gpu-setup.tar && bash prepare.sh          # 1단계 준비
+cd /app/inbox && tar xf gpu-pkgs.tar && bash pkgs_install.sh       # 2단계 기초 프로그램
+cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh   # 3단계 도커
+cd /app/inbox && bash admin_setup.sh                               # 6단계 권한·규칙 설정
 ```
 
 ### 팀원
@@ -170,7 +171,7 @@ cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh   # 2단계
 | 항목 | 확인하는 곳 | 결과 |
 |---|---|---|
 | 우리 팀 폴더 이름·위치 | 팀 회의 | `/data/autonomy_sw`(정함) |
-| 누가 팀 폴더를 만드는지 | | root 가 만들어요(`admin_setup.sh`). 그런데 11-06에는 공용 계정이 이미 만들어 둔 상태였어요. 위 "이미 있는 팀 폴더 잠그기" 로 root 소유로 바꿔요 |
+| 누가 팀 폴더를 만드는지 | | root 가 만들어요(`prepare.sh`). 그런데 11-06에는 공용 계정이 이미 만들어 둔 상태였어요. 위 "이미 있는 팀 폴더 잠그기" 로 root 소유로 바꿔요 |
 | root squash | 화면의 "root squash"(root 로 실행했을 때) | 안 해요(11-03, root 가 root 소유 755 `/data` 에 쓸 수 있었음). `/data` 를 되돌린 뒤 다시 확인해요 |
 | 두 서버의 공용 계정 번호가 같은지 | 화면의 "상대 서버 찾기"(두 서버에서 함께 실행하면 맞춰 봐요), "계정 번호" | 같아요(uid 1001, gid 1001, 2026-11-06) |
 | 전체·남은 용량 | 화면의 "용량" | 전체 414 TB, 남은 것 396 TB(2026-11-06). 계획한 약 9 TB 는 충분해요 |

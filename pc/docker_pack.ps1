@@ -219,8 +219,8 @@ Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/admin/bin/gpu fetch gpu-docker.tar'
-Write-Host ' 3) 같으면 풀어서 실행하세요. admin_setup.sh 를 먼저 실행해 둬야 해요.' -ForegroundColor Green
+Write-Host ' 3) 같으면 풀어서 실행하세요. 1단계 준비(prepare.sh)를 먼저 해 둬야 해요.' -ForegroundColor Green
 Write-Host '   cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh'
-Write-Host ' 자세한 순서: docs\1_처음_설치.md 의 2단계'
+Write-Host ' 자세한 순서: docs\1_처음_설치.md 의 3단계'
 Write-Host '##############################################################' -ForegroundColor Green
 Stop-Transcript | Out-Null

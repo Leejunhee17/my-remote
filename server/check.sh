@@ -215,14 +215,14 @@ sec_storage() {
     rota=$(lsblk -ndo ROTA "$app_dev" 2>/dev/null || lsblk -no ROTA "$app_dev" 2>/dev/null | head -1)
     kind=$([ "$(echo $rota)" = 0 ] && echo SSD || { [ "$(echo $rota)" = 1 ] && echo HDD || echo 종류 모름; })
     echo "  $APP: $app_dev, $kind, 남은 공간 ${app_gb} GB"
-    # /app 은 root 소유로 둔다(admin_setup.sh 가 잠근다). 팀원은 그 아래 /app/autonomy_sw 에 쓴다
+    # /app 은 root 소유로 둔다(1단계 prepare.sh 가 잠근다). 팀원은 그 아래 /app/autonomy_sw 에 쓴다
     owner=$(stat -c %U "$APP")
     if [ "$owner" = root ]; then ok "$APP 주인이 root예요(팀원은 $APP/autonomy_sw 에 써요)"
-    else warn "$APP 주인: $owner. 1단계에서 root로 admin_setup.sh 를 실행하면 root 소유로 잠가요"; fi
+    else warn "$APP 주인: $owner. 1단계에서 root로 prepare.sh 를 실행하면 root 소유로 잠가요"; fi
     if [ -d "$APP/autonomy_sw" ] && id "$ACC" >/dev/null 2>&1 && ! acc_writes "$APP/autonomy_sw"; then
-        mine "공용 계정이 $APP/autonomy_sw 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
+        mine "공용 계정이 $APP/autonomy_sw 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/prepare.sh (공용 계정 소유로 맞춰요)"
     fi
-    [ -e "$APP/shared" ] && warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 명단·설정만 $APP/admin 으로 옮기고 나머지는 치워요. 예전 데이터셋·모델을 NAS로 옮기는 명령도 알려 줘요"
+    [ -e "$APP/shared" ] && warn "$APP/shared 가 남아 있어요(예전 설치). 1단계 prepare.sh 가 명단·설정만 $APP/admin 으로 옮기고 나머지는 치워요. 예전 데이터셋·모델을 NAS로 옮기는 명령도 알려 줘요"
 }
 
 # ================================================================== 서버 폴더·권한(읽기만 한다)
@@ -239,7 +239,7 @@ perm_line() {   # $1 경로 $2 보일 이름(없으면 경로) $3 이름 칸 너
 sec_dirs() {
     head_ '서버 폴더·권한 (읽기만 해요)'
     local p n i others='' links='' open=''
-    # /app: 팀원 작업 공간·도커·설치 파일이 놓일 곳. 1단계 admin_setup.sh 가 root 소유로 잠근다
+    # /app: 팀원 작업 공간·도커·설치 파일이 놓일 곳. 1단계 prepare.sh 가 root 소유로 잠근다
     if [ -d "$APP" ]; then
         echo "  [$APP 과 그 아래 두 단계]"
         perm_line "$APP" "" 34
@@ -254,10 +254,10 @@ sec_dirs() {
         [ "$(stat -c %U "$APP")" = root ] || [ "$(stat -c %U "$APP")" = "$ACC" ] || others="$(stat -c %U "$APP")($APP 자체) $others"
         if [ -n "$others" ]; then
             warn "$APP 아래에 root·공용 계정이 아닌 계정의 것이 있어요: $others"
-            echo "      1단계 admin_setup.sh 가 $APP 을 잠그면(root 소유 755) 그 계정은 $APP 바로 아래에 새 폴더를 못 만들어요. 누구 것인지 서버 관리 팀에 확인하세요"
+            echo "      1단계 prepare.sh 가 $APP 을 잠그면(root 소유 755) 그 계정은 $APP 바로 아래에 새 폴더를 못 만들어요. 누구 것인지 서버 관리 팀에 확인하세요"
         else ok "$APP 아래는 root·공용 계정 것만 있어요"; fi
         links=$(find "$APP" -mindepth 1 -maxdepth 2 -type l 2>/dev/null | wc -l)
-        [ "$links" -eq 0 ] || warn "$APP 아래에 링크가 ${links}개 있어요(위 목록의 '(링크)'). 누가 만들었는지 확인하세요. admin_setup.sh 는 쓰는 자리에 링크가 있으면 멈춰요"
+        [ "$links" -eq 0 ] || warn "$APP 아래에 링크가 ${links}개 있어요(위 목록의 '(링크)'). 누가 만들었는지 확인하세요. 1단계 prepare.sh 는 쓰는 자리에 링크가 있으면 멈춰요"
         open=$(find "$APP" -mindepth 0 -maxdepth 2 -type d -perm -0002 ! -perm -1000 2>/dev/null | wc -l)
         [ "$open" -eq 0 ] || warn "$APP 아래에 누구나 쓰고 지울 수 있는 폴더(스티키 아님, o+w)가 ${open}개 있어요"
     fi
@@ -309,8 +309,8 @@ sec_dirs() {
             sudo -l -U "$ACC" 2>/dev/null | grep -q 'may run' &&
                 bad "공용 계정이 sudo 를 쓸 수 있어요" "공용 계정($ACC)의 sudo 권한을 없애 주세요(/etc/sudoers, /etc/sudoers.d/)" || ok "sudo 를 못 써요"
         else echo "  sudo 권한은 root 로 실행하면 확인해요."; fi
-        grep -q "^$ACC:" /etc/subuid 2>/dev/null && echo "  /etc/subuid 에 있어요(rootless 도커에 필요해요. 2단계 docker_install.sh 가 맞춰요)" ||
-            echo "  /etc/subuid 에 아직 없어요(2단계 docker_install.sh 가 넣어요)"
+        grep -q "^$ACC:" /etc/subuid 2>/dev/null && echo "  /etc/subuid 에 있어요(rootless 도커에 필요해요. 3단계 docker_install.sh 가 맞춰요)" ||
+            echo "  /etc/subuid 에 아직 없어요(3단계 docker_install.sh 가 넣어요)"
     fi
 
     # 연결 옵션: nosuid·noexec 등
@@ -334,10 +334,10 @@ sec_programs() {
     local miss
     miss=$(lack "${NEED[@]}")
     [ -z "$miss" ] && ok "설치 스크립트에 필요한 명령이 모두 있어요" ||
-        mine "설치 스크립트에 필요한 패키지가 없어요: $miss" "기초 프로그램 설치(docs/1_처음_설치.md 의 \"1-1단계: 서버 기초 프로그램\"): $miss"
+        mine "설치 스크립트에 필요한 패키지가 없어요: $miss" "기초 프로그램 설치(docs/1_처음_설치.md 의 \"2단계: 서버 기초 프로그램\"): $miss"
     miss=$(lack "${WANT[@]}")
     [ -z "$miss" ] && ok "서버 화면에서 쓰는 프로그램(tmux, nvtop, rsync 등)이 모두 있어요" ||
-        mine "서버 화면에서 쓰는 프로그램 중 없는 것: $miss" "기초 프로그램 설치(docs/1_처음_설치.md 의 \"1-1단계: 서버 기초 프로그램\"): $miss"
+        mine "서버 화면에서 쓰는 프로그램 중 없는 것: $miss" "기초 프로그램 설치(docs/1_처음_설치.md 의 \"2단계: 서버 기초 프로그램\"): $miss"
 }
 lack() { local p m=(); for p in "$@"; do command -v "${p%%:*}" >/dev/null || m+=("${p#*:}"); done; printf '%s\n' "${m[@]}" | grep . | sort -u | tr '\n' ' '; }
 
@@ -398,7 +398,7 @@ sec_nas() {
     local n=0 d st uid gid mode
     read -r uid gid mode <<< "$(stat -c '%u %g %a' "$NAS")"
     echo "  $(pad "$NAS (NAS 최상위)" 26) 주인 $(pad "$(who_uid "$uid")" 24) 그룹 $(pad "$(grp_name "$gid")" 10) $(pad "$mode" 5) $(who_writes "$mode")"
-    root_only "$NAS" || bad "NAS 최상위($NAS)를 root 말고도 고칠 수 있어요. 누구든 그 아래 폴더(팀 폴더, $NAS/tmp)를 옮기고 링크로 바꿔치기할 수 있어요. 그래서 root 로는 NAS 에 쓰지 않아요(이 점검의 NAS 속도 측정, 1단계 팀 폴더 만들기, 3·4단계 데이터셋·모델 설치)" \
+    root_only "$NAS" || bad "NAS 최상위($NAS)를 root 말고도 고칠 수 있어요. 누구든 그 아래 폴더(팀 폴더, $NAS/tmp)를 옮기고 링크로 바꿔치기할 수 있어요. 그래서 root 로는 NAS 에 쓰지 않아요(이 점검의 NAS 속도 측정, 1단계 팀 폴더 만들기, 4·5단계 데이터셋·모델 넣기)" \
         "NAS 최상위($NAS)를 root 소유 755 로 해 주세요(지금 root 말고도 고칠 수 있어요). 다른 팀은 그 아래 각자 폴더를 쓰면 돼요"
     while IFS= read -r -d '' d; do
         n=$((n + 1)); [ "$n" -le 60 ] || continue
@@ -418,7 +418,7 @@ sec_nas() {
 
     head_ "우리 팀 폴더 ($TEAM)"
     if [ -L "$TEAM" ]; then
-        bad "링크예요: $TEAM → $(readlink "$TEAM"). 1단계 admin_setup.sh 는 링크면 팀 폴더를 만들지 않아요"
+        bad "링크예요: $TEAM → $(readlink "$TEAM"). 1단계 prepare.sh 는 링크면 팀 폴더를 만들지 않아요"
     elif [ -d "$TEAM" ]; then
         read -r uid gid mode <<< "$(stat -c '%u %g %a' "$TEAM")"
         echo "  주인 $(who_uid "$uid"), 그룹 $(grp_name "$gid"), 권한 $mode ($(who_writes "$mode"))"
@@ -438,13 +438,13 @@ sec_nas() {
         df -hP "$TEAM" | awk 'NR==2 {printf "  여기서 본 용량: 전체 %s, 쓴 것 %s, 남은 것 %s (할당량이 있으면 할당량이에요)\n", $2, $3, $4}'
         if [ -r "$TEAM" ] && [ -x "$TEAM" ]; then
             for n in datasets models; do [ -n "$(ls -A "$TEAM/$n" 2>/dev/null)" ] && ok "$TEAM/$n 에 설치돼 있어요(두 서버가 같이 써요. 다시 올리지 않아도 돼요)"; done
-            [ -n "$(ls -A "$TEAM/datasets" 2>/dev/null)$(ls -A "$TEAM/models" 2>/dev/null)" ] || echo "  데이터셋·모델은 아직 없어요(3·4단계에서 설치해요)"
+            [ -n "$(ls -A "$TEAM/datasets" 2>/dev/null)$(ls -A "$TEAM/models" 2>/dev/null)" ] || echo "  데이터셋·모델은 아직 없어요(4·5단계에서 넣어요)"
             echo "  바로 아래:"; find "$TEAM" -mindepth 1 -maxdepth 1 -printf '    %f  (주인 uid %U, 권한 %m)\n' 2>/dev/null | sort | head -30
         else
             bad "$(id -un) 가 팀 폴더를 읽을 수 없어요. 그룹이 공용 계정인지, 두 서버의 공용 계정 번호가 같은지 확인하세요"
         fi
     else
-        echo "  아직 없어요. 1단계 admin_setup.sh(root)가 만들어요(docs/8_NAS.md 의 '처음 만들기')."
+        echo "  아직 없어요. 1단계 prepare.sh(root)가 만들어요(docs/8_NAS.md 의 '처음 만들기')."
     fi
 
     if id "$ACC" >/dev/null 2>&1; then
@@ -456,7 +456,7 @@ sec_nas() {
 
     head_ 'root squash (root 가 NAS에서 누구로 보이는지)'
     if [ -z "$IS_ROOT" ]; then
-        echo "  root 로 실행하면 확인해요. 1단계 admin_setup.sh 도 팀 폴더를 만들 때 확인해요."
+        echo "  root 로 실행하면 확인해요. 1단계 prepare.sh 도 팀 폴더를 만들 때 확인해요."
     elif [ "$(stat -c %u "$NAS")" = 0 ] && [ -z "$(find "$NAS" -maxdepth 0 -perm /022)" ]; then
         # root 소유이고 남은 못 쓰는 NAS 최상위에 root 가 쓸 수 있는지만 NAS 에 물어본다(아무것도 만들지 않음)
         if [ -w "$NAS" ]; then
@@ -706,7 +706,7 @@ sec_speed() {
         head_ '상대 서버 찾기'
         warn "NAS에 지금 계정이 쓸 수 있는 폴더가 없어서 상대 서버 찾기와 NAS 속도는 건너뛰어요."
         if [ -n "$IS_ROOT" ]; then echo "      root 는 그 폴더와 위 폴더가 모두 root 만 고칠 수 있을 때(root 소유이고 남이 못 쓰거나 스티키)만 써요. $(main_nas) 를 남도 고칠 수 있으면 위 'NAS 바로 아래' 의 [문제] 부터 고쳐요"
-        else echo "      root 로 실행하거나, 1단계 admin_setup.sh 가 $TEAM/tmp_transfer 를 만든 뒤 다시 실행하거나, 쓸 수 있는 NAS 폴더를 적어 주세요: bash check.sh <폴더>"; fi
+        else echo "      root 로 실행하거나, 1단계 prepare.sh 가 $TEAM/tmp_transfer 를 만든 뒤 다시 실행하거나, 쓸 수 있는 NAS 폴더를 적어 주세요: bash check.sh <폴더>"; fi
     fi
 
     if [ -n "$peer" ]; then
@@ -788,7 +788,7 @@ body() {
 
     echo
     if [ ${#ASK[@]} -eq 0 ] && [ ${#MINE[@]} -eq 0 ]; then
-        echo "${c_g}######## 모두 정상이에요. 반입을 시작해도 돼요 (docs/1_처음_설치.md 1단계) ########${c_0}"
+        echo "${c_g}######## 모두 정상이에요. 설치를 시작해도 돼요 (docs/1_처음_설치.md 1단계) ########${c_0}"
     else
         echo "${c_r}############## 고칠 것 $(( ${#ASK[@]} + ${#MINE[@]} ))개 ##############${c_0}"
         if [ ${#ASK[@]} -gt 0 ]; then

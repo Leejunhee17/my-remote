@@ -4,7 +4,7 @@
 #   bash tests/run.sh                 전체(root 가 아니면 root 가 필요한 시험은 건너뛴다)
 #   bash tests/run.sh docs gpu       고른 묶음만: static docs installers gpu wrapper fetch reports hook pkgs system
 #   GPU_TEST_SYSTEM=1 bash tests/run.sh system
-#                                     admin_setup.sh 를 진짜 /app 과 /etc 에 돌린다. 버리는 가상 머신(GitHub Actions)에서만
+#                                     prepare.sh 와 admin_setup.sh 를 진짜 /app 과 /etc 에 돌린다. 버리는 가상 머신(GitHub Actions)에서만
 # 시험이 하나라도 실패하면 종료 코드가 1 이다.
 set -uo pipefail
 export LC_ALL=C.UTF-8
@@ -163,10 +163,10 @@ mk_datasets() {   # $1 폴더. 압축 1개 + wildscenes 파일 2개와 맞는 �
       echo hi > wildscenes/a/1.png; echo yo > wildscenes/2.png
       sha256sum goose/g.zip wildscenes/a/1.png wildscenes/2.png > MANIFEST.sha256
       echo 'files=2 bytes=6' > wildscenes.ok )
-    cp server/datasets_install.sh "$d/"
+    cp server/datasets_unpack.sh "$d/"
 }
 # GPU_APP·GPU_NAS_DIR 을 시험 폴더로 둬서, 진짜 /app·NAS 대신 시험 폴더의 datasets·models 에 설치하게 한다
-run_ds() { mkdir -p "$T/nas/datasets"; HOME=$1 GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$2/datasets_install.sh" > "$LOG" 2>&1; }
+run_ds() { mkdir -p "$T/nas/datasets"; HOME=$1 GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$2/datasets_unpack.sh" > "$LOG" 2>&1; }
 t_installers() {
     head_ '데이터셋·모델 설치'
     local H=$T/inst/home D=$T/inst/ds
@@ -214,8 +214,8 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
     z.writestr('top/ok/a.py','x'); z.writestr('top//$T/inst/escaped','x'); z.writestr('top/../../escaped2','x')"
       sha256sum org__m/config.json org__m/code.zip > MANIFEST.sha256
       for m in json os zipfile struct sys; do echo "open('$T/inst/PWNED','w')" > $m.py; done )
-    cp server/models_install.sh "$M/"
-    HOME=$H GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$M/models_install.sh" > "$LOG" 2>&1
+    cp server/models_place.sh "$M/"
+    HOME=$H GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$M/models_place.sh" > "$LOG" 2>&1
     t '모델: 정상 설치' has "$LOG" '모델 1개가 모두 정상이에요'
     t '모델: 올린 폴더의 json.py 등이 실행되지 않아요(python -I)' test ! -e "$T/inst/PWNED"
     t '모델: 목록에 없는 파일은 옮기지 않아요' test ! -e "$T/nas/models/org/m/extra.py"
@@ -436,34 +436,41 @@ t_pkgs() {
     dpkg -r gpu-test-hello > /dev/null 2>&1
 }
 
-# ================================================================== 10. admin_setup.sh 를 진짜 /app 에(버리는 가상 머신에서만)
+# ================================================================== 10. prepare.sh·admin_setup.sh 를 진짜 /app 에(버리는 가상 머신에서만)
 t_system() {
-    head_ 'admin_setup.sh (진짜 /app·/etc)'
+    head_ 'prepare.sh·admin_setup.sh (진짜 /app·/etc)'
     if [ "${GPU_TEST_SYSTEM:-}" != 1 ] || ! is_root; then skip 'GPU_TEST_SYSTEM=1 과 root 일 때만 돌려요(GitHub Actions)'; return; fi
     [ -e /etc/gpu/account ] && [ ! -e /app/.gpu_test_sandbox ] && { no '/etc/gpu/account 가 있어요. 서버에서는 돌리지 않아요'; return; }
     id gputest >/dev/null 2>&1 || useradd -m -s /bin/bash gputest
     mkdir -p /etc/gpu && echo gputest > /etc/gpu/account
     # 잠그기 전에 공용 계정이 만든 /app/shared(예전 설치: 기초 프로그램·데이터셋·설정을 한곳에)
-    mkdir -p /app && touch /app/.gpu_test_sandbox && rm -rf /app/.shared_old_* /app/.admin_old_* /app/admin /srv/gpunas   # 다시 돌릴 때 앞 시험의 흔적을 지운다
+    mkdir -p /app && touch /app/.gpu_test_sandbox && rm -rf /app/.shared_old_* /app/.admin_old_* /app/admin /srv/gpunas; rm -f /etc/profile.d/gpu.sh /etc/cron.d/gpu   # 다시 돌릴 때 앞 시험의 흔적을 지운다
     mkdir -p /srv/gpunas && chmod 755 /srv/gpunas   # NAS 대신(/data 처럼 root 소유 755)
     mkdir -p /app/shared/{tools/bin,datasets/x,models/org/m}
     echo evil > /app/shared/tools/bin/git; echo d > /app/shared/datasets/x/f; ln -s /etc/passwd /app/shared/datasets/x/l; echo w > /app/shared/models/org/m/w
     printf 'IDLE_HOURS=12\nNAS_DIR=/srv/gpunas/autonomy_sw\n' > /app/shared/gpu.conf; chown -R gputest /app/shared /app
     rm -rf /app/autonomy_sw; mkdir -p /app/workspace/kim && echo r > /app/workspace/kim/result.txt && chown -R gputest /app/workspace   # 예전 이름의 작업 폴더
     local P=$T/pack; mkdir -p "$P"; cp -r server/. "$P/"
+    bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
+    t '권한·규칙 설정: 준비(prepare.sh) 전에는 멈춰요' has "$LOG" '준비가 안 돼 있어요'
+    bash "$P/prepare.sh" < /dev/null > "$LOG" 2>&1
+    t '준비: 끝까지 실행돼요(질문 없이)' has "$LOG" '완료'
+    cp "$LOG" "$T/prepare.log"
+    t '준비: gpu 명령(gpu fetch)을 설치해요' test -x /app/admin/bin/gpu
+    t '준비: 팀원 맞이 설정(접속 설정, 정기 점검, docker 도우미)은 아직 하지 않아요' test ! -e /etc/profile.d/gpu.sh -a ! -e /etc/cron.d/gpu -a ! -e /app/admin/bin/docker
     printf '2\n' | script -qec "bash $P/admin_setup.sh" /dev/null > "$LOG" 2>&1
-    t '끝까지 실행돼요' has "$LOG" '완료'
+    t '권한·규칙 설정: 끝까지 실행돼요' has "$LOG" '완료'
     t '/app, /app/admin 을 root 소유로 잠가요' test "$(stat -c %U /app /app/admin | sort -u)" = root
     t '예전 /app/shared 를 없애고 프로그램은 치워요' bash -c 'ls -d /app/.shared_old_*/tools/bin/git >/dev/null && [ ! -e /app/shared ] && [ ! -e /app/admin/tools ]'
-    t '예전 설정은 /app/admin 으로 옮기고, 데이터셋은 NAS로 옮기는 명령을 알려 줘요' bash -c '[ -f /app/admin/gpu.conf ] && [ -f /app/.shared_old_*/datasets/x/f ] && grep -q "rsync -a --no-links /app/.shared_old_.*/datasets/" "$1"' _ "$LOG"
+    t '예전 설정은 /app/admin 으로 옮기고, 데이터셋은 NAS로 옮기는 명령을 알려 줘요' bash -c '[ -f /app/admin/gpu.conf ] && [ -f /app/.shared_old_*/datasets/x/f ] && grep -q "rsync -a --no-links /app/.shared_old_.*/datasets/" "$1"' _ "$T/prepare.log"
     t 'NAS 팀 폴더(root·공용 계정 그룹 750)와 datasets·models·originals(root 755)를 만들어요' test "$(stat -c '%U %G %a' /srv/gpunas/autonomy_sw)|$(stat -c '%U %a' /srv/gpunas/autonomy_sw/{datasets,models,originals} | sort -u)" = "root $(id -gn gputest) 750|root 755"
     t '팀원은 NAS 데이터셋을 읽기만 해요' bash -c 'runuser -u gputest -- ls /srv/gpunas/autonomy_sw/datasets >/dev/null && ! runuser -u gputest -- touch /srv/gpunas/autonomy_sw/datasets/g 2>/dev/null'
     t '예전 작업 폴더(/app/workspace)를 /app/autonomy_sw 로 옮겨요' bash -c '[ -f /app/autonomy_sw/kim/result.txt ] && [ ! -e /app/workspace ]'
     t '서버 번호 2를 고르면 0~3번이 다른팀이에요' grep -qE '^0[[:space:]]+다른팀' /app/admin/gpu_alloc.txt
     t '접속 설정과 정기 점검을 만들어요' test -f /etc/profile.d/gpu.sh -a -f /etc/cron.d/gpu
     t '정기 점검 파일에 PATH(runuser 위치)가 있어요' grep -q '^PATH=.*/usr/sbin' /etc/cron.d/gpu
-    bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
-    t '두 번째 실행도 끝까지(질문 없이) 돼요' has "$LOG" '완료'
+    bash "$P/prepare.sh" < /dev/null > "$LOG" 2>&1 && bash "$P/admin_setup.sh" < /dev/null >> "$LOG" 2>&1
+    t '두 번째 실행도 끝까지(질문 없이) 돼요' test "$(grep -c '완료' "$LOG")" = 2
     t '두 번째 실행에서는 다시 치우지 않아요' bash -c '[ "$(ls -d /app/.shared_old_* | wc -l)" = 1 ] && ! ls -d /app/.admin_old_* >/dev/null 2>&1'
     GPU_ACCOUNT=gputest /app/admin/bin/gpu _check > "$LOG" 2>&1; t '설치된 gpu 정기 점검이 돌아요(도커 없음)' test $? -le 1
     # 팀원 접속: 명단에 넣고 다시 실행 → 공용 계정으로 로그인해 번호로 이름을 고른다
@@ -477,7 +484,7 @@ t_system() {
     t '알림을 보낼 창(pts)과 이름을 적어 둬요' bash -c 'grep -qx 홍길동 /app/state/tty/pts-*'
     t 'NAS: 팀원 폴더(backup/<이름>)는 공용 계정 것이에요' test "$(stat -c %U /srv/gpunas/autonomy_sw/backup /srv/gpunas/autonomy_sw/backup/홍길동 | sort -u)" = gputest
     chmod 777 /srv/gpunas
-    bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
+    bash "$P/prepare.sh" < /dev/null > "$LOG" 2>&1
     t 'NAS: 위 폴더를 남도 고칠 수 있으면 NAS 팀 폴더를 손대지 않고 알려 줘요' has "$LOG" 'root 말고도 고칠 수 있어요'
     chmod 755 /srv/gpunas
 }

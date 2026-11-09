@@ -56,7 +56,7 @@ Write-Step 1 $T '점검'
 $uv = Find-Exe 'uv' $root
 if ($uv) { Write-Ok "uv : $uv" } else { Stop-Run 'uv가 없어요' "uv를 설치하고 PowerShell 창을 새로 여세요. 또는 uv.exe를 $root 폴더에 넣으세요." }
 if (-not (Test-Path $fetch)) { Stop-Run '없는 파일: pc\hf_fetch.py' 'git pull로 저장소를 최신으로 받으세요.' }
-if (-not (Test-Path (Join-Path $root 'server\models_install.sh'))) { Stop-Run '없는 파일: server\models_install.sh' 'git pull로 저장소를 최신으로 받으세요.' }
+if (-not (Test-Path (Join-Path $root 'server\models_place.sh'))) { Stop-Run '없는 파일: server\models_place.sh' 'git pull로 저장소를 최신으로 받으세요.' }
 if (-not $Models.Count) {
     Stop-Run '받을 모델이 없어요' ("lists\models.txt 와 -Only 뒤에 적은 그룹 이름을 확인하세요. 있는 그룹: " +
         (@($AllModels | ForEach-Object { $_.Group } | Select-Object -Unique) -join ', '))
@@ -185,9 +185,9 @@ $lines = @(Get-ChildItem $Dest -Directory | Where-Object { $active -contains $_.
     if ((Test-Path $s) -and (Test-Path (Join-Path $_.FullName 'gpu_model.json'))) { (Get-Content -Encoding UTF8 $s) }
 } | Where-Object { $_ })
 [IO.File]::WriteAllText((Join-Path $Dest 'MANIFEST.sha256'), (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
-$sh = [IO.File]::ReadAllText((Join-Path $root 'server\models_install.sh')) -replace "`r", ''
-[IO.File]::WriteAllText((Join-Path $Dest 'models_install.sh'), $sh, (New-Object Text.UTF8Encoding $false))
-Write-Ok "파일 $($lines.Count)개를 체크섬 목록에 적고 models_install.sh를 넣었어요"
+$sh = [IO.File]::ReadAllText((Join-Path $root 'server\models_place.sh')) -replace "`r", ''
+[IO.File]::WriteAllText((Join-Path $Dest 'models_place.sh'), $sh, (New-Object Text.UTF8Encoding $false))
+Write-Ok "파일 $($lines.Count)개를 체크섬 목록에 적고 models_place.sh를 넣었어요"
 
 # ------------------------------------------------------------------ 4. 결과
 Write-Step 4 $T '결과'
@@ -218,15 +218,15 @@ Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 폴�
 Write-Host "   $Dest  ($(Format-Size $total))"
 if ((Split-Path -Leaf $Dest) -ne 'models') { Write-Host '   폴더 이름이 models 가 아니면, 올리기 전에 models 로 바꾸세요(서버 명령이 이 이름만 받아요).' -ForegroundColor Yellow }
 Write-Host ''
-Save-Fingerprint 'models 폴더' (Get-Fingerprint @((Join-Path $Dest 'MANIFEST.sha256'), (Join-Path $Dest 'models_install.sh')))
-Write-Host '   (MANIFEST.sha256과 models_install.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
+Save-Fingerprint 'models 폴더' (Get-Fingerprint @((Join-Path $Dest 'MANIFEST.sha256'), (Join-Path $Dest 'models_place.sh')))
+Write-Host '   (MANIFEST.sha256과 models_place.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
 Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @()
 Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 폴더에 링크 파일(바로 가기)이 섞여 있으면 멈추고, 없으면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/admin/bin/gpu fetch models'
 Write-Host ' 3) 같으면 설치하세요. 서버 1에서만 하면 돼요(NAS에 설치돼 서버 2도 같이 써요). 다 끝나면 /app/upload/models 는 지워 공간을 비우세요.' -ForegroundColor Green
-Write-Host '   bash /app/inbox/models/models_install.sh'
+Write-Host '   bash /app/inbox/models/models_place.sh'
 Write-Host ' 자세한 순서: docs\6_모델.md'
 Write-Host '##############################################################'
 Stop-Transcript | Out-Null

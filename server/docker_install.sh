@@ -136,7 +136,7 @@ EOF
     apparmor_parser -r /etc/apparmor.d/gpu-rootlesskit && ok 'AppArmor에서 rootlesskit을 허용했어요' ||
         stop 'AppArmor 프로필을 적용하지 못했어요' '바로 위 오류를 확인하세요.'
 fi
-[ "$(stat -c %U /app)" = root ] && [ ! -L "$DATA" ] || stop '/app이 잠기지 않았거나 /app/docker가 링크예요' '관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh'
+[ "$(stat -c %U /app)" = root ] && [ ! -L "$DATA" ] || stop '/app이 잠기지 않았거나 /app/docker가 링크예요' '준비를 먼저 하세요: cd /app/inbox && bash prepare.sh'
 mkdir -p "$DATA" && chown "$ACC:$ACC" "$DATA" && chmod 700 "$DATA"
 mkdir -p "$CONF"
 # 기본 런타임은 runc 그대로 둔다. nvidia 를 기본으로 하면 --gpus 없이 띄운 CUDA 이미지에도 GPU 8장이 모두 보인다
@@ -222,6 +222,6 @@ echo "${c_g}############################ 완료 ############################${c_
 echo " 공용 계정($ACC) 전용 rootless Docker $(info docker)를 설치했어요."
 echo " 팀원은 다시 접속하면 docker 명령을 바로 써요. 컨테이너에는 --gpus 로 정한 GPU만 보여요."
 echo " 관리: systemctl status gpu-docker (다시 켜기: systemctl restart gpu-docker),  기록: journalctl -u gpu-docker"
-echo " 다음 단계: 서버 1은 데이터셋·모델(docs/1_처음_설치.md 3·4단계), 서버 2는 5단계(공용 계정으로 gpu doctor <PyTorch 이미지>)"
+echo " 다음 단계: 서버 1은 데이터셋·모델(docs/1_처음_설치.md 4·5단계), 서버 2는 6단계 권한·규칙 설정(bash /app/inbox/admin_setup.sh)"
 echo " 공간 정리: rm -f /app/upload/gpu-docker.tar (서버 1은 $HERE/gpu-docker.tar 를 NAS originals 에 남긴 뒤 지워요. docs/8_NAS.md 의 \"쓰는 법\")"
 echo "${c_g}##############################################################${c_0}"

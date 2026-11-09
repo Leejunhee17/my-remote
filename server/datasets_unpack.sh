@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# [GPU 서버 · 관리자(root)] 접근 PC에서 올린 datasets 폴더를 NAS 팀 폴더의 /data/autonomy_sw/datasets 아래 푼다(admin_setup.sh 다음).
+# [GPU 서버 · 관리자(root)] 접근 PC에서 올린 datasets 폴더를 NAS 팀 폴더의 /data/autonomy_sw/datasets 아래 푼다(prepare.sh 다음).
 # 점검(체크섬) → 풀기 → 라벨 파일이 있는지 검사까지 한 번에 한다.
-#   bash /app/inbox/datasets/datasets_install.sh
+#   bash /app/inbox/datasets/datasets_unpack.sh
 # 다시 실행해도 된다. 이미 푼 것은 건너뛴다.
 set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 GPU 서버(리눅스)에서 실행해요. 접근 PC에서는 pc 폴더의 .ps1 을 쓰세요."; exit 1; fi
@@ -11,9 +11,9 @@ SRC=$PWD
 if [ "$(id -u)" = 0 ] && [ -n "$(find "$SRC" -type l -print -quit)" ]; then
     echo "멈춤: $SRC 안에 링크가 있어요(올린 폴더에 누가 넣었을 수 있어요). /app/upload/datasets 를 지우고 접근 PC 폴더를 다시 올린 뒤 새로 들여오세요: /app/admin/bin/gpu fetch datasets"; exit 1
 fi
-# root 로 설치할 때는 /app 이 잠겨 있어야 한다(admin_setup.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
+# root 로 설치할 때는 /app 이 잠겨 있어야 한다(prepare.sh). 공용 계정이 /app 에 링크를 심어 두면 root 가 시스템 폴더에 쓰게 된다
 APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
-# 폴더와 그 위의 모든 폴더가 root 소유이고 root 만 쓸 수 있는지(스티키 폴더는 바꿔치기를 못 해서 괜찮다). admin_setup.sh 와 같음
+# 폴더와 그 위의 모든 폴더가 root 소유이고 root 만 쓸 수 있는지(스티키 폴더는 바꿔치기를 못 해서 괜찮다). prepare.sh 와 같음
 safe_dir() {
     local p m; p=$(readlink -f "$1") && [ -d "$p" ] || return 1
     while :; do
@@ -24,18 +24,18 @@ safe_dir() {
     done
 }
 if [ "$(id -u)" = 0 ] && [ -d "$APP" ] && { [ "$(stat -c %U "$APP")" != root ] || [ -L "$APP/admin" ] || [ -L "$APP/autonomy_sw" ]; }; then
-    echo "멈춤: /app이 아직 잠기지 않았어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
+    echo "멈춤: /app이 아직 잠기지 않았어요. 준비를 먼저 하세요: cd /app/inbox && bash prepare.sh"; exit 1
 fi
 # 설치할 곳: NAS 팀 폴더의 datasets(/app/admin/gpu.conf 의 NAS_DIR, 기본 /data/autonomy_sw). root 만 고치고 팀원은 읽는다
 NAS=${GPU_NAS_DIR:-$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$APP/admin/gpu.conf" 2>/dev/null | tail -1)}   # GPU_NAS_DIR: 시험할 때만
 D="${NAS:-/data/autonomy_sw}/datasets"
 if [ "$(id -u)" = 0 ] && ! safe_dir "$D"; then
-    echo "멈춤: 설치할 곳($D)이 없거나 root 말고도 고칠 수 있어요. 관리자 기본 설정을 먼저 하세요: cd /app/inbox && bash admin_setup.sh"; exit 1
+    echo "멈춤: 설치할 곳($D)이 없거나 root 말고도 고칠 수 있어요. 준비를 먼저 하세요: cd /app/inbox && bash prepare.sh"; exit 1
 fi
 if [ -d "$D" ] && [ ! -w "$D" ]; then
-    echo "멈춤: $D 는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/datasets_install.sh"; exit 1
+    echo "멈춤: $D 는 root만 고칠 수 있어요. root로 같은 명령을 실행하세요: bash $SRC/datasets_unpack.sh"; exit 1
 fi
-LOG="$APP/admin/logs/datasets_install_$(date +%Y%m%d_%H%M%S).log"
+LOG="$APP/admin/logs/datasets_unpack_$(date +%Y%m%d_%H%M%S).log"
 mkdir -p "$D" "$APP/admin/logs"
 exec > >(tee -a "$LOG") 2>&1
 T=3
@@ -51,7 +51,7 @@ stop() {
     echo "${c_r}################ 멈춤 ################${c_0}"
     echo "${c_r}멈춘 이유: $1${c_0}"
     echo "할 일: $2"
-    echo "고친 뒤 같은 명령을 다시 실행하세요: bash $SRC/datasets_install.sh"
+    echo "고친 뒤 같은 명령을 다시 실행하세요: bash $SRC/datasets_unpack.sh"
     echo "기록 파일: $LOG  (해결이 안 되면 docs/7_문제_해결.md)"
     exit 1
 }
@@ -179,7 +179,7 @@ if [ "$FAILS" -eq 0 ]; then
     echo " 이번에 올린 데이터셋이 모두 정상이에요. 위치: $D"
     [ -n "$skipped" ] && echo " 이번에 올리지 않은 것:$skipped (나눠 올렸다면 다음 묶음을 올려 같은 순서로 설치하세요)"
     echo " 엑셀 '데이터셋 목록' 시트의 진행 상황을 '서버 반입'으로 바꾸세요."
-    echo " 다음 단계: 사전학습 모델(docs/1_처음_설치.md 4단계)"
+    echo " 다음 단계: 사전학습 모델(docs/1_처음_설치.md 5단계)"
     echo " NAS에 설치돼서 서버 2도 바로 써요. /app 의 복사본은 지워도 돼요: rm -rf /app/inbox/datasets /app/upload/datasets"
     echo "${c_g}##############################################################${c_0}"
 else

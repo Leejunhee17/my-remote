@@ -510,7 +510,7 @@ if (Get-Command 'tar.exe' -ErrorAction SilentlyContinue) { Write-Ok 'tar.exe' } 
 Test-Aria2 | Out-Null
 if ($oldWs.Count) { Write-Warn ".env 의 $($oldWs -join ', ') 는 더 쓰지 않아요(WildScenes 는 링크 목록으로만 받아요). 키가 남지 않게 .env 에서 그 줄들을 지워 주세요" }
 if (-not (Test-Path $check)) { Write-Bad '없는 파일: pc\check_archive.py (git pull로 저장소를 최신으로 받으세요)' }
-if (-not (Test-Path (Join-Path $root 'server\datasets_install.sh'))) { Write-Bad '없는 파일: server\datasets_install.sh (git pull로 저장소를 최신으로 받으세요)' }
+if (-not (Test-Path (Join-Path $root 'server\datasets_unpack.sh'))) { Write-Bad '없는 파일: server\datasets_unpack.sh (git pull로 저장소를 최신으로 받으세요)' }
 if ($script:Fails) {
     Stop-Run '필요한 프로그램이나 파일이 없어요' ("위 [문제] 줄을 보세요. uv는 설치한 뒤 PowerShell 창을 새로 여세요(또는 uv.exe를 $root 폴더에 넣기). " +
         '저장소 파일은 git pull로 받으세요.')
@@ -770,9 +770,9 @@ if ((Test-Path $wok) -and -not (Test-Path $wsum)) {
 }
 if (Test-Path $wsum) { $lines += @([IO.File]::ReadAllLines($wsum) | Where-Object { $_ }) }
 [IO.File]::WriteAllText((Join-Path $Dest 'MANIFEST.sha256'), (($lines -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
-$sh = [IO.File]::ReadAllText((Join-Path $root 'server\datasets_install.sh')) -replace "`r", ''
-[IO.File]::WriteAllText((Join-Path $Dest 'datasets_install.sh'), $sh, (New-Object Text.UTF8Encoding $false))
-Write-Ok "파일 $($lines.Count)개를 체크섬 목록에 적고 datasets_install.sh를 넣었어요"
+$sh = [IO.File]::ReadAllText((Join-Path $root 'server\datasets_unpack.sh')) -replace "`r", ''
+[IO.File]::WriteAllText((Join-Path $Dest 'datasets_unpack.sh'), $sh, (New-Object Text.UTF8Encoding $false))
+Write-Ok "파일 $($lines.Count)개를 체크섬 목록에 적고 datasets_unpack.sh를 넣었어요"
 
 # ------------------------------------------------------------------ 4. 결과
 Write-Step 4 $T '결과'
@@ -804,15 +804,15 @@ Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 폴�
 Write-Host "   $Dest  ($(Format-Size $total))"
 if ((Split-Path -Leaf $Dest) -ne 'datasets') { Write-Host '   폴더 이름이 datasets 가 아니면, 올리기 전에 datasets 로 바꾸세요(서버 명령이 이 이름만 받아요).' -ForegroundColor Yellow }
 Write-Host ''
-Save-Fingerprint 'datasets 폴더' (Get-Fingerprint @((Join-Path $Dest 'MANIFEST.sha256'), (Join-Path $Dest 'datasets_install.sh')))
-Write-Host '   (MANIFEST.sha256과 datasets_install.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
+Save-Fingerprint 'datasets 폴더' (Get-Fingerprint @((Join-Path $Dest 'MANIFEST.sha256'), (Join-Path $Dest 'datasets_unpack.sh')))
+Write-Host '   (MANIFEST.sha256과 datasets_unpack.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
 Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @('wildscenes/')
 Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 폴더에 링크 파일(바로 가기)이 섞여 있으면 멈추고, 없으면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/admin/bin/gpu fetch datasets'
 Write-Host ' 3) 같으면 설치하세요. 서버 1에서만 하면 돼요(NAS에 설치돼 서버 2도 같이 써요). 다 끝나면 /app/upload/datasets 는 지워 공간을 비우세요.' -ForegroundColor Green
-Write-Host '   bash /app/inbox/datasets/datasets_install.sh'
+Write-Host '   bash /app/inbox/datasets/datasets_unpack.sh'
 Write-Host ' 자세한 순서: docs\5_데이터셋.md'
 Write-Host '##############################################################'
 # 작업 스케줄러가 실행한 것이면: 못 받은 것(한도·끊김으로 실패, Drive 접속 안 됨)이 없을 때 자동 받기를 끈다
