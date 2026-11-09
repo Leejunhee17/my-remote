@@ -73,7 +73,7 @@ if ($script:Fails) {
 # 큰 파일은 이 주소들에서 내려온다. 막혀 있으면 받다가 실패한다
 foreach ($h in 'https://cas-bridge.xethub.hf.co/', 'https://cdn-lfs.hf.co/') {
     $r = Invoke-Probe $h
-    if ($r.Code -eq 0) { Write-Ok "인터넷: $h" } else { Write-Warn "인터넷: $h 접속 안 됨($($r.Msg)). 큰 가중치 파일을 받지 못할 수 있어요." }
+    if ($r.Code -eq 0) { Write-Ok "인터넷: $h" } else { Write-Warn "인터넷: $h 접속 안 됨($($r.Msg)). 큰 모델 파일(가중치)을 받지 못할 수 있어요." }
 }
 
 Write-Info '받기 도구(huggingface_hub)를 준비하는 중이에요(처음 한 번만)'
@@ -177,7 +177,7 @@ foreach ($d in @(Get-ChildItem $Dest -Directory | Where-Object { $_.Name -like '
         Remove-Item -Recurse -Force $d.FullName
         Write-Info "목록에서 빠진 예전 모델을 지웠어요: $($d.Name -replace '__', '/')"
     } elseif ($active -notcontains $d.Name -and (Test-Path (Join-Path $d.FullName 'gpu_model.json'))) {
-        Write-Info "선택 모델(앞에 #)이라 GPU 서버에 올릴 목록에서 뺐어요: $($d.Name -replace '__', '/')"
+        Write-Info "lists\models.txt 에서 앞에 # 을 붙인 모델이라 GPU 서버에 올릴 목록에서 뺐어요(폴더는 남겨 둬요): $($d.Name -replace '__', '/')"
     }
 }
 $lines = @(Get-ChildItem $Dest -Directory | Where-Object { $active -contains $_.Name } | ForEach-Object {
@@ -223,7 +223,7 @@ Write-Host '   (MANIFEST.sha256과 models_install.sh를 이어 붙인 지문이�
 Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @()
 Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
-Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
+Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 폴더에 링크 파일(바로 가기)이 섞여 있으면 멈추고, 없으면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/admin/bin/gpu fetch models'
 Write-Host ' 3) 같으면 설치하세요. 서버 1에서만 하면 돼요(NAS에 설치돼 서버 2도 같이 써요). 다 끝나면 /app/upload/models 는 지워 공간을 비우세요.' -ForegroundColor Green
 Write-Host '   bash /app/inbox/models/models_install.sh'

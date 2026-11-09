@@ -69,7 +69,7 @@ function Test-Aria2File($label, $url) {
         $sz = if (Test-Path $f) { (Get-Item $f).Length } else { 0 }
         if ($code -eq 0) { Write-Ok "aria2c 로 받아져요: $label ($(Format-Size $sz))"; return }
         $why = switch ($code) { 3 { '없는 주소(404)' } 22 { '거절(403 등)' } 24 { '인증 실패(401)' } 99 { 'aria2c 없음' } default { '네트워크 문제' } }
-        Write-Bad "aria2c 로 안 받아져요: $label (aria2c $code, $why)" "aria2c(받기 도구)로 $label 이 안 받아져요(aria2c $code). 그 아래 오류 줄을 보세요"
+        Write-Bad "aria2c 로 안 받아져요: $label (aria2c $code, $why)" "aria2c(받기 도구)로 $label 이 안 받아져요(aria2c $code). 위 결과에서 aria2c: 로 시작하는 줄을 보세요"
         if (Test-Path $lf) {
             [IO.File]::ReadAllLines($lf) | Where-Object { $_ -match '(?i)errorCode|status=|exception|SSL|TLS|certificate|ERROR' } | Select-Object -First 4 |
                 ForEach-Object { Write-Info "    aria2c: $($_.Trim())" }
@@ -104,7 +104,7 @@ $aria = Join-Path $root 'tools\aria2\aria2c.exe'
 if (Test-Path $aria) {
     if ((Get-FileHash $aria -Algorithm SHA256).Hash -eq $Aria2ExeSha.ToUpper()) { Write-Ok 'aria2c: tools\aria2\aria2c.exe (지문 맞음)' }
     else { Write-Warn 'aria2c: tools\aria2\aria2c.exe 의 지문이 달라요. 지우면 다음 받기 때 새로 받아요' }
-} else { Write-Info 'aria2c: 아직 없어요(아래 인터넷 점검에서 준비해요. 받기 스크립트도 처음에 이렇게 해요)' }
+} else { Write-Info 'aria2c: 아직 없어요(아래 받기 도구 점검에서 받아 둬요. 받기 스크립트도 처음 실행할 때 이렇게 받아요)' }
 
 # ------------------------------------------------------------------ 저장소(git)
 Write-Head '저장소(git)'
@@ -129,7 +129,7 @@ if ($git) {
             if ($behind -and [int]$behind -gt 0) { Write-Bad "저장소가 최신이 아니에요(새 커밋 $($behind)개)" '저장소 맨 위에서 git pull 을 하세요' }
             elseif ($behind) { Write-Ok '저장소가 최신이에요' }
         } else {
-            Write-Bad 'git 으로 GitHub 에 접속되지 않아요(git pull, 결과 올리기가 안 돼요)' 'git 이 GitHub 에 접속되지 않아요. 아래 git 오류를 보세요(회사 프록시면 git config --global http.proxy, 인증서 폐기 확인이면 git config --global http.schannelCheckRevoke false)'
+            Write-Bad 'git 으로 GitHub 에 접속되지 않아요(git pull, 결과 올리기가 안 돼요)' 'git 이 GitHub 에 접속되지 않아요. 아래 git 오류를 보세요(회사 프록시면 git config --global http.proxy, 인증서 폐기 확인 오류면 git config --global http.schannelCheckRevoke false)'
             $fo = ($fo -replace '\s+', ' ').Trim()
             Write-Info "    $($fo.Substring(0, [math]::Min(300, $fo.Length)))"
         }
@@ -142,7 +142,7 @@ $envFile = Join-Path $root '.env'
 $known = @([IO.File]::ReadAllLines((Join-Path $root '.env.example')) | ForEach-Object { if ($_ -match '^([A-Za-z_][A-Za-z0-9_]*)=') { $Matches[1] } })
 if (Test-Path $envFile) {
     $names = @([IO.File]::ReadAllLines($envFile) | ForEach-Object { if ($_.Trim() -match '^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$' -and $Matches[2].Trim()) { $Matches[1] } })
-    Write-Ok ".env 가 있어요. 값을 적은 것: $(if ($names.Count) { $names -join ', ' } else { '없음' }) (값은 적지 않아요)"
+    Write-Ok ".env 가 있어요. 값이 들어 있는 이름: $(if ($names.Count) { $names -join ', ' } else { '없음' }) (값 자체는 결과에 적지 않아요)"
     $odd = @($names | Where-Object { $known -notcontains $_ -and $_ -notmatch '^WILDSCENES_(S3_|ACCESS_KEY|SECRET_KEY)' })
     if ($odd.Count) { Write-Warn ".env 에 .env.example 에 없는 이름이 있어요(오타일 수 있어요): $($odd -join ', ')" }
 } else {
@@ -190,7 +190,7 @@ $pac = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Intern
 Write-Info ".env·창의 HTTPS_PROXY: $(Proxy-Label $env:HTTPS_PROXY), HTTP_PROXY: $(Proxy-Label $env:HTTP_PROXY)"
 Write-Info "윈도우 프록시 설정: $(Proxy-Label $wp)"
 Write-Info "자동 프록시 설정(PAC): $(if ($pac) { '있음' } else { '없음' })"
-Write-Info '접속 확인은 .NET(브라우저처럼 위 프록시와 윈도우 로그인), 받기는 aria2c(.env 의 프록시, 없으면 브라우저 프록시. 윈도우 로그인 인증은 못 해요)로 해요'
+Write-Info '접속 확인은 .NET 으로 해요(브라우저처럼 위 프록시와 윈도우 로그인을 써요). 실제 받기는 aria2c 로 해요(.env 의 프록시, 없으면 브라우저 프록시를 쓰고, 윈도우 로그인 인증은 못 해요)'
 foreach ($v in 'NO_PROXY', 'SSL_CERT_FILE', 'REQUESTS_CA_BUNDLE') { if ([Environment]::GetEnvironmentVariable($v)) { Write-Info "환경 변수 $v 가 있어요(uv·Python 접속에 영향을 줘요)" } }
 
 # ------------------------------------------------------------------ 인터넷
@@ -246,7 +246,7 @@ if (Test-Aria2) {
     if ($wsUrl) {
         $wsSize = Get-RemoteSize $wsUrl
         if ($wsSize -and $wsSize -le 20MB) { Test-Aria2File 'WildScenes 링크 목록의 파일' $wsUrl }
-        else { Write-Info 'WildScenes 링크 목록의 첫 파일은 크기를 몰라서(또는 커서) aria2c 로 받아 보지 않았어요. 자세히: .\pc\wildscenes_check.ps1' }
+        else { Write-Info 'WildScenes 링크 목록의 첫 파일은 크기를 알 수 없거나 20 MB 보다 커서 aria2c 로 받아 보지 않았어요. 자세히: .\pc\wildscenes_check.ps1' }
     }
     $ap = @(Get-Aria2Proxy 'https://huggingface.co/')
     Write-Info "aria2c 에 붙는 프록시: $(if ($ap.Count) { Proxy-Label ($ap[0] -replace '^--all-proxy=', '') } else { '없음(바로 접속)' })"

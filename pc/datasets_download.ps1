@@ -211,7 +211,7 @@ function Get-Parts($url, $file, $count) {
                 Write-Bad "조각을 받지 못했어요: $(Split-Path -Leaf $p). 같은 명령을 다시 실행하면 이어서 받아요"; return $null
             }
         }
-        Write-Info "조각 $count 개를 하나로 합치는 중이에요"
+        Write-Info "조각 $($count)개를 하나로 합치는 중이에요"
         $out = [IO.File]::Create("$file.join")
         try { foreach ($p in $parts) { $in = [IO.File]::OpenRead($p); try { $in.CopyTo($out) } finally { $in.Close() } } }
         finally { $out.Close() }
@@ -219,7 +219,7 @@ function Get-Parts($url, $file, $count) {
     }
     $r = Test-Archive $file
     if ($r -eq 0) { $parts | ForEach-Object { Remove-Item -Force -ErrorAction SilentlyContinue $_ }; return $file }
-    Write-Warn '합친 파일이 깨졌어요. 합친 파일을 지우고 다음에 조각을 다시 확인해요'
+    Write-Warn '합친 파일이 깨졌어요. 합친 파일은 지우고, 다음 실행 때 조각을 다시 확인해요'
     Remove-Item -Force $file
     return $null
 }
@@ -230,7 +230,7 @@ function Get-Url($url, $file, $tries = $MaxTries) {
     if ((Test-Path $file) -and -not (Get-RemoteSize $url)) {
         Write-Info '사이트에 접속되지 않아요. 넣어 둔 파일이 다 받아진 것인지 먼저 검사해요'
         if ((Test-Archive $file) -eq 0) { return $file }
-        Write-Warn '넣어 둔 파일이 덜 받아졌거나 깨졌어요. 사이트에서 이어받기를 해 봐요'
+        Write-Warn '넣어 둔 파일이 덜 받아졌거나 깨졌어요. 사이트에서 이어서 받아 볼게요'
     }
     $stall = 0
     while ($stall -lt $tries) {
@@ -248,7 +248,7 @@ function Get-Url($url, $file, $tries = $MaxTries) {
             # 없는 주소(404)·거절(403)·인증 실패(401)는 다시 해도 같다
             if ($code -in 3, 22, 24 -and -not ((Get-Size $file) -gt $local)) {
                 $r = Invoke-Http $url -Range '0-0' -Max 2048
-                Write-Bad "사이트가 거절했어요(HTTP $($r.Status)): $(Split-Path -Leaf $file). 주소가 바뀌었거나 막힌 거예요"
+                Write-Bad "사이트가 거절했어요(HTTP $($r.Status)): $(Split-Path -Leaf $file). 주소가 바뀌었거나 막혔을 수 있어요"
                 Write-Info "    주소: $(($url -split '\?')[0])"
                 return $null
             }
@@ -280,7 +280,7 @@ function Get-Url($url, $file, $tries = $MaxTries) {
 function Show-WsDenied($it) {
     $h = @{}; foreach ($x in $it.Headers) { if ($x -match '^([^:]+):\s*(.*)$') { $h[$Matches[1]] = $Matches[2] } }
     $r = Invoke-Http $it.Url -Range '0-1023' -Max 2048 -Headers $h
-    Write-Info "    거절된 주소: $(($it.Url -split '\?')[0])?…  (목록의 머리글 줄 $($it.Headers.Count)개를 같이 보냈어요)"
+    Write-Info "    거절된 주소: $(($it.Url -split '\?')[0])?…  (목록에 적힌 요청 머리글(header) $($it.Headers.Count)개를 같이 보냈어요)"
     if (-not $r.Ok) { Write-Info "    응답 없음: $($r.Error)"; return }
     Write-Info "    응답: HTTP $($r.Status)"
     foreach ($k in 'server', 'www-authenticate', 'content-type', 'location') { if ($r.Headers[$k]) { Write-Info "    응답: ${k}: $(($r.Headers[$k] -replace '\?\S*', '?…').Trim())" } }
@@ -632,7 +632,7 @@ if ($doWild) {
             $expired = $false
             # 목록이 aria2 형식이고, 동시에 여러 파일을 받아 빠르다
             $aria = Get-Aria2
-            if ($aria) { Write-Ok "aria2c 로 받아요(동시에 16개)" }
+            if ($aria) { Write-Ok "aria2c 로 받아요(파일 16개씩 동시에)" }
             $ain = "$wdir.aria2_input.txt"; $asess = "$wdir.aria2_session.txt"; $alog = "$wdir.aria2.log"
             while ($aria -and $stall -lt $MaxTries) {
                 $todo = @($links | Where-Object { -not $doneSet.Contains($_.Rel) })
@@ -663,7 +663,7 @@ if ($doWild) {
                         [void]$doneSet.Add($it.Rel); [IO.File]::AppendAllText($doneFile, "$($it.Rel)`n", $utf8)
                     }
                 }
-                Write-Info "aria2c 끝(코드 $acode): 이번에 $($doneSet.Count - $before)개를 받았어요. 남은 것 $($links.Count - $doneSet.Count)개"
+                Write-Info "aria2c 가 끝났어요(종료 코드 $acode). 이번에 $($doneSet.Count - $before)개를 받았고, 남은 것은 $($links.Count - $doneSet.Count)개예요"
                 if ($doneSet.Count -eq $links.Count) { $done = $true; break }
                 # 하나도 못 받았고 401·403(만료·거절)이면 다시 해도 소용없다
                 $alines = if (Test-Path $alog) { @([IO.File]::ReadAllLines($alog)) } else { @() }
@@ -809,7 +809,7 @@ Write-Host '   (MANIFEST.sha256과 datasets_install.sh를 이어 붙인 지문�
 Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @('wildscenes/')
 Write-Host ''
 Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
-Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 링크가 섞였으면 멈추고, 아니면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
+Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 폴더에 링크 파일(바로 가기)이 섞여 있으면 멈추고, 없으면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/admin/bin/gpu fetch datasets'
 Write-Host ' 3) 같으면 설치하세요. 서버 1에서만 하면 돼요(NAS에 설치돼 서버 2도 같이 써요). 다 끝나면 /app/upload/datasets 는 지워 공간을 비우세요.' -ForegroundColor Green
 Write-Host '   bash /app/inbox/datasets/datasets_install.sh'

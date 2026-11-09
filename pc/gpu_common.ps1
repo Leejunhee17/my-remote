@@ -174,9 +174,9 @@ function Get-NetHint($kind) {
     switch ($kind) {
         'dns'     { return '주소를 찾지 못했어요(DNS). 사내 IT에 이 주소를 물어보세요.' }
         'proxy'   { return '프록시 주소를 찾지 못했어요. .env 의 HTTPS_PROXY 나 윈도우 프록시 설정을 확인하세요.' }
-        'connect' { return '연결이 거부됐어요. 방화벽이 막았거나 프록시를 거쳐야 하는 망이에요.' }
-        'timeout' { return '시간이 초과됐어요. 방화벽이 조용히 막는 주소일 수 있어요(차단 화면 없이 타임아웃).' }
-        'tls'     { return '보안 연결(TLS)에 실패했어요. 회사 보안 장비가 막거나 인증서를 바꾸는 망이에요.' }
+        'connect' { return '연결이 거부됐어요. 방화벽이 막았거나, 프록시를 거쳐야 하는 망일 수 있어요.' }
+        'timeout' { return '응답이 없어 기다리다 멈췄어요. 방화벽이 차단 화면 없이 조용히 막는 주소일 수 있어요.' }
+        'tls'     { return '보안 연결(TLS)에 실패했어요. 회사 보안 장비가 막았거나, 인증서를 중간에서 바꿔 끼우는 망일 수 있어요.' }
         'reset'   { return '연결은 됐지만 중간에 끊겼어요. 대부분 회사 프록시나 방화벽이 이 주소를 막은 경우예요.' }
         default   { return '' }
     }
@@ -188,7 +188,7 @@ function Test-Site($name, $url) {
     if ($first.Code -eq 0) {
         Write-Ok "인터넷: $name"
         # 프록시가 거절하면 응답은 오지만 프록시가 보낸 것이다(407 은 프록시 인증 실패)
-        if ($first.Status -eq 407) { Write-Warn "    $name : 프록시가 인증을 요구해요(407). 윈도우 로그인 인증이 안 되는 프록시예요. 사내 IT에 문의하세요." }
+        if ($first.Status -eq 407) { Write-Warn "    $name : 프록시가 인증을 요구해요(407). 윈도우 로그인으로는 인증되지 않는 프록시예요. 사내 IT에 문의하세요." }
         return $true
     }
     $site = ([uri]$url).Host
@@ -197,7 +197,7 @@ function Test-Site($name, $url) {
     $hint = Get-NetHint $first.Kind
     if ($hint) { Write-Info "    $hint" }
     Write-Info "    사내 IT에 $site (포트 443) 접속 허용을 요청하세요."
-    Write-Info "    확인: 브라우저에서 https://$site/ 를 열어 보세요. 오류 글자(XML)라도 뜨면 브라우저로는 연결되는 거고, '연결할 수 없음'이 뜨면 브라우저도 막힌 거예요."
+    Write-Info "    확인: 브라우저에서 https://$site/ 를 열어 보세요. XML 오류 문구라도 뜨면 브라우저로는 연결되는 거고, '연결할 수 없음'이 뜨면 브라우저도 막힌 거예요."
     $pac = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction SilentlyContinue).AutoConfigURL
     if ($pac) { Write-Info "    이 PC 브라우저는 자동 프록시 설정(PAC)을 써요: $pac" }
     $bp = Get-BrowserProxy $url
@@ -263,13 +263,13 @@ function Get-Aria2 {
     $zip = Join-Path $dir 'aria2.zip'
     try {
         if (-not ((Test-Path $zip) -and (Get-FileHash $zip -Algorithm SHA256).Hash -eq $Aria2ZipSha.ToUpper())) {
-            Write-Info 'aria2c 를 준비하는 중이에요(처음 한 번, 2.5 MB)'
+            Write-Info '받기 도구 aria2c 를 받는 중이에요(처음 한 번만, 2.5 MB)'
             $wc = New-Object Net.WebClient
             if ($env:HTTPS_PROXY) { $wc.Proxy = New-Object Net.WebProxy($env:HTTPS_PROXY) } else { $wc.Proxy = [Net.WebRequest]::GetSystemWebProxy() }
             if ($wc.Proxy) { $wc.Proxy.Credentials = [Net.CredentialCache]::DefaultNetworkCredentials }
             $wc.DownloadFile($Aria2Url, $zip)
         }
-        if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $Aria2ZipSha.ToUpper()) { Remove-Item -Force $zip; Write-Warn 'aria2c 묶음의 지문이 맞지 않아 지웠어요'; return $null }
+        if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $Aria2ZipSha.ToUpper()) { Remove-Item -Force $zip; Write-Warn '받은 aria2c 압축 파일의 지문이 맞지 않아 지웠어요'; return $null }
         Add-Type -AssemblyName System.IO.Compression.FileSystem
         $z = [IO.Compression.ZipFile]::OpenRead($zip)
         try {
@@ -366,7 +366,7 @@ function Show-NotNeeded($dest, $manifest, [string[]]$keepPrefix) {
     Write-Host " 이 폴더 안에서 GPU 서버가 쓰지 않는 큰 파일이 $($extra.Count)개($(Format-Size $sum)) 있어요. 올릴 때 빼면 시간을 아껴요:" -ForegroundColor Yellow
     $extra | Sort-Object Length -Descending | Select-Object -First 8 | ForEach-Object {
         Write-Host "   $($_.FullName.Substring($base.Length + 1))  ($(Format-Size $_.Length))" }
-    if ($extra.Count -gt 8) { Write-Host "   ... 외 $($extra.Count - 8)개" }
+    if ($extra.Count -gt 8) { Write-Host "   ... 그 밖에 $($extra.Count - 8)개" }
 }
 
 # GPU 서버에서 root 가 확인할 지문(sha256, 소문자).

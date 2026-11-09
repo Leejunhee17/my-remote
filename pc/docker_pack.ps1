@@ -102,7 +102,7 @@ $vers = @([regex]::Matches($listing, 'docker-rootless-extras-(\d+\.\d+\.\d+)\.tg
     Where-Object { $listing -match "docker-$([regex]::Escape($_))\.tgz" } | Sort-Object { [version]$_ } -Unique)
 if (-not $vers.Count) { Stop-Run 'Docker 버전을 찾지 못했어요' '아래 기록 파일을 담당자에게 보내 주세요.' }
 $dv = $vers[-1]
-Write-Ok "Docker $dv (정적 바이너리 + rootless extras)"
+Write-Ok "Docker $dv (설치 없이 바로 쓰는 실행 파일 + rootless 추가 파일)"
 
 $nvIdx = Get-AptIndex "$NvBase/Packages"
 if (-not $nvIdx) { Stop-Run 'NVIDIA 패키지 목록을 받지 못했어요' '인터넷 연결을 확인하고 다시 실행하세요.' }
@@ -153,7 +153,7 @@ foreach ($plug in @(
             foreach ($l in ($sr.Body -split "`r?`n")) { if ($l -match "^([0-9a-f]{64})\s+\*?$([regex]::Escape($fn))\s*$") { $sha = $Matches[1] } }
         }
         $plan += [pscustomobject]@{ Dir = 'plugins'; Url = "https://github.com/$($plug.Repo)/releases/download/$t/$fn"; Sha = $sha; Name = $plug.Name; Fresh = (-not $sha) }
-        if ($sha) { Write-Ok "$($plug.Name) $t" } else { Write-Warn "$($plug.Name) ${t}: 공식 체크섬을 찾지 못해 새로 받아요(받은 뒤 확인은 못 해요)" }
+        if ($sha) { Write-Ok "$($plug.Name) $t" } else { Write-Warn "$($plug.Name) ${t}: 공식 체크섬을 찾지 못해서, 받아 둔 파일이 있어도 새로 받아요(받은 뒤 맞는지 확인은 못 해요)" }
     } else { Write-Warn "최신 버전을 찾지 못해 묶음에서 뺐어요: $($plug.Name) (없어도 docker는 돼요)" }
 }
 $plan += [pscustomobject]@{ Dir = '.'; Url = "$DockerBase/docker-$dv.tgz"; Sha = $null }
