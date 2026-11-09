@@ -66,9 +66,18 @@ step 1 '점검'
 # 목록이 비었거나 모양이 다른 줄이 있으면 sha256sum 은 그 줄을 건너뛰고 "맞음"이 될 수 있어 따로 본다
 [ "$(grep -c . MANIFEST.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
     stop "체크섬 목록(MANIFEST.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 models_download.ps1 을 다시 실행해 목록을 새로 만든 뒤 models 폴더를 다시 올려 들여오세요."
-n=$(grep -c . MANIFEST.sha256 || true)
+# 체크섬 목록에는 접근 PC에서 받은 모든 모델이 들어 있다. 나눠 올릴 수 있게,
+# 이번에 올린 모델 폴더(목록의 맨 앞 폴더, 예: org__model)만 확인하고 옮긴다. 폴더째 안 올린 모델은 건너뛴다
+SUMS=$(mktemp); trap 'rm -f "$SUMS"' EXIT
+skipped=
+for m in $(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' MANIFEST.sha256 | sort -u); do
+    if [ -d "$m" ]; then grep -F "  $m/" MANIFEST.sha256 >> "$SUMS"; else skipped+=" ${m/__//}"; fi
+done
+[ -n "$skipped" ] && echo "  이번에 올리지 않은 모델(건너뛰어요):$skipped"
+[ -s "$SUMS" ] || stop "체크섬 목록에 있는 모델 폴더가 하나도 올라오지 않았어요" "models 폴더 안에 모델 폴더(예: facebook__mask2former-swin-large-cityscapes-semantic)를 넣어 올렸는지 확인하세요(docs/6_모델.md)."
+n=$(grep -c . "$SUMS" || true)
 echo "  파일 ${n}개의 체크섬을 확인하고 있어요(100 GB면 10분 안팎)"
-bad_files=$(sha256sum -c --quiet --strict MANIFEST.sha256 2>/dev/null | sed 's/: .*//'); rc=$?
+bad_files=$(sha256sum -c --quiet --strict "$SUMS" 2>/dev/null | sed 's/: .*//'); rc=$?
 [ "$rc" = 0 ] || [ -n "$bad_files" ] || stop "체크섬을 확인하지 못했어요" "묶음이나 폴더를 /app/upload 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
 if [ -n "$bad_files" ]; then
     echo "$bad_files" | head -20 | sed 's/^/    깨졌거나 없는 파일: /'
@@ -84,7 +93,7 @@ ok "남은 공간 ${free} GB (필요한 공간 약 ${need} GB)"
 # ------------------------------------------------------------------ 2. 옮기기
 step 2 "옮기기 → $D/<만든 곳>/<모델>"
 PY=python3   # 표준 라이브러리만 쓴다
-mapfile -t dirs < <(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' MANIFEST.sha256 | sort -u)
+mapfile -t dirs < <(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' "$SUMS" | sort -u)   # 이번에 올린 모델 폴더만
 for d in "${dirs[@]}"; do
     repo=${d/__//}
     dest="$D/$repo"
@@ -171,10 +180,11 @@ done
 echo
 if [ "$FAILS" -eq 0 ]; then
     echo "${c_g}############################ 완료 ############################${c_0}"
-    echo " 모델 ${#dirs[@]}개가 모두 정상이에요. 위치: $D"
+    echo " 이번에 올린 모델 ${#dirs[@]}개가 모두 정상이에요. 위치: $D"
+    [ -n "$skipped" ] && echo " 이번에 올리지 않은 모델은 다음에 그 폴더만 올려 같은 방법으로 넣으면 돼요:$skipped"
     echo " 불러오기 예: from_pretrained(\"$D/<만든 곳>/<모델>\")  (docs/6_모델.md)"
     echo " 다음 단계: 권한·규칙 설정(docs/1_처음_설치.md 6단계): cd /app/inbox && bash admin_setup.sh"
-    echo " NAS에 설치돼서 서버 2도 바로 써요. /app 의 복사본은 지워도 돼요: rm -rf /app/inbox/models /app/upload/models"
+    echo " NAS에 들어가서 두 서버 모두 바로 써요. /app 의 복사본은 지워도 돼요: rm -rf /app/inbox/models /app/upload/models"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"

@@ -180,7 +180,7 @@ if [ "$FAILS" -eq 0 ]; then
     [ -n "$skipped" ] && echo " 이번에 올리지 않은 것:$skipped (나눠 올렸다면 다음 묶음을 올려 같은 순서로 설치하세요)"
     echo " 엑셀 '데이터셋 목록' 시트의 진행 상황을 '서버 반입'으로 바꾸세요."
     echo " 다음 단계: 사전학습 모델(docs/1_처음_설치.md 5단계)"
-    echo " NAS에 설치돼서 서버 2도 바로 써요. /app 의 복사본은 지워도 돼요: rm -rf /app/inbox/datasets /app/upload/datasets"
+    echo " NAS에 들어가서 두 서버 모두 바로 써요. /app 의 복사본은 지워도 돼요: rm -rf /app/inbox/datasets /app/upload/datasets"
     echo "${c_g}##############################################################${c_0}"
 else
     echo "${c_r}############## 끝났지만 문제 ${FAILS}개 ##############${c_0}"

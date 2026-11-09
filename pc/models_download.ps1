@@ -214,7 +214,7 @@ if ($skipped.Count) {
     Write-Host '   방법: docs\6_모델.md 의 "승인이 필요한 모델(gated) 받기"'
 }
 Write-Host ''
-Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 폴더(통째로):' -ForegroundColor Green
+Write-Host ' 접근 PC에서 할 일은 끝났어요. GPU 서버에 올릴 폴더(모델 폴더 몇 개씩 나눠 올려도 돼요):' -ForegroundColor Green
 Write-Host "   $Dest  ($(Format-Size $total))"
 if ((Split-Path -Leaf $Dest) -ne 'models') { Write-Host '   폴더 이름이 models 가 아니면, 올리기 전에 models 로 바꾸세요(서버 명령이 이 이름만 받아요).' -ForegroundColor Yellow }
 Write-Host ''

@@ -221,6 +221,11 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
     t '모델: 목록에 없는 파일은 옮기지 않아요' test ! -e "$T/nas/models/org/m/extra.py"
     t '모델: 코드 묶음을 풀어요' test -f "$T/nas/models/org/m/code/ok/a.py"
     t '모델: 코드 묶음이 폴더 밖에 쓰지 않아요' test ! -e "$T/inst/escaped" -a ! -e "$T/escaped2" -a ! -e "$T/nas/models/escaped2"
+    # 나눠 올리기: 목록에는 있지만 이번에 폴더째 안 올린 모델은 건너뛰고, 올린 모델만 넣는다
+    rm -rf "$T/nas/models"; mkdir -p "$T/nas/models"
+    echo "0000000000000000000000000000000000000000000000000000000000000000  org__absent/model.safetensors" >> "$M/MANIFEST.sha256"
+    HOME=$H GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$M/models_place.sh" > "$LOG" 2>&1
+    t '모델: 안 올린 모델 폴더는 건너뛰어요' bash -c 'grep -q "이번에 올리지 않은 모델(건너뛰어요): org/absent" "$1" && grep -q "이번에 올린 모델 1개가 모두 정상" "$1" && [ -f "$2/org/m/config.json" ]' _ "$LOG" "$T/nas/models"
 }
 
 # ================================================================== 4. gpu (정기 점검·현황·보고서)
