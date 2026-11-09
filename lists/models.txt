@@ -54,7 +54,7 @@ depth     depth-anything/Metric-Video-Depth-Anything-Large  code=https://github.
 
 # ---------------------------------------------------------------- openvocab: 텍스트로 분할·검출·추적, 의사 라벨 (약 51.8 GB)
 # "mud", "puddle", "tall grass", "rock" 같은 단어로 라벨 없는 주행 영상에 의사 라벨을 만든다.
-# 품질을 위해 검출기·분할기·추적기를 둘 이상씩 두고, 서로 다르게 낸 곳만 사람이 본다(docs/6_모델.md "의사 라벨 만들기")
+# 품질을 위해 검출기·분할기·추적기를 둘 이상씩 두고, 결과가 서로 다른 곳만 사람이 본다(docs/6_모델.md "의사 라벨 만들기")
 openvocab facebook/sam3.1   gated  code=https://github.com/facebookresearch/sam3  # 3.5  SAM 3.1: SAM 3 과 같은 분할 + 여러 물체를 함께 추적(영상 추적 향상). transformers 아님, .pt
 openvocab facebook/sam3                                 gated         # 3.4  SAM 3 (텍스트 프롬프트 분할, transformers 로 바로)
 openvocab facebook/sam2.1-hiera-large                                 # 0.9  SAM 2.1 (영상 추적)
@@ -90,4 +90,4 @@ vlmseg    ByteDance/Sa2VA-Qwen3-VL-4B                                 # 20.2 SAM
 # ---------------------------------------------------------------- vlmxl: 수백 GB 급 VLM. 기본으로 받지 않는다
 # 받으려면 # 을 지우고 -Only vlmxl 로 따로 받는다. 서버의 /app 에는 설치하는 동안 같은 모델이 2벌(upload, inbox) 생기니 docs/6_모델.md "아주 큰 VLM 받기" 순서를 따른다
 #vlmxl    Qwen/Qwen3.5-397B-A17B-FP8                                  # 406  가장 큰 Qwen VLM. 박스·위치 찾기 점수 최고(RefCOCO 92.3). 어려운 장면 판정용. H200 4장
-#vlmxl    Qwen/Qwen3.5-122B-A10B-FP8                                  # 127  중간 크기. H200 2장(한 장이면 KV 캐시 자리가 모자라요)
+#vlmxl    Qwen/Qwen3.5-122B-A10B-FP8                                  # 127  중간 크기. H200 2장(한 장이면 KV 캐시 자리가 모자란다)
