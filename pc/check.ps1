@@ -42,10 +42,10 @@ function Invoke-Probe($url) {
 # 실제 받을 파일의 앞 1 KB 를 .NET(받기 스크립트의 크기 확인과 같은 방법)으로 요청한다
 function Show-File($label, $url) {
     $r = Invoke-Http $url -Range '0-1023' -Max 1024 -TimeoutSec 30
-    # 실제 파일을 다른 주소(CDN 등)에서 내려 주면 그 주소도 보여 준다(사내 IT에 허용을 요청할 주소)
-    #   받기가 막혀도 보이게, 넘겨주는 주소(location)를 따로 물어본다
+    # 실제 파일을 다른 주소(파일 전송 전용 서버인 CDN 등)에서 받게 되면 그 주소도 보여 준다. 그 주소도 사내 IT에 허용을 요청해야 한다
+    #   받기가 막혀 있어도 보이도록, 넘겨주는 주소(location 머리글)를 따로 물어본다
     $loc = [string](Invoke-Http $url -NoRedirect -Max 0 -TimeoutSec 20).Headers['location']
-    if ($loc -match '^https?://([^/:?]+)' -and $Matches[1] -ne ([uri]$url).Host) { Write-Info "    실제 파일은 $($Matches[1]) 에서 내려와요" }
+    if ($loc -match '^https?://([^/:?]+)' -and $Matches[1] -ne ([uri]$url).Host) { Write-Info "    실제 파일은 $($Matches[1]) 에서 받아요(이 주소도 열려 있어야 해요)" }
     if ($r.Ok -and $r.Status -lt 300) { Write-Ok "$($label): 실제 파일 앞부분이 받아져요 (HTTP $($r.Status))"; return }
     if ($r.Ok) {
         $why = switch ($r.Status) { 401 { '인증이 필요해요(401)' } 403 { '거절됐어요(403)' } 404 { '없는 주소예요(404). 사이트에서 파일을 옮겼을 수 있어요' } 407 { '프록시가 인증을 요구해요(407)' } default { "HTTP $($r.Status)" } }
