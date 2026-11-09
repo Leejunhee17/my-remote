@@ -9,8 +9,8 @@
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only goose,RUGD
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Only ORAD-3D       # 큰 것은 따로(약 350 GB)
   powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
-  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Daily          # 매일 새벽 3시에 자동으로 다시 실행(다 받으면 저절로 꺼짐)
-  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -DailyOff       # 매일 자동 실행 끄기
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -Auto           # Google Drive 것을 6시간마다 자동으로 다시 받기(다 받으면 저절로 꺼짐)
+  powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -AutoOff        # 자동 다시 받기 끄기
 .env 에 링크 목록 파일 경로(WILDSCENES_LINKS)를 적어 두면 -WildScenesLinks 를 붙이지 않아도 WildScenes 까지 받는다.
 #>
 param(
@@ -20,11 +20,11 @@ param(
     [switch]$DriveCheck,              # 받지 않고 Google Drive 파일마다 받을 수 있는지, 안 되면 왜인지 진단만 한다
     [int]$MaxTries = 30,              # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 2시간)
     [int]$LateTries = 3,              # 맨 끝에 받는 것(사내망에서 막히는 사이트)은 이만큼만 해 보고 넘어간다(받아지기 시작하면 끝까지 이어받아요)
-    [switch]$Daily,                   # 받지 않고, 같은 명령(-Only 등 포함)을 매일 자동으로 실행하도록 윈도우 작업 스케줄러에 등록한다
-    [string]$DailyAt = '03:00',       # 매일 실행할 시각(24시간제)
-    [int]$DailyDays = 14,             # 이 날수가 지나면 다 못 받았어도 자동 실행을 멈춘다
-    [switch]$DailyOff,                # 매일 자동 실행을 끈다
-    [switch]$FromTask                 # 작업 스케줄러가 붙인다(직접 쓰지 않는다). 다 받으면 매일 자동 실행을 스스로 끈다
+    [switch]$Auto,                    # 받지 않고, 몇 시간마다 자동으로 다시 받도록 윈도우 작업 스케줄러에 등록한다(-Only 가 없으면 Google Drive 것만)
+    [int]$AutoHours = 6,              # 몇 시간마다 다시 받을지
+    [int]$AutoDays = 14,              # 이 날수가 지나면 다 못 받았어도 자동 다시 받기를 멈춘다
+    [switch]$AutoOff,                 # 자동 다시 받기를 끈다
+    [switch]$FromTask                 # 작업 스케줄러가 붙인다(직접 쓰지 않는다). 다 받으면 자동 다시 받기를 스스로 끈다
 )
 $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\gpu). 결과 폴더와 uv.exe 는 여기
@@ -129,48 +129,48 @@ $WsPortal = 'https://data.csiro.au/collection/csiro:61541'   # WildScenes 포털
 New-Item -ItemType Directory -Force $Dest | Out-Null
 $Dest = (Resolve-Path $Dest).Path.TrimEnd('\')
 
-# 매일 자동 실행(윈도우 작업 스케줄러). Google Drive 하루 다운로드 한도에 걸린 파일을 다음 날 다시 받으려고 쓴다
-$TaskName = 'GPU 데이터셋 매일 받기'
-function Remove-DailyTask {
+# 자동 다시 받기(윈도우 작업 스케줄러). Google Drive 하루 다운로드 한도에 걸린 파일을 풀리는 대로 다시 받으려고 쓴다.
+# 한도는 정해진 시각에 풀리지 않고 걸린 때부터 하루쯤 지나야 풀려서(Google 이 시각을 알려 주지 않는다), 하루 한 번이 아니라 몇 시간마다 다시 해 본다
+$TaskName = 'GPU 데이터셋 자동 다시 받기'
+function Remove-AutoTask {
     if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) { return $false }
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
     return $true
 }
-if ($DailyOff) {
-    if (Remove-DailyTask) { Write-Ok "매일 자동 실행을 껐어요($TaskName)" } else { Write-Info '켜 둔 매일 자동 실행이 없어요' }
+if ($AutoOff) {
+    if (Remove-AutoTask) { Write-Ok "자동 다시 받기를 껐어요($TaskName)" } else { Write-Info '켜 둔 자동 다시 받기가 없어요' }
     exit 0
 }
-if ($Daily) {
-    try { $at = [datetime]::ParseExact($DailyAt, 'H:mm', [Globalization.CultureInfo]::InvariantCulture) }
-    catch { Write-Bad "-DailyAt 은 03:00 처럼 24시간제 시각으로 적어요(지금 값: $DailyAt)"; exit 1 }
-    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Dest', "`"$Dest`"", '-FromTask')
-    if ($Only.Count) { $a += @('-Only', ($Only -join ',')) }
-    if ($WildScenesLinks) { $a += @('-WildScenesLinks', "`"$WildScenesLinks`"") }
+if ($Auto) {
+    if ($AutoHours -lt 1) { Write-Bad "-AutoHours 는 1 이상이에요(지금 값: $AutoHours)"; exit 1 }
+    $sets = if ($Only.Count) { $Only } else { @($DriveItems | ForEach-Object { $_.Set } | Select-Object -Unique) }
+    $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Dest', "`"$Dest`"", '-Only', ($sets -join ','), '-AutoHours', $AutoHours, '-FromTask')
+    if ($WildScenesLinks -and ($sets -contains 'wildscenes')) { $a += @('-WildScenesLinks', "`"$WildScenesLinks`"") }
     if ($PSBoundParameters.ContainsKey('MaxTries'))  { $a += @('-MaxTries', $MaxTries) }
     if ($PSBoundParameters.ContainsKey('LateTries')) { $a += @('-LateTries', $LateTries) }
+    $start = (Get-Date).AddHours($AutoHours)
+    $until = (Get-Date).AddDays($AutoDays)
     $action  = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ($a -join ' ') -WorkingDirectory $root
-    $trigger = New-ScheduledTaskTrigger -Daily -At $at
-    $until   = (Get-Date).AddDays($DailyDays)
+    $trigger = New-ScheduledTaskTrigger -Once -At $start -RepetitionInterval (New-TimeSpan -Hours $AutoHours) -RepetitionDuration (New-TimeSpan -Days $AutoDays)
     $trigger.EndBoundary = $until.ToString('s')
-    # 놓친 시각(꺼져 있었음)이면 켜질 때 실행, 절전 중이면 깨워서 실행, 하루를 넘기면 다음 실행과 겹치지 않게 23시간에서 멈춘다
+    # 놓친 시각(꺼져 있었음)이면 켜질 때 실행, 절전 중이면 깨워서 실행. 받는 중이면 다음 차례는 건너뛰고, 오래 받아도 끊지 않는다
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -WakeToRun -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-        -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 23)
+        -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero)
     # 로그인한 사용자 권한으로 실행한다(브라우저와 같은 프록시·윈도우 로그인 인증을 쓰려고). 비밀번호를 묻지 않는 대신 로그인돼 있을 때만 실행된다
     $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
     try {
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force -ErrorAction Stop | Out-Null
     } catch {
         Write-Bad "작업 스케줄러에 등록하지 못했어요: $($_.Exception.Message)"
-        Write-Info '    회사 정책으로 작업 스케줄러가 막혀 있을 수 있어요. 사내 IT에 문의하거나, 매일 같은 명령을 손으로 실행하세요.'
+        Write-Info '    회사 정책으로 작업 스케줄러가 막혀 있을 수 있어요. 사내 IT에 문의하거나, 하루 뒤 같은 명령을 손으로 실행하세요.'
         exit 1
     }
-    Write-Ok "매일 $($at.ToString('HH:mm'))에 자동으로 받아요($TaskName, $($until.ToString('yyyy-MM-dd'))까지)"
-    Write-Info "    실행할 명령: powershell $($a -join ' ')"
+    Write-Ok "$($AutoHours)시간마다 자동으로 다시 받아요. 첫 번째는 $($start.ToString('MM-dd HH:mm')), $($until.ToString('MM-dd'))까지 ($TaskName)"
+    Write-Info "    받을 것: $($sets -join ', ')"
     Write-Info '    PC가 켜져 있고 윈도우에 로그인돼 있어야 해요(화면 잠금은 괜찮아요). 꺼져 있었으면 켜질 때 바로 실행해요.'
-    Write-Info '    다 받으면 자동 실행이 저절로 꺼져요. 진행 상황은 아래 기록 파일 맨 끝에 쌓여요.'
+    Write-Info '    다 받으면 저절로 꺼져요. 진행 상황은 아래 기록 파일 맨 끝에 쌓여요.'
     Write-Info "    $(Join-Path $Dest 'download.log')"
-    Write-Info '    끄려면: powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -DailyOff'
-    Write-Info '    지금 바로 한 번 돌려 보려면: 작업 스케줄러에서 위 이름을 찾아 "실행"을 누르거나, -Daily 를 빼고 같은 명령을 실행하세요.'
+    Write-Info '    끄려면: powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -AutoOff'
     exit 0
 }
 Start-Log (Join-Path $Dest 'download.log')
@@ -381,7 +381,7 @@ function Show-DriveDiag($d, $label) {
         'ok'      { Write-Ok "${label}: 받을 수 있어요" }
         'confirm' { Write-Ok "${label}: 받을 수 있어요(큰 파일 확인 페이지는 스크립트가 넘겨요)" }
         'quota'   { Write-Bad "${label}: Google 다운로드 한도 초과 ($info)"
-                    Write-Info '    최근 이 파일을 받은 사람이 많아서 Google이 하루쯤 막았어요. 내일 다시 실행하세요(-Daily 를 붙여 실행하면 매일 자동으로 다시 받아요).'
+                    Write-Info '    최근 이 파일을 받은 사람이 많아서 Google이 하루쯤 막았어요. 내일 다시 실행하세요(-Auto 를 붙여 실행하면 풀리는 대로 자동으로 다시 받아요).'
                     Write-Info '    급하면 브라우저에서 Google에 로그인해 "내 드라이브에 사본 만들기"를 한 뒤, 그 사본을 받아 datasets\<폴더> 에 넣으세요.' }
         'login'   { Write-Bad "${label}: 로그인이나 접근 권한이 필요해요 ($info)"
                     Write-Info '    공유 설정이 "링크가 있는 모든 사용자"에서 바뀌었어요. 브라우저에서 로그인해 받아 datasets\<폴더> 에 넣으세요.' }
@@ -814,14 +814,14 @@ Write-Host ' 3) 같으면 설치하세요. 서버 1에서만 하면 돼요(NAS�
 Write-Host '   bash /app/inbox/datasets/datasets_install.sh'
 Write-Host ' 자세한 순서: docs\5_데이터셋.md'
 Write-Host '##############################################################'
-# 작업 스케줄러가 실행한 것이면: 못 받은 것(한도·끊김으로 실패, Drive 접속 안 됨)이 없을 때 매일 자동 실행을 끈다
+# 작업 스케줄러가 실행한 것이면: 못 받은 것(한도·끊김으로 실패, Drive 접속 안 됨)이 없을 때 자동 다시 받기를 끈다
 if ($FromTask) {
     $left = @($result.Keys | Where-Object { $result[$_] -eq '실패' -or $result[$_] -like '건너뜀(Drive*' })
     Write-Host ''
     if (-not $left.Count) {
-        if (Remove-DailyTask) { Write-Ok '다 받아서 매일 자동 실행을 껐어요' }
+        if (Remove-AutoTask) { Write-Ok '다 받아서 자동 다시 받기를 껐어요' }
     } else {
-        Write-Host " 아직 못 받은 것이 $($left.Count)개 있어요. 내일 같은 시각에 자동으로 다시 받아요." -ForegroundColor Yellow
+        Write-Host " 아직 못 받은 것이 $($left.Count)개 있어요. $($AutoHours)시간쯤 뒤에 자동으로 다시 받아요." -ForegroundColor Yellow
     }
 }
 Stop-Transcript | Out-Null
