@@ -151,7 +151,7 @@ sec_os() {
              "공용 계정 이름을 앞에 붙여 다시 점검하기: GPU_ACCOUNT=<계정이름> bash $(readlink -f "$0")"
     elif [ -z "$ACC_SET" ]; then
         warn "/etc/gpu/account 가 아직 없어요. 지금 계정($ACC)을 공용 계정으로 보고 점검해요"
-        echo "      root 로 적어 둬요(docs/1_처음_설치.md 의 \"처음 한 번: 공용 계정 이름과 올릴 폴더\")"
+        echo "      root 로 적어 둬요(docs/1_처음_설치.md 의 \"처음 한 번: 공용 계정 이름과 /app/inbox\")"
     elif id "$ACC" >/dev/null 2>&1; then
         ok "공용 계정($ACC)이 있어요"
         [ -n "$IS_ROOT" ] || [ "$(id -un)" = "$ACC" ] || warn "공용 계정이 아닌 $(id -un) 로 실행했어요. 쓸 수 있는 곳은 지금 계정 기준으로 봐요"
@@ -747,7 +747,7 @@ sec_speed() {
         [ -n "$local_dir" ] && { head_ "로컬 SSD ($local_dir)"; disk_both '로컬 SSD' "$local_dir"; }
         [ -n "$peer" ] && { wait_file "$R/$peer.nasdone" "$pf" 900 && rm -f "$R/$peer.nasdone"; }
     fi
-    [ -n "$local_dir" ] || echo "  (로컬 SSD 속도는 쓸 수 있는 폴더가 있을 때만 재요. 공용 계정은 $APP/autonomy_sw 나 $APP/upload 에, root 는 root 소유인 $APP/inbox 나 $APP 에 쓸 수 있어야 해요)"
+    [ -n "$local_dir" ] || echo "  (로컬 SSD 속도는 쓸 수 있는 폴더가 있을 때만 재요. 공용 계정은 $APP/autonomy_sw 에, root 는 root 소유인 $APP/inbox 나 $APP 에 쓸 수 있어야 해요)"
 }
 
 # NAS 에 남긴 주소·완료 표시와 폴더를 지운다. 나중에 끝나는 쪽(B)의 NAS 완료 표시는 A 가 본 뒤 지운다

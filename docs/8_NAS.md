@@ -33,24 +33,24 @@ bash /app/inbox/check.sh       # 1단계 전에는 docs/1_처음_설치.md 의 "
 ## 정한 원칙
 
 1. **우리 팀 폴더(`/data/autonomy_sw`) 아래에만 만들어요.** 다른 팀 폴더와 NAS 최상위는 건드리지 않아요.
-2. **데이터셋·모델은 NAS에 한 번만 두고, 팀원은 읽기만 해요.** 팀 폴더와 `datasets`·`models`·`originals` 는 root 소유예요. 설치는 서버 1의 root 가 한 번 해요.
+2. **데이터셋·모델은 NAS에 한 번만 두고, 팀원은 읽기만 해요.** 팀 폴더와 `datasets`·`models`·`originals` 는 root 소유예요. 넣는 일은 두 서버 중 한 곳의 root 가 한 번 해요.
 3. **root 는 root 만 고칠 수 있는 NAS 폴더에만 써요.** 우리 NAS는 root squash 를 하지 않아서, root 가 팀원이 쓸 수 있는 폴더에 쓰면 누가 심어 둔 링크를 따라 서버의 시스템 파일을 덮어쓸 수 있어요.
    - `/data` 가 root 소유(755)라 그 아래 root 소유 팀 폴더는 공용 계정이 바꿔치기할 수 없어요. `prepare.sh` 와 설치 스크립트는 경로 전체가 root 만 고칠 수 있는지 확인한 뒤에만 써요.
    - `backup`·`docker_images`·`tmp_transfer` 처럼 팀원이 쓰는 폴더는 공용 계정 권한(`runuser -u "$(cat /etc/gpu/account)" --`)으로만 다뤄요.
-4. **NAS에서 실행할 파일을 가져올 때는 지문(파일 내용으로 계산한 sha256 값)을 확인해요.** 설치 묶음(`.tar`)은 `/app/upload` 를 거쳐 `/app/inbox` 로 새로 복사하고 지문을 맞춘 뒤 실행해요.
+4. **NAS에서 실행할 파일을 가져올 때는 지문(파일 내용으로 계산한 sha256 값)을 확인해요.** 설치 묶음(`.tar`)은 NAS 의 `inbox` 에서 `/app/inbox` 로 새로 복사하고(`gpu fetch`) 지문을 맞춘 뒤 실행해요. 데이터셋·모델은 파일마다 root 전용 임시 폴더로 복사해 체크섬을 확인한 뒤에 넣어요.
 5. **두 서버의 공용 계정 번호(uid·gid)가 같아야 해요.** NFSv3는 이름이 아니라 번호로 주인을 구분해요. 다르면 한 서버에서 만든 파일을 다른 서버에서 못 고치고, 팀 폴더(그룹으로만 읽기)도 못 읽어요.
 
 ## 폴더 구조
 
 ```text
 /data/autonomy_sw/                  root 소유, 그룹 공용 계정, 750 (다른 팀은 못 봐요)
-├── datasets/                     데이터셋(설치 스크립트가 풀어요). root 소유 755, 팀원은 읽기만
-├── models/                       사전학습 모델. root 소유 755, 팀원은 읽기만
+├── datasets/                     데이터셋(4단계 스크립트가 풀어요. 원래 있던 다른 폴더도 그대로 둬요). root 소유 755, 팀원은 읽기만
+├── models/                       사전학습 모델(5단계 스크립트가 넣어요). root 소유 755, 팀원은 읽기만
 ├── originals/
-│   └── server_setup/<날짜>/       gpu-setup.tar, gpu-pkgs.tar, gpu-docker.tar(서버 2가 가져가요). root 소유
+│   └── server_setup/<날짜>/       설치 묶음 보관본(최근 3판). root 소유
 ├── docker_images/<이름>/          팀원이 만든 도커 이미지 .tar. 공용 계정 소유
 ├── backup/<이름>/                 실험 결과·체크포인트. 공용 계정 소유
-├── inbox/                        관리자가 두 서버에서 같이 쓸 파일(0단계 check.sh 등)을 한 번 올리는 곳. 공용 계정이 써요
+├── inbox/                        관리자가 올리는 곳(0단계 check.sh, 설치 묶음 .tar, datasets/, models/). 다른 파일이 있어도 괜찮아요. 공용 계정이 써요
 └── tmp_transfer/                 서버 사이 임시 전달. 14일 지나면 지워요. 공용 계정 소유
 ```
 
@@ -124,33 +124,28 @@ ls -ld $T $T/*
 
 `docs/1_처음_설치.md` 의 4·5단계 그대로예요. 스크립트가 `/data/autonomy_sw/datasets`, `models` 에 넣어요. 두 서버 중 한 곳에서 한 번만 하면 다른 서버에서도 바로 보여요. 아래는 서버 1에서 한 경우로 적었어요.
 
-설치가 끝나면 서버 2가 쓸 설치 묶음을 NAS에 남겨 둬요.
+설치 묶음은 NAS inbox 에 올린 그대로 두 서버가 함께 써요. 두 서버에서 모두 설치한 뒤 보관하고 싶으면 root 가 `originals` 로 옮겨 둬요.
 
 ```bash
-# [서버 1] root. originals 는 root 소유라 root 가 바로 복사해요(원칙 3)
-P=/data/autonomy_sw/originals/server_setup/$(date +%F)       # 묶음은 만든 날짜 폴더마다 따로 둬요
+# [서버 1 또는 2] root. 두 서버에서 모두 설치한 뒤. originals 는 root 소유라 root 가 바로 복사해요(원칙 3)
+P=/data/autonomy_sw/originals/server_setup/$(date +%F)       # 묶음은 날짜 폴더마다 따로 둬요
 mkdir -p $P && cp /app/inbox/gpu-setup.tar /app/inbox/gpu-pkgs.tar /app/inbox/gpu-docker.tar $P/
 ls /data/autonomy_sw/originals/server_setup                 # 날짜 폴더가 4개 이상이면 가장 오래된 것을 지워요(최근 3판만)
 ```
 
-### 서버 2: 설치 묶음만 가져와 설치
+### 다른 서버: 설치 묶음만 가져와 설치
 
-데이터셋·모델은 서버 1에서 NAS에 넣은 것을 그대로 읽어서 할 일이 없어요. 설치 묶음 세 개만 NAS에서 가져와요. 지문은 접근 PC의 `D:\gpu\지문_기록.txt` 와 맞춰요.
-
-```bash
-# [서버 2] root. 0단계(/etc/gpu/account, /app/inbox·upload 만들기)는 먼저 해 둬요
-ls /data/autonomy_sw/originals/server_setup                 # 가장 최근 날짜를 아래 <날짜> 에 적어요
-P=/data/autonomy_sw/originals/server_setup/<날짜>
-cp $P/gpu-setup.tar $P/gpu-pkgs.tar $P/gpu-docker.tar /app/inbox/ && sha256sum /app/inbox/gpu-*.tar   # root 만 고치는 곳끼리 복사. 지문 확인
-```
-
-`originals` 와 `/app/inbox` 는 둘 다 root 만 고칠 수 있어서 `/app/upload` 를 거치지 않아요. 지문이 `지문_기록.txt` 와 같을 때만 다음 줄을 실행해요.
+데이터셋·모델은 이미 NAS에 넣은 것을 그대로 읽어서 할 일이 없어요. 설치 묶음 세 개만 NAS inbox 에서 가져와요. 지문은 접근 PC의 `D:\gpu\지문_기록.txt` 와 맞춰요.
 
 ```bash
-cd /app/inbox && tar xf gpu-setup.tar && bash prepare.sh          # 1단계 준비
-cd /app/inbox && tar xf gpu-pkgs.tar && bash pkgs_install.sh       # 2단계 기초 프로그램
-cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh   # 3단계 도커
-cd /app/inbox && bash admin_setup.sh                               # 6단계 권한·규칙 설정
+# [서버 2] root. 1단계의 "처음 한 번"(/etc/gpu/account, /app/inbox 만들기)은 먼저 해 둬요
+cp /data/autonomy_sw/inbox/gpu-setup.tar /app/inbox/ && sha256sum /app/inbox/gpu-setup.tar   # 지문 확인
+cd /app/inbox && tar xf gpu-setup.tar && bash prepare.sh            # 1단계 준비(같을 때만)
+/app/admin/bin/gpu fetch gpu-pkgs.tar                               # 지문 확인
+cd /app/inbox && tar xf gpu-pkgs.tar && bash pkgs_install.sh        # 2단계 기초 프로그램(같을 때만)
+/app/admin/bin/gpu fetch gpu-docker.tar                             # 지문 확인
+cd /app/inbox && tar xf gpu-docker.tar && bash docker_install.sh    # 3단계 도커(같을 때만)
+cd /app/inbox && bash admin_setup.sh                                # 6단계 권한·규칙 설정
 ```
 
 ### 팀원

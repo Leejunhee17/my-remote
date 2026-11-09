@@ -53,9 +53,9 @@ Write-Host "   $tar  ($(Format-Size (Get-Item $tar).Length))"
 Write-Host ''
 Save-Fingerprint 'gpu-setup.tar' (Get-Fingerprint @($tar))
 Write-Host ''
-Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
+Write-Host ' 1) 공용 계정의 FileZilla로 NAS 의 /data/autonomy_sw/inbox 에 올리세요(다른 파일이 있어도 괜찮아요).' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
-Write-Host '   처음:  cp /app/upload/gpu-setup.tar /app/inbox/ && sha256sum /app/inbox/gpu-setup.tar'
+Write-Host '   처음:  cp /data/autonomy_sw/inbox/gpu-setup.tar /app/inbox/ && sha256sum /app/inbox/gpu-setup.tar'
 Write-Host '   그 뒤: /app/admin/bin/gpu fetch gpu-setup.tar'
 Write-Host ' 3) 같으면 풀어서 준비를 실행하세요. 처음 설치할 때는 맨 먼저 해요(/app 잠금).' -ForegroundColor Green
 Write-Host '   cd /app/inbox && tar xf gpu-setup.tar && bash prepare.sh'

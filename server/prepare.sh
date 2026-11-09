@@ -2,7 +2,7 @@
 # [GPU 서버 · 관리자(root) 전용] 1단계 준비. 설치 스크립트(기초 프로그램·도커·데이터셋·모델)를 안전하게 돌릴 자리를 만든다. 여러 번 실행해도 된다.
 #   cd /app/inbox && tar xf gpu-setup.tar && bash prepare.sh
 # 하는 일
-#   - /app 을 root 소유로 잠그고, /app/admin(도우미·설정), /app/inbox(root 가 설치 파일을 두는 곳), /app/upload(공용 계정이 올리는 곳),
+#   - /app 을 root 소유로 잠그고, /app/admin(도우미·설정), /app/inbox(root 가 지문을 확인한 설치 파일을 두는 곳),
 #     팀원 작업 공간(/app/autonomy_sw)과 기록 폴더(/app/state)를 만든다
 #   - 알림 기준과 NAS 위치를 적은 /app/admin/gpu.conf 를 만든다
 #   - NAS 팀 폴더(/data/autonomy_sw)와 그 안의 datasets·models 등을 만든다(데이터셋·모델을 여기에 푼다)
@@ -56,7 +56,7 @@ if [ -n "$others" ] && [ "$(stat -c '%U %a' /app)" != "root 755" ]; then
     else stop '/app 을 다른 계정도 써요' 'PuTTY 화면에서 직접 실행해 확인 질문에 답하세요: bash prepare.sh'; fi
 fi
 chown root:root /app && chmod 755 /app
-for d in "$S" /app/shared "$W" "$ST" /app/inbox /app/upload /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty}; do
+for d in "$S" /app/shared "$W" "$ST" /app/inbox /app/docker "$ST"/{history,gpu_log,reports,images,notice,notice_seen,tty}; do
     [ -L "$d" ] && stop "링크가 있어요(누가 만들었는지 몰라요): $d" "ls -l $d 로 어디를 가리키는지 보고, 직접 만든 게 아니면 rm $d 로 링크만 지운 뒤 다시 실행하세요."
 done
 # 예전 설치의 /app/shared(기초 프로그램·데이터셋·모델·설정을 한곳에 두던 방식)를 치운다. 명단·배분·알림 설정만 /app/admin 으로 옮긴다.
@@ -100,8 +100,7 @@ setsid -w runuser -u "$ACC" -- touch "$ST/images/loaded.tsv"   # docker 래퍼(�
 chown root:root /app/inbox && chmod 755 /app/inbox
 [ -d /app/inbox/images ] && rmdir /app/inbox/images/* /app/inbox/images 2>/dev/null
 # root 는 FileZilla 를 못 쓰므로 설치 파일은 공용 계정이 여기에 올린다. root 는 /app/inbox 로 새로 복사하고 지문을 확인한 뒤 실행한다
-mkdir -p /app/upload && chown "$ACC:$ACC" /app/upload && chmod 755 /app/upload
-ok "$W: 팀원 작업 공간,  $ST: 기록·알림,  /app/upload: 설치 파일 올리는 곳(공용 계정),  /app/inbox: root가 지문을 확인한 설치 파일"
+ok "$W: 팀원 작업 공간,  $ST: 기록·알림,  /app/inbox: root가 지문을 확인한 설치 파일(올리는 곳은 NAS 의 inbox 예요)"
 # 홈에서도 보이게 링크(홈은 10 GB 라 실제 파일은 /app 에)
 for n in workspace shared; do   # 예전 방식의 링크
     [ -L "$HOME_A/$n" ] && case "$(readlink "$HOME_A/$n")" in /app/workspace|/app/shared) setsid -w runuser -u "$ACC" -- rm -f "$HOME_A/$n" ;; esac

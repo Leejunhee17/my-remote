@@ -48,8 +48,8 @@ chmod -R go-w debs MANIFEST_pkgs.sha256 pkgs_info.txt   # 윈도우에서 묶은
 [ "$(grep -c . MANIFEST_pkgs.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST_pkgs.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
     stop "체크섬 목록(MANIFEST_pkgs.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 pkgs_pack.ps1 을 다시 실행해 새 묶음을 올리세요."
 bad=$(sha256sum -c --quiet --strict MANIFEST_pkgs.sha256 2>/dev/null | sed 's/: .*//'); rc=$?
-[ "$rc" = 0 ] || [ -n "$bad" ] || stop '체크섬을 확인하지 못했어요' "묶음을 /app/upload 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
-[ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨진 파일: /'; stop '올리는 중에 파일이 깨졌어요' '접근 PC의 pack_pkgs\gpu-pkgs.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요.'; }
+[ "$rc" = 0 ] || [ -n "$bad" ] || stop '체크섬을 확인하지 못했어요' "묶음을 NAS 의 /data/autonomy_sw/inbox 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
+[ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨진 파일: /'; stop '올리는 중에 파일이 깨졌어요' '접근 PC의 pack_pkgs\gpu-pkgs.tar 를 NAS 의 /data/autonomy_sw/inbox 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요.'; }
 # 목록에 없는 .deb 가 섞여 있으면 apt 저장소 목록(Packages)에는 없어서 쓰이지 않지만, 누가 넣은 것이라 멈춘다
 extra=$(comm -13 <(sed -n 's/^[0-9a-f]\{64\}  //p' MANIFEST_pkgs.sha256 | sort) <(find debs -type f | sort))
 [ -z "$extra" ] || { echo "$extra" | head -5 | sed 's/^/    목록에 없는 파일: /'; stop '체크섬 목록에 없는 파일이 debs 폴더에 있어요' "cd /app/inbox && rm -rf debs && tar xf gpu-pkgs.tar 로 새로 푼 뒤 다시 실행하세요."; }

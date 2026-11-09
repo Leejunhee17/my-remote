@@ -808,10 +808,10 @@ Save-Fingerprint 'datasets 폴더' (Get-Fingerprint @((Join-Path $Dest 'MANIFEST
 Write-Host '   (MANIFEST.sha256과 datasets_unpack.sh를 이어 붙인 지문이에요. 나머지 파일은 설치 스크립트가 MANIFEST.sha256으로 하나하나 확인해요)'
 Show-NotNeeded $Dest (Join-Path $Dest 'MANIFEST.sha256') @('wildscenes/')
 Write-Host ''
-Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 폴더째 올리세요.' -ForegroundColor Green
-Write-Host ' 2) root(PuTTY)로 /app/inbox 에 새로 복사하세요. 폴더에 링크 파일(바로 가기)이 섞여 있으면 멈추고, 없으면 지문을 보여 줘요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
+Write-Host ' 1) 공용 계정의 FileZilla로 NAS 의 /data/autonomy_sw/inbox 에 datasets 폴더째 올리세요. 몇 개씩 나눠 올려도 돼요.' -ForegroundColor Green
+Write-Host ' 2) root(PuTTY)로 목록과 스크립트만 /app/inbox 에 복사하고 지문을 봐요. 위 지문과 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/admin/bin/gpu fetch datasets'
-Write-Host ' 3) 같으면 실행하세요. 두 서버 중 한 곳에서 한 번만 하면 돼요(NAS에 들어가서 다른 서버에서도 보여요). 다 끝나면 /app/upload/datasets 는 지워 공간을 비우세요.' -ForegroundColor Green
+Write-Host ' 3) 같으면 실행하세요. 두 서버 중 한 곳에서 한 번만 하면 돼요(NAS에 들어가서 다른 서버에서도 보여요). 데이터 파일은 하나씩 복사해 체크섬을 확인한 뒤 넣어요. 다 끝나면 NAS inbox 의 datasets 는 지워 공간을 비우세요.' -ForegroundColor Green
 Write-Host '   bash /app/inbox/datasets/datasets_unpack.sh'
 Write-Host ' 자세한 순서: docs\5_데이터셋.md'
 Write-Host '##############################################################'

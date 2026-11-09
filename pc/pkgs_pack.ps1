@@ -201,7 +201,7 @@ Write-Host "   $tar"
 Write-Host ''
 Save-Fingerprint 'gpu-pkgs.tar' (Get-Fingerprint @($tar))
 Write-Host ''
-Write-Host ' 1) 공용 계정의 FileZilla로 GPU 서버의 /app/upload 에 올리세요.' -ForegroundColor Green
+Write-Host ' 1) 공용 계정의 FileZilla로 NAS 의 /data/autonomy_sw/inbox 에 올리세요(다른 파일이 있어도 괜찮아요).' -ForegroundColor Green
 Write-Host ' 2) root(PuTTY)로 /app/inbox 에 복사하고, 나온 지문이 위 지문과 같은지 보세요. 다르면 실행하지 마세요.' -ForegroundColor Green
 Write-Host '   /app/admin/bin/gpu fetch gpu-pkgs.tar'
 Write-Host ' 3) 같으면 풀어서 실행하세요. 1단계 준비(prepare.sh)를 먼저 해 둬야 해요.' -ForegroundColor Green

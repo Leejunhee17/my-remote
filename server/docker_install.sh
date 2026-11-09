@@ -38,8 +38,8 @@ for f in MANIFEST_docker.sha256 docker_info.txt; do [ -f "$f" ] || stop "묶음 
 [ "$(grep -c . MANIFEST_docker.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST_docker.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' ||
     stop "체크섬 목록(MANIFEST_docker.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 docker_pack.ps1 을 다시 실행해 새 묶음을 올리세요."
 bad=$(grep -v '  docker_install\.sh$' MANIFEST_docker.sha256 | sha256sum -c --quiet --strict - 2>/dev/null | sed 's/: .*//'); rc=$?
-[ "$rc" = 0 ] || [ -n "$bad" ] || stop '체크섬을 확인하지 못했어요' "묶음이나 폴더를 /app/upload 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
-[ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨진 파일: /'; stop '올리는 중에 파일이 깨졌어요' '접근 PC의 pack_docker\gpu-docker.tar 를 /app/upload 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요.'; }
+[ "$rc" = 0 ] || [ -n "$bad" ] || stop '체크섬을 확인하지 못했어요' "묶음을 NAS 의 /data/autonomy_sw/inbox 에 다시 올려 새로 들여온 뒤 다시 실행하세요. 기록 파일: $LOG"
+[ -z "$bad" ] || { echo "$bad" | sed 's/^/    깨진 파일: /'; stop '올리는 중에 파일이 깨졌어요' '접근 PC의 pack_docker\gpu-docker.tar 를 NAS 의 /data/autonomy_sw/inbox 에 다시 올리고, /app/inbox 로 새로 복사해 지문을 확인한 뒤 다시 푸세요.'; }
 ok "파일 체크섬이 맞아요 (Docker $(info docker), NVIDIA Container Toolkit $(info nvidia_toolkit))"
 CODE=$(. /etc/os-release && echo "${VERSION_CODENAME:-}")
 ok "운영체제 $(. /etc/os-release && echo "$PRETTY_NAME"), 커널 $(uname -r)"
@@ -223,5 +223,5 @@ echo " 공용 계정($ACC) 전용 rootless Docker $(info docker)를 설치했어
 echo " 팀원은 다시 접속하면 docker 명령을 바로 써요. 컨테이너에는 --gpus 로 정한 GPU만 보여요."
 echo " 관리: systemctl status gpu-docker (다시 켜기: systemctl restart gpu-docker),  기록: journalctl -u gpu-docker"
 echo " 다음 단계: 데이터셋·모델(docs/1_처음_설치.md 4·5단계, 두 서버 중 한 곳에서 한 번만). 그 서버가 아니면 6단계 권한·규칙 설정(bash /app/inbox/admin_setup.sh)"
-echo " 공간 정리: rm -f /app/upload/gpu-docker.tar (서버 1은 $HERE/gpu-docker.tar 를 NAS originals 에 남긴 뒤 지워요. docs/8_NAS.md 의 \"쓰는 법\")"
+echo " 공간 정리: NAS 의 /data/autonomy_sw/inbox 에 올린 gpu-docker.tar 는 두 서버에서 모두 설치한 뒤 지워요(다른 서버도 거기서 가져가요)"
 echo "${c_g}##############################################################${c_0}"
