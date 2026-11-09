@@ -58,7 +58,7 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 
 ## 설치 순서 한눈에
 
-자세한 명령과 확인 방법은 `docs/1_처음_설치.md` 에 있어요. 준비 → 설치 → 권한·규칙 설정 순서예요. 서버 2대 모두 같은 순서로 하되, 4·5단계(데이터셋·모델)는 서버 1에서만 해요. NAS에 들어가서 서버 2도 같이 써요.
+자세한 명령과 확인 방법은 `docs/1_처음_설치.md` 에 있어요. 준비 → 설치 → 권한·규칙 설정 순서예요. 서버 2대 모두 같은 순서로 하되, 4·5단계(데이터셋·모델)는 두 서버 중 한 곳에서 한 번만 해요. 두 서버가 같이 보는 NAS에 들어가서 다른 서버에서도 바로 보여요.
 
 | 단계 | 접근 PC | GPU 서버 (root) |
 |---|---|---|
@@ -66,8 +66,8 @@ powershell -ExecutionPolicy Bypass -File .\pc\run_all.ps1              # 서버 
 | 1. 준비 | `pc\setup_pack.ps1` | `prepare.sh` (`/app` 잠금, `gpu fetch`, NAS 팀 폴더. 설치보다 먼저) |
 | 2. 서버 기초 프로그램 | `pc\pkgs_pack.ps1` | `pkgs_install.sh` (tmux, nvtop, rsync 등. 없는 것만) |
 | 3. 도커 | `pc\docker_pack.ps1` | `docker_install.sh` |
-| 4. 데이터셋 풀기 | `pc\datasets_download.ps1` | `datasets_unpack.sh` (서버 1에서만) |
-| 5. 사전학습 모델 넣기 | `pc\models_download.ps1` | `models_place.sh` (서버 1에서만) |
+| 4. 데이터셋 풀기 | `pc\datasets_download.ps1` | `datasets_unpack.sh` (한 서버에서 한 번만) |
+| 5. 사전학습 모델 넣기 | `pc\models_download.ps1` | `models_place.sh` (한 서버에서 한 번만) |
 | 6. 권한·규칙 설정 | (1단계 묶음에 들어 있어요) | `admin_setup.sh` (이름 고르기, 도우미, 알림, 정기 점검. 하나가 안 돼도 멈추지 않아요) |
 | 7. 팀원에게 알리고 확인 | | 공용 계정으로 접속 |
 
