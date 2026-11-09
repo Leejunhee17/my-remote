@@ -220,7 +220,7 @@ sec_storage() {
     if [ "$owner" = root ]; then ok "$APP 주인이 root예요(팀원은 $APP/autonomy_sw 에 써요)"
     else warn "$APP 주인: $owner. 1단계에서 root로 admin_setup.sh 를 실행하면 root 소유로 잠가요"; fi
     if [ -d "$APP/autonomy_sw" ] && id "$ACC" >/dev/null 2>&1 && ! acc_writes "$APP/autonomy_sw"; then
-        mine "$APP/autonomy_sw 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
+        mine "공용 계정이 $APP/autonomy_sw 에 쓸 수 없어요" "root로 다시 실행하기: bash /app/inbox/admin_setup.sh (공용 계정 소유로 맞춰요)"
     fi
     [ -e "$APP/shared" ] && warn "$APP/shared 가 남아 있어요(예전 설치). admin_setup.sh 가 명단·설정만 $APP/admin 으로 옮기고 나머지는 치워요. 예전 데이터셋·모델을 NAS로 옮기는 명령도 알려 줘요"
 }
@@ -296,7 +296,7 @@ sec_dirs() {
     # 예전 설치 흔적(새로 설치한 OS 에는 없어야 한다)
     local left=; for p in /etc/gpu /etc/profile.d/gpu.sh /etc/profile.d/gpu-docker.sh /etc/cron.d/gpu /opt/gpu /etc/systemd/system/gpu-docker.service /var/log/gpu; do
         [ -e "$p" ] || [ -L "$p" ] && left+="$p "; done
-    [ -z "$left" ] || echo "  이 저장소의 설치 스크립트가 만드는 것이 이미 있어요(예전 설치이거나 이미 설치함): $left"
+    [ -z "$left" ] || echo "  이 저장소의 설치 스크립트가 만드는 것이 이미 있어요(예전에 설치한 흔적이에요): $left"
 
     # 공용 계정 권한: 관리자 그룹·sudo 가 있으면 누구나 root 가 될 수 있다(admin_setup.sh 와 같은 기준)
     if id "$ACC" >/dev/null 2>&1; then
@@ -398,7 +398,7 @@ sec_nas() {
     local n=0 d st uid gid mode
     read -r uid gid mode <<< "$(stat -c '%u %g %a' "$NAS")"
     echo "  $(pad "$NAS (NAS 최상위)" 26) 주인 $(pad "$(who_uid "$uid")" 24) 그룹 $(pad "$(grp_name "$gid")" 10) $(pad "$mode" 5) $(who_writes "$mode")"
-    root_only "$NAS" || bad "NAS 최상위($NAS)를 root 말고도 고칠 수 있어요. 누구든 그 아래 폴더(팀 폴더, $NAS/tmp)를 옮기고 링크로 바꿔치기할 수 있어서, root 가 NAS 에 쓰지 않아요(점검의 NAS 속도, 1단계 팀 폴더, 3·4단계 데이터셋·모델 설치)" \
+    root_only "$NAS" || bad "NAS 최상위($NAS)를 root 말고도 고칠 수 있어요. 누구든 그 아래 폴더(팀 폴더, $NAS/tmp)를 옮기고 링크로 바꿔치기할 수 있어요. 그래서 root 로는 NAS 에 쓰지 않아요(이 점검의 NAS 속도 측정, 1단계 팀 폴더 만들기, 3·4단계 데이터셋·모델 설치)" \
         "NAS 최상위($NAS)를 root 소유 755 로 해 주세요(지금 root 말고도 고칠 수 있어요). 다른 팀은 그 아래 각자 폴더를 쓰면 돼요"
     while IFS= read -r -d '' d; do
         n=$((n + 1)); [ "$n" -le 60 ] || continue
@@ -438,7 +438,7 @@ sec_nas() {
         df -hP "$TEAM" | awk 'NR==2 {printf "  여기서 본 용량: 전체 %s, 쓴 것 %s, 남은 것 %s (할당량이 있으면 할당량이에요)\n", $2, $3, $4}'
         if [ -r "$TEAM" ] && [ -x "$TEAM" ]; then
             for n in datasets models; do [ -n "$(ls -A "$TEAM/$n" 2>/dev/null)" ] && ok "$TEAM/$n 에 설치돼 있어요(두 서버가 같이 써요. 다시 올리지 않아도 돼요)"; done
-            [ -n "$(ls -A "$TEAM/datasets" 2>/dev/null)$(ls -A "$TEAM/models" 2>/dev/null)" ] || echo "  데이터셋·모델은 아직 없어요(3·4단계)"
+            [ -n "$(ls -A "$TEAM/datasets" 2>/dev/null)$(ls -A "$TEAM/models" 2>/dev/null)" ] || echo "  데이터셋·모델은 아직 없어요(3·4단계에서 설치해요)"
             echo "  바로 아래:"; find "$TEAM" -mindepth 1 -maxdepth 1 -printf '    %f  (주인 uid %U, 권한 %m)\n' 2>/dev/null | sort | head -30
         else
             bad "$(id -un) 가 팀 폴더를 읽을 수 없어요. 그룹이 공용 계정인지, 두 서버의 공용 계정 번호가 같은지 확인하세요"
@@ -487,7 +487,7 @@ def recv(c):
 try:
     c, a = s.accept()
 except socket.timeout:
-    print("  연결이 오지 않았어요(방화벽이나 네트워크 연결을 확인하세요)."); sys.exit(1)
+    print("  연결이 들어오지 않았어요(방화벽이나 네트워크 연결을 확인하세요)."); sys.exit(1)
 t0 = time.time(); th = [threading.Thread(target=recv, args=(c,))]; th[0].start()
 s.settimeout(3)
 for _ in range(streams - 1):
@@ -640,7 +640,7 @@ pair_rdma() {   # 같은 이름의 InfiniBand 카드끼리 RDMA 쓰기 속도(pe
     done
 }
 
-disk_both() {   # 한 줄기와 8줄기
+disk_both() {   # 파일 1개로 한 번, 8개를 동시에 한 번
     local name=$1 dir=$2 r1 r8
     r1=$( (JOBS=1 cmd_disk "$dir") 2>&1); echo "$r1"
     r8=$( (JOBS=8 cmd_disk "$dir") 2>&1); echo "$r8"
@@ -705,7 +705,7 @@ sec_speed() {
     else
         head_ '상대 서버 찾기'
         warn "NAS에 지금 계정이 쓸 수 있는 폴더가 없어서 상대 서버 찾기와 NAS 속도는 건너뛰어요."
-        if [ -n "$IS_ROOT" ]; then echo "      root 는 위 폴더까지 root 만 고칠 수 있는(root 소유이고 남이 못 쓰거나 스티키) 폴더에만 써요. $(main_nas) 를 남도 고칠 수 있으면 위 'NAS 바로 아래' 의 [문제] 부터 고쳐요"
+        if [ -n "$IS_ROOT" ]; then echo "      root 는 그 폴더와 위 폴더가 모두 root 만 고칠 수 있을 때(root 소유이고 남이 못 쓰거나 스티키)만 써요. $(main_nas) 를 남도 고칠 수 있으면 위 'NAS 바로 아래' 의 [문제] 부터 고쳐요"
         else echo "      root 로 실행하거나, 1단계 admin_setup.sh 가 $TEAM/tmp_transfer 를 만든 뒤 다시 실행하거나, 쓸 수 있는 NAS 폴더를 적어 주세요: bash check.sh <폴더>"; fi
     fi
 
@@ -781,7 +781,7 @@ sec_ibnet() {
 body() {
     echo "${c_c}[GPU 서버] 점검  ($(date '+%Y-%m-%d %H:%M'), $(hostname), $(id -un))${c_0}"
     sec_os; sec_gpu; sec_storage; sec_dirs; sec_programs; sec_nic; sec_nas
-    if [ -n "${QUICK:-}" ]; then head_ '속도'; echo "  QUICK 이라서 속도 측정은 건너뛰었어요."
+    if [ -n "${QUICK:-}" ]; then head_ '속도'; echo "  QUICK=1 로 실행해서 속도 측정은 건너뛰었어요."
     else sec_speed "$@"; fi
     sec_ibnet
     if [ ${#SUM[@]} -gt 0 ]; then head_ '속도 요약'; printf '  %s\n' "${SUM[@]}"; fi
@@ -891,6 +891,6 @@ case "${1:-}" in
     send)   shift; cmd_send "$@" ;;
     disk)   shift; cmd_disk "$@" ;;
     -h|--help|help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0" ;;
-    *)      [ -z "${1:-}" ] || [ -d "$1" ] || { echo "모르는 명령이에요: $1 (bash check.sh --help)"; exit 1; }
+    *)      [ -z "${1:-}" ] || [ -d "$1" ] || { echo "모르는 명령이에요: $1 (쓰는 법: bash check.sh --help)"; exit 1; }
             cmd_full "$@" ;;
 esac

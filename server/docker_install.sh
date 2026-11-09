@@ -25,7 +25,7 @@ stop() {
 }
 info() { sed -n "s/^$1=//p" docker_info.txt; }
 
-echo "[GPU 서버] rootless Docker 설치  ($(date '+%Y-%m-%d %H:%M'), 공용 계정 $ACC)"
+echo "[GPU 서버] rootless Docker(root 권한 없이 도는 도커) 설치  ($(date '+%Y-%m-%d %H:%M'), 공용 계정 $ACC)"
 
 # ------------------------------------------------------------------ 1. 점검
 step 1 '점검'

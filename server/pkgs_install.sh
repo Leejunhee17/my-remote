@@ -92,7 +92,7 @@ else
     rm_=$(echo "$sim" | sed -n 's/^Remv \([^ ]*\).*/\1/p' | tr '\n' ' ')
     [ -z "$rm_" ] || stop "설치하려면 지워야 하는 패키지가 있어요: $rm_" '지워도 되는지 서버 관리 팀에 확인하세요. 괜찮으면 그 패키지를 빼고 설치하도록 담당자에게 알려 주세요.'
     n_new=$(echo "$sim" | grep -c '^Inst [^ ]* \['); n_all=$(echo "$sim" | grep -c '^Inst ')
-    ok "새로 설치 $((n_all - n_new))개, 더 새 버전으로 올림 ${n_new}개(의존 패키지 포함)"
+    ok "새로 설치할 것 $((n_all - n_new))개, 새 버전으로 올릴 것 ${n_new}개(의존 패키지 포함)"
     apt-get "${A[@]}" -y install --no-install-recommends "${need[@]}" || stop '설치하지 못했어요' '바로 위 apt·dpkg 오류를 확인하세요. 중간에 끊겼으면 dpkg --configure -a 를 실행한 뒤 다시 실행하세요.'
 fi
 

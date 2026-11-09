@@ -221,7 +221,7 @@ cmd__gpu_warn() {
     [ -z "$oth" ] || { w "GPU ${oth%,}번은 ${c_b}다른 팀${c_0} GPU예요. 우리 팀은 쓰지 않아요."; rc=2; }
     if [ -n "$ME" ] && [ "$spec" != all ]; then
         mine=$( { my_gpus "$ME"; expand_gpus "$spec"; } | sort -un | grep -c .)
-        [ "$mine" -gt "$MAX_GPUS" ] && w "이 컨테이너까지 띄우면 내가 쓰는 GPU가 ${mine}장이 돼요. 한 사람 ${MAX_GPUS}장까지로 정했어요."
+        [ "$mine" -gt "$MAX_GPUS" ] && w "이 컨테이너까지 띄우면 내가 쓰는 GPU가 ${mine}장이 돼요. 한 사람이 ${MAX_GPUS}장까지 쓰기로 정했어요."
     fi
     if [ "$rc" = 2 ]; then
         free=$(for g in $(seq 0 $(( $(gpu_count) - 1 ))); do
@@ -342,7 +342,7 @@ cmd__check() {
     # 5. 디스크 → 많이 쓰는 3명과 관리자에게 주 한 번
     use=$(df -P "$APP" 2>/dev/null | awk 'NR==2 {gsub("%","",$5); print $5}')
     if [ "${use:-0}" -ge "$DISK_ALERT" ]; then
-        notify 관리자 "디스크-$week" "/app 디스크가 ${use}% 찼어요. 큰 작업 폴더 3곳에도 알렸어요(주간 보고서에 폴더별 크기)."
+        notify 관리자 "디스크-$week" "/app 디스크가 ${use}% 찼어요. 큰 작업 폴더 3곳의 주인에게도 알렸어요(폴더별 크기는 주간 보고서에 있어요)."
         # 끝에 / 를 붙이면 링크를 따라간다(누가 ln -s / 를 두면 root 가 파일시스템 전체를 잰다). du 는 기본으로 링크를 따라가지 않는다
         du -sx -- "$W"/* 2>/dev/null | sort -rn | head -3 | while read -r _ d; do
             local u; u=$(basename "$d"); is_member "$u" || continue

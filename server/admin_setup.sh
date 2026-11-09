@@ -210,7 +210,7 @@ if ! safe_dir "$(dirname "$NAS_DIR")"; then
 elif [ -L "$NAS_DIR" ] || { [ -e "$NAS_DIR" ] && ! safe_dir "$NAS_DIR"; }; then
     warn "NAS 팀 폴더($NAS_DIR)가 링크이거나, root 소유가 아니거나, 다른 사람이 쓸 수 있어요. 안을 확인하고 chown root:$(id -gn "$ACC") $NAS_DIR && chmod 750 $NAS_DIR 한 뒤 다시 실행하세요"
 elif ! { mkdir -p "$NAS_DIR" && chown root:"$(id -gn "$ACC")" "$NAS_DIR" && chmod 750 "$NAS_DIR"; } 2>/dev/null; then
-    warn "root 가 NAS에 $NAS_DIR 를 만들지 못했어요(root squash 일 수 있어요). 서버 관리 팀에 root 소유로 만들어 달라고 하세요"
+    warn "root 가 NAS에 $NAS_DIR 를 만들지 못했어요(NAS가 root 를 일반 계정으로 바꾸는 root squash 설정일 수 있어요). 서버 관리 팀에 root 소유로 만들어 달라고 하세요"
 else
     for n in datasets models originals backup docker_images tmp_transfer inbox; do
         d=$NAS_DIR/$n; [ -L "$d" ] && { warn "$d 가 링크라 건너뛰어요. 확인하고 지운 뒤 다시 실행하세요"; continue; }
