@@ -1,0 +1,135 @@
+접근 PC 점검  2026-11-10 15:52
+
+== 윈도우·프로그램 ==
+  윈도우: Microsoft Windows NT 10.0.26200.0, PowerShell 5.1.26100.9549, 64비트 True
+  저장소 위치: D:\workspace\gpu-server (경로 길이 23자)
+  [주의] 긴 경로 설정이 꺼져 있고 저장소 경로가 길어요. 데이터셋 파일 경로가 260자를 넘으면 못 만들어요. 저장소를 D:\gpu 처럼 짧은 곳에 두세요
+  [정상] tar.exe: bsdtar 3.8.8 - libarchive 3.8.8 zlib/1.2.13.1-motley liblzma/5.8.3 bz2lib/1.0.8 libzstd/1.5.7 cng/2.0 libb2/bundled
+  [정상] git: git version 2.56.0.windows.3
+  [정상] uv: uv 0.13.5 (46776a95d 2026-10-21 x86_64-pc-windows-msvc)
+  [정상] aria2c: tools\aria2\aria2c.exe (지문 맞음)
+
+== 저장소(git) ==
+  브랜치: main, 마지막 커밋: d240c3e 2026-11-10 15:50 접근 PC 점검 결과(20261110-1549)
+  [정상] 커밋 검사가 켜져 있어요(core.hooksPath=.githooks)
+  [주의] 가릴 낱말 목록(.git\info\gpu-blocklist.txt)이 없어요. 서버·계정 이름이 커밋에 들어가도 못 막아요(docs\4_네트워크.md 의 "결과 가져오기")
+  [주의] 고치고 커밋하지 않은 파일이 1개 있어요: "reports/pc_check_\352\263\265\354\234\240\354\232\251_20261110-1549.txt"
+  [정상] git 으로 GitHub 에 접속돼요(결과를 올릴 수 있어요)
+  [정상] 저장소가 최신이에요
+
+== 접근 PC 설정(.env) ==
+  [정상] .env 가 있어요. 값이 들어 있는 이름: GPU_RUN, HF_TOKEN, WILDSCENES_LINKS (값 자체는 결과에 적지 않아요)
+  [정상] GPU_RUN: setup,pkgs,docker,datasets,models
+  [정상] HF_TOKEN 은 hf_ 로 시작하는 토큰 모양이에요
+  [정상] WildScenes 링크 목록: 링크 76532개, 파일 만든 시각 2026-11-06 15:33
+  [정상] WildScenes 링크는 2026-11-13 15:32 까지 유효해요(72시간 남음)
+
+== 프록시·망 ==
+  .env·창의 HTTPS_PROXY: 없음, HTTP_PROXY: 없음
+  윈도우 프록시 설정: 없음
+  자동 프록시 설정(PAC): 없음
+  접속 확인은 .NET 으로 해요(브라우저처럼 위 프록시와 윈도우 로그인을 써요). 실제 받기는 aria2c 로 해요(.env 의 프록시, 없으면 브라우저 프록시를 쓰고, 윈도우 로그인 인증은 못 해요)
+
+== 인터넷(받기 스크립트가 쓰는 사이트) ==
+  [정상] 인터넷: PyPI
+      쓰는 곳: 공통(uv 의 도구)
+  [정상] 인터넷: PyPI 파일 서버
+      쓰는 곳: 공통(uv 의 도구)
+  [정상] 인터넷: GitHub
+      쓰는 곳: 공통(uv 의 Python, aria2c), 도커(buildx·compose), 모델 코드
+      실제 파일은 release-assets.githubusercontent.com 에서 받아요(이 주소도 열려 있어야 해요)
+  [정상] GitHub 파일: 실제 파일 앞부분이 받아져요 (HTTP 206)
+  [정상] 인터넷: Ubuntu 패키지 저장소
+      쓰는 곳: 기초 프로그램·도커
+  [정상] 인터넷: Docker 배포 서버
+      쓰는 곳: 도커
+  [정상] 인터넷: NVIDIA 패키지 저장소
+      쓰는 곳: 도커
+  [정상] 인터넷: Hugging Face
+      쓰는 곳: 모델
+      실제 파일은 us.aws.cdn.hf.co 에서 받아요(이 주소도 열려 있어야 해요)
+  [정상] Hugging Face 파일: 실제 파일 앞부분이 받아져요 (HTTP 206)
+  [정상] 인터넷: Hugging Face 파일 서버(xet)
+      쓰는 곳: 모델(큰 파일)
+  [정상] 인터넷: Hugging Face 파일 서버(lfs)
+      쓰는 곳: 모델(큰 파일)
+  [정상] 인터넷: goose-dataset.de
+      쓰는 곳: 데이터셋 GOOSE
+  [정상] goose-dataset.de 파일: 실제 파일 앞부분이 받아져요 (HTTP 206)
+  [정상] 인터넷: rugd.vision
+      쓰는 곳: 데이터셋 RUGD
+  [정상] rugd.vision 파일: 실제 파일 앞부분이 받아져요 (HTTP 206)
+  [정상] 인터넷: deepscene.cs.uni-freiburg.de
+      쓰는 곳: 데이터셋 Freiburg Forest
+  [정상] deepscene.cs.uni-freiburg.de 파일: 실제 파일 앞부분이 받아져요 (HTTP 206)
+  [정상] 인터넷: Box(cmu.app.box.com)
+      쓰는 곳: 데이터셋 YCOR
+      실제 파일은 public.boxcloud.com 에서 받아요(이 주소도 열려 있어야 해요)
+  [정상] Box(cmu.app.box.com) 파일: 실제 파일 앞부분이 받아져요 (HTTP 206)
+  [정상] 인터넷: www.cavs.msstate.edu
+      쓰는 곳: 데이터셋 CaSSeD
+  [정상] www.cavs.msstate.edu 파일: 실제 파일 앞부분이 받아져요 (HTTP 206)
+  [정상] 인터넷: Google Drive
+      쓰는 곳: 데이터셋 RELLIS-3D·TAS500·GO
+  [정상] 인터넷: Google Drive 파일 서버
+      쓰는 곳: 데이터셋 RELLIS-3D·TAS500·GO
+  [정상] 인터넷: ModelScope
+      쓰는 곳: 데이터셋 ORAD-3D(파일 목록)
+  [문제] ModelScope 파일: 실제 파일 앞부분이 안 받아져요 - 거절됐어요(403)
+      거절한 주소: www.modelscope.cn (Server: Somansa Integrated Network Agent)
+      응답 앞부분: function getIP(){return '(사내 IP)';} function getURL(){return 'www.modelscope.cn';} function getCategory(){return '생성형 인공지능';} function getPolicyName(){return '생성형인공지능_차단(에어로스페이스 AI GPU 사용자)';} fun
+  [정상] 인터넷: ModelScope 파일 서버
+      쓰는 곳: 데이터셋 ORAD-3D(실제 파일. 위 주소가 여기로 넘겨줘요)
+  [정상] 인터넷: CSIRO 포털
+      쓰는 곳: 데이터셋 WildScenes(포털)
+  [정상] 인터넷: CSIRO S3 저장소
+      쓰는 곳: 데이터셋 WildScenes(링크 목록의 파일)
+  [정상] WildScenes 링크 목록의 파일: 실제 파일 앞부분이 받아져요 (HTTP 206)
+  [정상] HF_TOKEN 으로 Hugging Face 에 로그인돼요
+
+== 받기 도구(aria2c)로 작은 파일 받아 보기 ==
+  [정상] aria2c (D:\workspace\gpu-server\tools\aria2\aria2c.exe)
+  [정상] aria2c 로 받아져요: Ubuntu 저장소 목록(http) (0 MB)
+  [정상] aria2c 로 받아져요: Hugging Face 작은 파일(https) (0 MB)
+  [정상] aria2c 로 받아져요: GitHub 배포 파일(넘겨주기) (2 MB)
+  [정상] aria2c 로 받아져요: WildScenes 링크 목록의 파일 (0 MB)
+  aria2c 에 붙는 프록시: 없음(바로 접속)
+
+== 시계 ==
+  [정상] PC 시계가 맞아요(차이 33초)
+
+== 디스크 ==
+  저장소 드라이브 D:\: NTFS, 전체 1863 GB, 남은 공간 1331 GB
+  [정상] 남은 공간 1331 GB (데이터셋 전부 약 770 GB, ORAD-3D 350 GB 포함. 모델은 lists\models.txt 에 따라 달라요)
+  다른 드라이브의 남은 공간: C: 131 GB
+
+== 지금까지 받은 것 ==
+  setup: 아직 없어요
+  pkgs: 아직 없어요
+  docker: 아직 없어요
+  datasets: 다 받은 것 44개 (wildscenes, CaSSeD\CaSSeD.tar.gz, freiburg_forest\freiburg_forest_annotated.tar.gz, freiburg_forest\freiburg_forest_raw.tar.gz, go\annotations_color.zip, go\annotations_id.zip, go\images.zip, goose\goose_2d_test.zip, goose\goose_2d_train.zip, goose\goose_2d_val.zip, gooseEx\gooseEx_2d_test.zip, gooseEx\gooseEx_2d_train.zip, gooseEx\gooseEx_2d_val.zip, go_full\calib_camera_intrinsic.zip, go_full\calib_rgb_to_ouster.zip, go_full\calib_thermal_to_rgb.zip, go_full\image_examples.zip, go_full\lidar_semantickitti.zip, go_full\radar_polar.zip, go_full\sensor_setup_scan.ply, go_full\thermal_annotations_color.zip, go_full\thermal_annotations_id.zip, go_full\thermal_images.zip, rellis_2d\annotations_color.zip, rellis_2d\annotations_id.zip, rellis_2d\images.zip, rellis_2d\split.zip, rellis_full\calib_camera_intrinsic.zip, rellis_full\calib_camera_to_ouster.zip, rellis_full\calib_stereo.zip, rellis_full\calib_velodyne_to_ouster.zip, rellis_full\image_examples.zip, rellis_full\ontology.zip, rellis_full\ouster_color_ply.zip, rellis_full\ouster_examples.zip, rellis_full\ouster_scan_poses.zip, rellis_full\ouster_semantickitti_labels.zip, rellis_full\ouster_split.zip, rellis_full\rosbag_example_synced.zip, rellis_full\velodyne_semantickitti_labels.zip, RUGD\RUGD_annotations.zip, RUGD\RUGD_frames-with-annotations.zip, tas500v1.1\tas500.zip, ycor\yamaha_seg.tar.gz)
+      CaSSeD: 38.0 GB
+      drive_check: 0 MB
+      freiburg_forest: 18.2 GB
+      go: 3.1 GB
+      goose: 26.8 GB
+      gooseEx: 18.0 GB
+      go_full: 2.1 GB
+      ORAD-3D: 0 MB
+      rellis_2d: 11.0 GB
+      rellis_full: 37.8 GB
+      RUGD: 5.3 GB
+      tas500v1.1: 1.0 GB
+      wildscenes: 46.2 GB
+      ycor: 148 MB
+  models: 다 받은 모델 44개, 전체 313.9 GB
+
+== 지난 실행 기록(마지막 실행) ==
+  setup: 기록 없음
+  pkgs: 기록 없음
+  docker: 기록 없음
+  datasets: https://doi.org/10.25919/aetq-q420 → 끝나지 않았어요(창을 닫았거나 아직 실행 중)
+  models: [접근 PC] Hugging Face 사전학습 모델 받기  (2026-11-09 16:03) → 끝까지 했어요
+
+== 고칠 것 ==
+  1. ModelScope 파일: www.modelscope.cn 이(가) 거절됐어요(403). 사내 IT에 www.modelscope.cn 허용을 요청하세요
