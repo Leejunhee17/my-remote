@@ -525,17 +525,29 @@ function Get-Drive($id, $target, $tries = $MaxTries) {
 
 # ORAD-3D: ModelScope 데이터셋 저장소를 modelscope 도구(uv 로 실행)로 통째로 받는다. 끊기면 다시 실행하면 이어서 받는다.
 # 다 받으면 파일마다 체크섬을 ORAD-3D.ok 에 적는다(서버가 하나하나 확인한다)
-function Get-ModelScope($id, $dir) {
+# 윈도우 인증서 저장소를 쓰게 하는 ms_fetch.py 로 부른다(회사 보안 장비 인증서를 쓰는 망에서도 되게)
+function Get-ModelScope($id, $dir, $tries = $MaxTries) {
     New-Item -ItemType Directory -Force $dir | Out-Null
+    $env:PYTHONIOENCODING = 'utf-8'
+    $msf = Join-Path $PSScriptRoot 'ms_fetch.py'
     $stall = 0
-    while ($stall -lt $MaxTries) {
+    while ($stall -lt $tries) {
         $before = (Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
-        & $uv tool run --python 3.12 --from modelscope modelscope download --dataset $id --local_dir $dir | Out-Host
+        & $uv run --no-project --python 3.12 --with modelscope --with truststore $msf $id $dir | Out-Host
         if ($LASTEXITCODE -eq 0) { return $true }
         $after = (Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
-        $stall = Step-Retry $stall $before $after $MaxTries "modelscope $LASTEXITCODE"
+        $stall = Step-Retry $stall $before $after $tries "modelscope $LASTEXITCODE"
     }
     return $false
+}
+# 다 받은 ORAD-3D 의 파일마다 체크섬(서버가 하나하나 확인). 받기 도구가 남긴 임시 파일은 뺀다
+function Complete-Orad($odir) {
+    $ofiles = @(Get-ChildItem $odir -Recurse -File | Where-Object { $_.FullName -notmatch '\\(\._____temp|\.cache)\\' -and $_.Name -notmatch '\.(incomplete|lock)$' })
+    Write-Info "ORAD-3D 파일 $($ofiles.Count)개의 체크섬을 계산하는 중이에요(크면 한 시간 안팎)"
+    $ol = foreach ($f in $ofiles) { "$((Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower())  $($f.FullName.Substring($Dest.Length + 1) -replace '\\', '/')" }
+    [IO.File]::WriteAllText("$odir.ok.part", ((@($ol) -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
+    Move-Item -Force "$odir.ok.part" "$odir.ok"
+    Write-Ok 'ORAD-3D 받았어요'; $result['ORAD-3D'] = '받음'
 }
 
 # -DriveCheck: 받지 않고 Google Drive 파일마다 진단만 하고 끝낸다
@@ -776,6 +788,7 @@ foreach ($it in $DriveItems) {
 }
 
 # ORAD-3D (ModelScope)
+$oradLater = $false
 if ($doOrad) {
     $odir = Join-Path $Dest 'ORAD-3D'
     if (Test-Path "$odir.ok") {
@@ -783,18 +796,22 @@ if ($doOrad) {
     } else {
         Write-Host ''
         Write-Host "  ORAD-3D 받는 중 (약 350 GB, ModelScope $ModelScopeId)" -ForegroundColor Cyan
-        if (Get-ModelScope $ModelScopeId $odir) {
-            # 파일마다 체크섬(서버가 하나하나 확인). 받기 도구가 남긴 임시 파일은 뺀다
-            $ofiles = @(Get-ChildItem $odir -Recurse -File | Where-Object { $_.FullName -notmatch '\\(\._____temp|\.cache)\\' -and $_.Name -notmatch '\.(incomplete|lock)$' })
-            Write-Info "ORAD-3D 파일 $($ofiles.Count)개의 체크섬을 계산하는 중이에요(크면 한 시간 안팎)"
-            $ol = foreach ($f in $ofiles) { "$((Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower())  $($f.FullName.Substring($Dest.Length + 1) -replace '\\', '/')" }
-            [IO.File]::WriteAllText("$odir.ok.part", ((@($ol) -join "`n") + "`n"), (New-Object Text.UTF8Encoding $false))
-            Move-Item -Force "$odir.ok.part" "$odir.ok"
-            Write-Ok 'ORAD-3D 받았어요'; $result['ORAD-3D'] = '받음'
-        } else {
-            Write-Bad 'ORAD-3D 받지 못했어요. www.modelscope.cn 접속을 확인하고 같은 명령을 다시 실행하세요(받은 데까지 이어서 받아요)'
-            $result['ORAD-3D'] = '실패'
+        if (Get-ModelScope $ModelScopeId $odir $FirstTries) { Complete-Orad $odir }
+        else {   # 처음 실패는 다시 해 보지 않고 맨 뒤로 미룬다(다른 데이터셋처럼 한 번만)
+            Write-Warn 'ORAD-3D 맨 뒤로 미뤄요. 다른 것을 다 받은 뒤 한 번 더 받아 봐요'
+            $oradLater = $true; $result['ORAD-3D'] = '미룸'
         }
+    }
+}
+
+# 미룬 ORAD-3D 를 한 번 더(이번에는 $MaxTries 번까지)
+if ($oradLater) {
+    Write-Host ''
+    Write-Host "  (미룸) ORAD-3D 다시 받는 중 (ModelScope $ModelScopeId)" -ForegroundColor Cyan
+    if (Get-ModelScope $ModelScopeId $odir $MaxTries) { Complete-Orad $odir }
+    else {
+        Write-Bad 'ORAD-3D 받지 못했어요. 위 modelscope 오류를 보세요. 같은 명령을 다시 실행하면 받은 데까지 이어서 받아요(docs/7_문제_해결.md 에서 "ORAD-3D 받지 못했어요" 줄)'
+        $result['ORAD-3D'] = '실패'
     }
 }
 
