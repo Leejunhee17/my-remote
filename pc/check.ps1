@@ -314,7 +314,11 @@ $Logs = [ordered]@{ setup = 'setup\build.log'; pkgs = 'pack_pkgs\build.log'; doc
 foreach ($k in $Logs.Keys) {
     $f = Join-Path $root $Logs[$k]
     if (-not (Test-Path $f)) { Write-Info "$($k): 기록 없음"; continue }
-    $all = [IO.File]::ReadAllLines($f)
+    # 받기가 아직 돌고 있으면 기록 파일을 그쪽이 쓰고 있어서, 쓰는 중이어도 읽을 수 있게 연다(ReadAllLines 는 "다른 프로세스에서 사용 중" 으로 실패한다)
+    try {
+        $fs = [IO.File]::Open($f, 'Open', 'Read', 'ReadWrite, Delete')
+        try { $all = @(((New-Object IO.StreamReader($fs, [Text.Encoding]::UTF8, $true)).ReadToEnd()) -split "`r?`n" | Where-Object { $_ -ne '' }) } finally { $fs.Dispose() }
+    } catch { Write-Info "$($k): 기록을 읽지 못했어요($($_.Exception.Message))"; continue }
     if (-not $all.Count) { Write-Info "$($k): 기록이 비어 있어요"; continue }
     $start = 0
     for ($j = $all.Count - 1; $j -ge 0; $j--) { if ($all[$j] -match '^\[접근 PC\]') { $start = $j; break } }

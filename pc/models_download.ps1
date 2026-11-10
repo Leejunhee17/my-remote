@@ -39,6 +39,7 @@ if (-not (Enter-SingleRun $Dest)) {
     exit 1
 }
 Start-Log (Join-Path $Dest 'download.log')
+try {   # 끝에서(멈춤·Ctrl+C 포함) 기록을 닫고 잠금을 푼다(Exit-Run)
 Stop-Sleep
 Write-Host "[접근 PC] Hugging Face 사전학습 모델 받기  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))"
 Write-Host "받는 곳: $Dest"
@@ -245,3 +246,4 @@ Write-Host ' 자세한 순서: docs\6_모델.md'
 Write-Host '##############################################################'
 Stop-Transcript | Out-Null
 if ($failed.Count) { exit 1 }
+} finally { Exit-Run }

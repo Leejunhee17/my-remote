@@ -49,10 +49,24 @@ function Enter-SingleRun($dir) {
     try {
         $script:RunLock = [IO.File]::Open((Join-Path $dir '.running.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
         return $true
+    } catch { }
+    # 같은 PowerShell 창에서 전에 돌다 멈춘(Ctrl+C) 실행이 남긴 잠금이면, 버려진 것을 치운 뒤 한 번 더 해 본다
+    [GC]::Collect(); [GC]::WaitForPendingFinalizers()
+    try {
+        $script:RunLock = [IO.File]::Open((Join-Path $dir '.running.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+        return $true
     } catch { return $false }
 }
 
+# 실행을 마칠 때(정상, 멈춤, Ctrl+C 모두): 기록을 닫고 잠금을 푼다. 안 하면 같은 PowerShell 창이 기록 파일을 계속 잡고 있어서
+# 다음 실행이나 pc\check.ps1 이 "다른 프로세스에서 사용 중" 으로 기록 파일을 열지 못한다
+function Exit-Run {
+    try { Stop-Transcript -ErrorAction Stop | Out-Null } catch { }
+    if ($script:RunLock) { $script:RunLock.Dispose(); $script:RunLock = $null }
+}
+
 function Start-Log($path) {
+    try { Stop-Transcript -ErrorAction Stop | Out-Null } catch { }   # 이 창에서 전에 멈춘 실행의 기록이 아직 열려 있으면 닫는다
     $script:LogPath = $path
     New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null
     Start-Transcript -Append $path | Out-Null

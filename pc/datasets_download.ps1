@@ -182,6 +182,7 @@ if (-not (Enter-SingleRun $Dest)) {
     exit 1
 }
 Start-Log (Join-Path $Dest 'download.log')
+try {   # 끝에서(멈춤·Ctrl+C 포함) 기록을 닫고 잠금을 푼다(Exit-Run)
 Stop-Sleep
 Write-Host "[접근 PC] 세그멘테이션 데이터셋 받기(라벨이 있는 데이터셋 전부)  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))"
 Write-Host "받는 곳: $Dest"
@@ -937,3 +938,4 @@ if ($FromTask) {
 }
 Stop-Transcript | Out-Null
 if ($failed.Count) { exit 1 }
+} finally { Exit-Run }
