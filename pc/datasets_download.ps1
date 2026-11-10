@@ -537,11 +537,14 @@ function Get-ModelScope($id, $dir, $tries = $MaxTries) {
     New-Item -ItemType Directory -Force $dir | Out-Null
     $env:PYTHONIOENCODING = 'utf-8'
     $msf = Join-Path $PSScriptRoot 'ms_fetch.py'
+    # modelscope 도구도 안에서 파일마다 다시 시도한다(기본 5번). 처음 받을 때는 그것도 끄고 한 번만 해 본 뒤 바로 미룬다
+    $env:MODELSCOPE_DOWNLOAD_MAX_RETRIES = if ($tries -le 1) { '0' } else { '3' }
     $stall = 0
     while ($stall -lt $tries) {
         $before = (Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
         & $uv run --no-project --python 3.12 --with modelscope --with truststore $msf $id $dir | Out-Host
         if ($LASTEXITCODE -eq 0) { return $true }
+        if ($tries -le 1) { Write-Warn "modelscope 가 실패했어요(종료 코드 $LASTEXITCODE)"; return $false }   # 받은 양이 조금 늘었어도(임시 파일 등) 다시 하지 않는다
         $after = (Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
         $stall = Step-Retry $stall $before $after $tries "modelscope $LASTEXITCODE"
     }

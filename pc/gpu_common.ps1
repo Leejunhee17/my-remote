@@ -384,9 +384,17 @@ function Show-NotNeeded($dest, $manifest, [string[]]$keepPrefix) {
     })
     if (-not $extra.Count) { return }
     $sum = ($extra | Measure-Object -Property Length -Sum).Sum
-    Write-Host " 이 폴더 안에서 GPU 서버가 쓰지 않는 큰 파일이 $($extra.Count)개($(Format-Size $sum)) 있어요. 올릴 때 빼면 시간을 아껴요:" -ForegroundColor Yellow
+    Write-Host " 이 폴더 안에서 GPU 서버가 쓰지 않는 큰 파일이 $($extra.Count)개($(Format-Size $sum)) 있어요. 체크섬 목록(MANIFEST.sha256)에 없는 파일이라 올려도 서버가 쓰지 않아요. 올릴 때 빼면 시간을 아껴요:" -ForegroundColor Yellow
     $extra | Sort-Object Length -Descending | Select-Object -First 8 | ForEach-Object {
-        Write-Host "   $($_.FullName.Substring($base.Length + 1))  ($(Format-Size $_.Length))" }
+        $rel = $_.FullName.Substring($base.Length + 1)
+        $top = ($rel -split '\\')[0]
+        # 왜 목록에 없는지: 받다 만 파일(이어받기 중, 미뤘거나 실패), 아직 다 받지 않은 폴더(ORAD-3D, 모델), 그 밖(예전에 받았거나 목록에서 뺀 것)
+        $why = if ($_.Name -match '\.(download|aria2|incomplete|join|part)$|\.part-[a-z]{2}$|\._____temp') { '받다 만 파일. 다 받으면 목록에 들어가요' }
+               elseif ((Test-Path -LiteralPath (Join-Path $base $top) -PathType Container) -and $rel.Contains('\') -and
+                       -not (Test-Path -LiteralPath (Join-Path $base "$top.ok")) -and -not (Test-Path -LiteralPath (Join-Path (Join-Path $base $top) 'gpu_model.json')) -and
+                       -not (Test-Path -LiteralPath "$($_.FullName).ok")) { '아직 다 받지 않은 것. 다 받으면 목록에 들어가요' }
+               else { '목록에 없는 파일(예전에 받았거나 목록에서 뺀 것)' }
+        Write-Host "   $rel  ($(Format-Size $_.Length)) - $why" }
     if ($extra.Count -gt 8) { Write-Host "   ... 그 밖에 $($extra.Count - 8)개" }
 }
 
