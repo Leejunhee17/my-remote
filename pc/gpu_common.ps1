@@ -343,6 +343,16 @@ function Get-File($url, $file, $md5, $tries, $sha256) {
     return $false
 }
 
+# 받다 만 파일이 아주 작으면(1 MB 미만) 지우고 처음부터 받게 한다. 성공하면 $true.
+# 사이트가 파일 대신 안내 페이지(2 KB 남짓)를 보냈을 때 남은 이어받기 기록(.aria2)에는 전체 크기가 그 페이지 크기로 적혀서,
+# 다음에 진짜 파일을 받으려 하면 aria2c 가 "Total length mismatch"(errorCode=1)로 계속 멈춘다. 1 MB 미만이면 다시 받아도 손해가 없다
+function Reset-SmallPart($file) {
+    if (-not (Test-Path $file) -or (Get-Item $file).Length -ge 1MB) { return $false }
+    Remove-Item -Force -ErrorAction SilentlyContinue $file, "$file.aria2"
+    Write-Warn "받다 만 파일이 아주 작아서(안내 페이지였을 수 있어요) 지우고 처음부터 받아요: $(Split-Path -Leaf $file)"
+    return $true
+}
+
 # 지문은 업로드가 끝난 뒤(몇 시간 뒤, 다른 날, NAS를 거친 서버 2)에 맞춰 보므로 화면에만 두지 않고 저장소 맨 위에 쌓아 둔다
 function Save-Fingerprint($what, $fp) {
     $f = Join-Path $root '지문_기록.txt'

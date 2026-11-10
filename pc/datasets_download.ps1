@@ -235,6 +235,7 @@ function Get-Url($url, $file, $tries = $MaxTries) {
     # 일반 사이트는 연결 4개로 나눠 받는다(서버가 연결 하나당 속도를 제한하면 몇 배 빨라진다).
     # Box 는 여러 연결을 거절하기 쉬워서 1개. 다른 사이트도 4개로 안 되면 그 파일은 1개로 다시 받는다
     $conn = if ($url -match 'box\.com') { 1 } else { 4 }
+    $reset = $false
     $stall = 0
     while ($stall -lt $tries) {
         $remote = Get-RemoteSize $url
@@ -244,6 +245,7 @@ function Get-Url($url, $file, $tries = $MaxTries) {
             if ($local) { Write-Info "이어받기: $(Format-Size $local)부터" }
             $code = Invoke-Aria2 $url $file @() $conn
             if ($code -eq 99) { return $null }
+            if ($code -ne 0 -and -not $reset -and -not ((Get-Size $file) -gt $local) -and (Reset-SmallPart $file)) { $reset = $true; continue }
             if ($code -ne 0 -and $conn -gt 1 -and -not ((Get-Size $file) -gt $local)) {
                 Write-Warn "연결 $($conn)개로는 받지 못했어요(aria2c $code). 연결 1개로 다시 받아요"
                 $conn = 1
@@ -423,6 +425,7 @@ function Get-Drive($id, $target, $tries = $MaxTries) {
     New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
     $part = "$target.download"
     $url  = "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
+    $reset = $false
     $stall = 0
     while ($stall -lt $tries) {
         $local = Get-Size $part
@@ -431,6 +434,7 @@ function Get-Drive($id, $target, $tries = $MaxTries) {
         $code = Invoke-Aria2 $url $part @("--load-cookies=$DriveJar", "--save-cookies=$DriveJar")
         if ($code -eq 99) { return $null }
         if ($code -in 8, 13) { Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
+        if ($code -ne 0 -and -not $reset -and -not ((Get-Size $part) -gt $local) -and (Reset-SmallPart $part)) { $reset = $true; continue }
         if ($code -ne 0 -and -not ((Get-Size $part) -gt $local)) {
             # 한 바이트도 더 못 받고 끝났으면 이유를 확인한다. 받다 만 파일이 있을 때 한도에 걸리면 aria2c 는 한도 안내 페이지를
             # 이어 붙이지 못해 거절(22)이 아니라 errorCode=1 로 끝나서, 코드만 보면 한도인 줄 모른다
