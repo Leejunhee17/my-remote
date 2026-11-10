@@ -33,5 +33,5 @@ list=$(git rev-parse --git-path info/gpu-blocklist.txt)
 if [ -s "$list" ] && echo "$added" | grep -inF -f <(grep -v '^[[:space:]]*#' "$list" | grep .); then
     echo "[멈춤] 가릴 낱말($list)이 들어 있어요."; bad=1
 fi
-[ -s "$list" ] || echo "[주의] 가릴 낱말 목록이 없어서 서버·계정 이름은 확인하지 못했어요: $list (docs/4_네트워크.md 의 \"결과 가져오기\")"
+[ -s "$list" ] || echo "[주의] 가릴 낱말 목록이 없어서 서버·계정 이름은 확인하지 못했어요: $list (admin/4_네트워크.md 의 \"결과 가져오기\")"
 [ "$bad" = 0 ] || { echo "커밋을 멈췄어요. 위 줄을 고치거나 가린 뒤 다시 커밋하세요."; exit 1; }

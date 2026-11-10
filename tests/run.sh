@@ -71,24 +71,24 @@ chmod 755 "$T/fake/nvidia-smi" "$T/fake/docker"
 t_static() {
     head_ '문법·형식'
     local f bad=
-    for f in server/*.sh server/bin/* .githooks/pre-commit tests/*.sh; do bash -n "$f" 2>>"$LOG" || bad+=" $f"; done
+    for f in admin/server/*.sh user/server/*.sh admin/server/bin/* .githooks/pre-commit tests/*.sh; do bash -n "$f" 2>>"$LOG" || bad+=" $f"; done
     [ -z "$bad" ] && ok 'bash 문법(bash -n)' || no "bash 문법:$bad" "$(cat "$LOG")"
     if command -v shellcheck >/dev/null; then
-        t 'shellcheck(오류 수준)' shellcheck -S error server/*.sh server/bin/* .githooks/pre-commit tests/*.sh
+        t 'shellcheck(오류 수준)' shellcheck -S error admin/server/*.sh user/server/*.sh admin/server/bin/* .githooks/pre-commit tests/*.sh
     else skip 'shellcheck 가 없어요'; fi
-    bad=; for f in pc/*.py; do python3 -I -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' "$f" 2>>"$LOG" || bad+=" $f"; done
+    bad=; for f in user/pc/*.py; do python3 -I -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' "$f" 2>>"$LOG" || bad+=" $f"; done
     [ -z "$bad" ] && ok 'Python 문법' || no "Python 문법:$bad"
     if command -v pwsh >/dev/null; then
-        local out; out=$(pwsh -NoProfile -Command '$bad=0; foreach ($f in Get-ChildItem pc/*.ps1) { $e=$null; [void][Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$e); foreach ($x in $e) { $bad++; "$($f.Name):$($x.Extent.StartLineNumber): $($x.Message)" } }; exit $bad' 2>&1)
+        local out; out=$(pwsh -NoProfile -Command '$bad=0; foreach ($f in Get-ChildItem admin/pc/*.ps1, user/pc/*.ps1, common/*.ps1) { $e=$null; [void][Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$e); foreach ($x in $e) { $bad++; "$($f.Name):$($x.Extent.StartLineNumber): $($x.Message)" } }; exit $bad' 2>&1)
         [ $? = 0 ] && ok 'PowerShell 문법(pwsh)' || no 'PowerShell 문법' "$out"
     else skip 'PowerShell 문법: pwsh 가 없어요(GitHub Actions 에서는 돌아요)'; fi
     # .ps1: Windows PowerShell 5.1 이 한글을 읽으려면 BOM 이 있어야 한다. 줄 끝은 받을 때 CRLF(.gitattributes)
-    bad=; for f in pc/*.ps1; do [ "$(head -c3 "$f" | od -An -tx1 | tr -d ' ')" = efbbbf ] || bad+=" $f"; done
+    bad=; for f in admin/pc/*.ps1 user/pc/*.ps1 common/*.ps1; do [ "$(head -c3 "$f" | od -An -tx1 | tr -d ' ')" = efbbbf ] || bad+=" $f"; done
     [ -z "$bad" ] && ok '.ps1 은 모두 UTF-8 BOM' || no ".ps1 BOM 없음:$bad"
     # PowerShell 은 한글도 변수 이름으로 읽는다: "$n번째" 는 $n 이 아니라 $n번째. "$($n)번째" 로 써야 한다
-    bad=$(grep -nP '(?<!`)\$[A-Za-z_][A-Za-z0-9_]*[가-힣]' pc/*.ps1)
+    bad=$(grep -nP '(?<!`)\$[A-Za-z_][A-Za-z0-9_]*[가-힣]' admin/pc/*.ps1 user/pc/*.ps1 common/*.ps1)
     [ -z "$bad" ] && ok '.ps1 에 한글이 붙은 변수가 없어요("$($n)번째" 처럼 써요)' || no '.ps1 에 한글이 붙은 변수' "$bad"
-    bad=$(git ls-files --eol -- '*.ps1' '*.sh' 'server/bin/*' | awk '($NF ~ /\.ps1$/ && $0 !~ /eol=crlf/) || ($NF !~ /\.ps1$/ && $0 !~ /eol=lf/) || $1 != "i/lf"')
+    bad=$(git ls-files --eol -- '*.ps1' '*.sh' 'admin/server/bin/*' | awk '($NF ~ /\.ps1$/ && $0 !~ /eol=crlf/) || ($NF !~ /\.ps1$/ && $0 !~ /eol=lf/) || $1 != "i/lf"')
     [ -z "$bad" ] && ok '줄 끝 설정(.ps1 CRLF, .sh LF, 저장소 안은 LF)' || no '줄 끝 설정' "$bad"
     bad=$(git ls-files | grep -E '_report_|__pycache__|\.pyc$|(^|/)지문_기록\.txt$|(^|/)\.env(\.[^/]*)?$' | grep -vE '(^|/)\.env\.example$')
     [ -z "$bad" ] && ok '올리면 안 되는 파일이 없어요(원본 보고서, pyc, 지문 기록, .env)' || no '올리면 안 되는 파일' "$bad"
@@ -97,7 +97,7 @@ t_static() {
     if command -v pwsh >/dev/null; then
         # .env 읽기: 주석·빈 값·따옴표·뒤 # 설명·export·이상한 줄, 그리고 이미 정한 환경 변수가 이긴다
         printf '# 설명\r\nGPU_T1=a b\r\nexport GPU_T2 = "x # y"\r\nGPU_T3=v # 설명\r\nGPU_T4=\r\n이상한 줄\r\nGPU_T5=env\r\n' > "$T/dotenv"
-        out=$(GPU_T5=mine pwsh -NoProfile -Command ". ./pc/gpu_common.ps1; Import-DotEnv '$T/dotenv'; '[{0}][{1}][{2}][{3}][{4}]' -f \$env:GPU_T1, \$env:GPU_T2, \$env:GPU_T3, \$env:GPU_T4, \$env:GPU_T5" 2>&1)
+        out=$(GPU_T5=mine pwsh -NoProfile -Command ". ./common/gpu_common.ps1; Import-DotEnv '$T/dotenv'; '[{0}][{1}][{2}][{3}][{4}]' -f \$env:GPU_T1, \$env:GPU_T2, \$env:GPU_T3, \$env:GPU_T4, \$env:GPU_T5" 2>&1)
         case "$out" in *'[a b][x # y][v][][mine]'*) ok '.env 읽기(pwsh)' ;; *) no '.env 읽기(pwsh)' "$out" ;; esac
         case "$out" in *'6번째 줄을 읽지 못했어요'*) ok '.env 의 이상한 줄은 몇 번째인지 알려 줘요' ;; *) no '.env 의 이상한 줄 알림' "$out" ;; esac
         if grep -qx '  .env 에서 읽은 설정: GPU_T1, GPU_T2, GPU_T3' <<< "$out"; then ok '.env 는 이름만 보여 주고 값은 안 보여 줘요'; else no '.env 이름만 보여 주기' "$out"; fi
@@ -105,7 +105,7 @@ t_static() {
     if command -v pwsh >/dev/null; then
         # 점검 결과(reports\)에 쓰는 가리기: 주소 뒤 서명, 사내 IP, AWS 키, HF 토큰. 프록시는 종류·포트만. 예시 IP 는 실행할 때 만든다
         local ip="10.$((1+1)).3.4" key="AKIA$(printf 'A%.0s' {1..16})" tk="hf_$(printf 'b%.0s' {1..34})"
-        out=$(pwsh -NoProfile -Command ". ./pc/gpu_common.ps1; Hide-Text 'get https://s3.example/a?X-Amz-Signature=abc from $ip key $key tok $tk'; Proxy-Label 'http://proxy.example:8080'" 2>&1)
+        out=$(pwsh -NoProfile -Command ". ./common/gpu_common.ps1; Hide-Text 'get https://s3.example/a?X-Amz-Signature=abc from $ip key $key tok $tk'; Proxy-Label 'http://proxy.example:8080'" 2>&1)
         case "$out" in *'get https://s3.example/a?… from (사내 IP) key (키) tok (토큰)'*'있음(http, 포트 8080)'*) ok '점검 결과 가리기(pwsh)' ;; *) no '점검 결과 가리기(pwsh)' "$out" ;; esac
     else skip '점검 결과 가리기: pwsh 가 없어요(GitHub Actions 에서는 돌아요)'; fi
     # 사내 IP(사설 대역)는 저장소에 없어야 한다. 이 시험 파일의 예시 IP 는 실행할 때 만든다
@@ -117,38 +117,38 @@ t_static() {
 t_docs() {
     head_ '문서와 코드'
     local f n bad=
-    for f in README.md docs/*.md team/*.md reports/*.md; do
+    for f in README.md admin/*.md user/*.md reports/*.md; do
         n=$(grep -c '^[[:space:]]*```' "$f"); [ $((n % 2)) = 0 ] || bad+=" $f($n)"
     done
     [ -z "$bad" ] && ok '코드 블록(```) 짝이 맞아요' || no "코드 블록 짝이 안 맞아요:$bad"
     # 문서에 나온 스크립트 이름이 저장소에 있다(예시로 쓴 이름은 뺀다)
-    bad=; for n in $(grep -rhoE '[A-Za-z0-9_]+\.(sh|ps1|py)\b' README.md docs team | sort -u); do
+    bad=; for n in $(grep -rhoE '[A-Za-z0-9_]+\.(sh|ps1|py)\b' README.md admin/*.md user/*.md | sort -u); do
         case "$n" in gpu.sh|gpu-docker.sh|catalog.py|train.py|json.py|download_freiburg_forest_*.sh) continue ;; esac   # 예시 이름, 데이터셋 사이트의 스크립트
-        [ -n "$(find server pc tests -name "$n" -print -quit)" ] || bad+=" $n"
+        [ -n "$(find admin user common tests -name "$n" -print -quit)" ] || bad+=" $n"
     done
     [ -z "$bad" ] && ok '문서에 나온 스크립트가 모두 있어요' || no "없는 스크립트:$bad"
-    # docs/… 를 가리키는 곳(문서·스크립트)이 실제 파일이고, 같이 적은 "절 이름" 이 그 파일의 제목에 있다. 점검 보고서(reports/*.txt)는 그때 화면 그대로라 뺀다
-    bad=$(git grep -hoIE 'docs[/\\][0-9]_[^ )`"'"'"'\\]+\.md( 의 \\?"[^"\\]+\\?")?' -- . ':!tests' ':!reports/*.txt' | sed 's/\\"/"/g' | sort -u | while IFS= read -r ref; do
+    # admin/…·user/… 문서를 가리키는 곳(문서·스크립트)이 실제 파일이고, 같이 적은 "절 이름" 이 그 파일의 제목에 있다. 점검 보고서(reports/*.txt)는 그때 화면 그대로라 뺀다
+    bad=$(git grep -hoIE '(admin|user)[/\\][^ /\\)`"'"'"'|]+\.md( 의 \\?"[^"\\]+\\?")?' -- . ':!tests' ':!reports/*.txt' | sed 's/\\"/"/g' | sort -u | while IFS= read -r ref; do
         f=${ref%%.md*}.md; f=${f//\\//}
         [ -f "$f" ] || { echo "없는 문서: $ref"; continue; }
         case "$ref" in *'"'*) s=${ref#*\"}; s=${s%\"}; grep -E '^#+ ' "$f" | tr -d '`' | grep -qF -- "$s" || echo "제목 없음: $ref" ;; esac
     done)
     [ -z "$bad" ] && ok '문서 이름과 절 이름이 모두 있어요' || no '가리키는 문서·절이 없어요' "$bad"
     # 문제 해결 표에 적은 화면 메시지가 스크립트에 실제로 있다(… 는 바뀌는 부분, '습니다' 는 Windows 메시지)
-    bad=$(grep -oP '^\| `\K[^`]+' docs/7_문제_해결.md | while IFS= read -r m; do
+    bad=$(grep -oP '^\| `\K[^`]+' admin/6_문제_해결.md | while IFS= read -r m; do
         case "$m" in *습니다*) continue ;; esac
         IFS='…' read -ra parts <<< "$m"
         for p in "${parts[@]}"; do p=$(echo "$p" | sed 's/^ *//; s/ *$//'); [ ${#p} -ge 3 ] || continue
-            grep -rqF -- "$p" server pc || echo "$m  (못 찾은 부분: $p)"; done
+            grep -rqF -- "$p" admin/server admin/pc user/server user/pc common || echo "$m  (못 찾은 부분: $p)"; done
     done)
     [ -z "$bad" ] && ok '문제 해결 표의 메시지가 스크립트에 있어요' || no '문제 해결 표의 메시지가 스크립트에 없어요' "$bad"
-    # check.sh 가 찾는 패키지와 docs/1 의 "서버 기초 프로그램" 명령이 같다(빠진 것을 할 일 목록에 적어 주므로)
-    local want doc; want=$(sed -n '/local NEED=(/,/local miss/p' server/check.sh | grep -oE '[a-z0-9_.-]+:[a-z0-9.+-]+' | cut -d: -f2 | grep -vxE 'bash|tar|coreutils|sed|grep|util-linux|bsdutils' | sort -u)
-    doc=$(sed -n '/^apt install -y/,/^```/p' docs/1_처음_설치.md | tr -s ' \\\n' '\n' | grep -vE '^(apt|install|-y|```)$' | sort -u)
+    # check.sh 가 찾는 패키지와 admin/1_처음_설치.md 의 "서버 기초 프로그램" 명령이 같다(빠진 것을 할 일 목록에 적어 주므로)
+    local want doc; want=$(sed -n '/local NEED=(/,/local miss/p' admin/server/check.sh | grep -oE '[a-z0-9_.-]+:[a-z0-9.+-]+' | cut -d: -f2 | grep -vxE 'bash|tar|coreutils|sed|grep|util-linux|bsdutils' | sort -u)
+    doc=$(sed -n '/^apt install -y/,/^```/p' admin/1_처음_설치.md | tr -s ' \\\n' '\n' | grep -vE '^(apt|install|-y|```)$' | sort -u)
     bad=$(comm -3 <(echo "$want") <(echo "$doc"))
     [ -n "$want" ] && [ -z "$bad" ] && ok '점검 스크립트와 문서의 서버 패키지 목록이 같아요' || no '점검 스크립트와 문서의 서버 패키지 목록이 달라요(왼쪽: 스크립트만, 오른쪽: 문서만)' "$bad"
     # 기초 프로그램 묶음(pkgs_pack.ps1)에 넣는 패키지도 문서 목록과 같다
-    want=$(sed -n '/^\$Pkgs = @(/,/^)/p' pc/pkgs_pack.ps1 | grep -oE "'[^']+'" | tr -d "'" | sort -u)
+    want=$(sed -n '/^\$Pkgs = @(/,/^)/p' admin/pc/pkgs_pack.ps1 | grep -oE "'[^']+'" | tr -d "'" | sort -u)
     bad=$(comm -3 <(echo "$want") <(echo "$doc"))
     [ -n "$want" ] && [ -z "$bad" ] && ok '기초 프로그램 묶음과 문서의 패키지 목록이 같아요' || no '기초 프로그램 묶음과 문서의 패키지 목록이 달라요(왼쪽: pkgs_pack.ps1 만, 오른쪽: 문서만)' "$bad"
     # README 의 폴더 표에 있는 경로가 있다
@@ -163,7 +163,7 @@ mk_datasets() {   # $1 폴더(NAS inbox 의 datasets 처럼). 압축 1개 + wild
       echo hi > wildscenes/a/1.png; echo yo > wildscenes/2.png
       sha256sum goose/g.zip wildscenes/a/1.png wildscenes/2.png > MANIFEST.sha256
       echo 'files=2 bytes=6' > wildscenes.ok )
-    cp server/datasets_unpack.sh "$d/"
+    cp user/server/datasets_unpack.sh "$d/"
 }
 # 올린 그 자리(NAS inbox 의 datasets)에서 바로 실행한다. 시험은 root 로 돌 수 있어서 root 막기를 끈다
 DSRC=$T/nas/inbox/datasets
@@ -224,7 +224,7 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
     z.writestr('top/ok/a.py','x'); z.writestr('top//$T/inst/escaped','x'); z.writestr('top/../../escaped2','x')"
           sha256sum org__m/config.json org__m/code.zip > MANIFEST.sha256
           for m in json os zipfile struct sys; do echo "open('$T/inst/PWNED','w')" > $m.py; done )
-        cp server/models_place.sh "$MSRC/"
+        cp user/server/models_place.sh "$MSRC/"
     }
     run_mp() { GPU_TEST_ROOT_OK=1 GPU_APP=$T/no-app GPU_NAS_DIR=$T/nas bash "$MSRC/models_place.sh" > "$LOG" 2>&1; }
     mkdir -p "$T/inst"; mk_models
@@ -260,7 +260,7 @@ with zipfile.ZipFile('org__m/code.zip','w') as z:
 APPT=$T/app
 setup_app() {   # 가짜 /app. gpu 는 root 로 돌 때 자기 파일이 root 소유여야 한다
     rm -rf "$APPT"; mkdir -p "$APPT"/admin/bin "$APPT"/autonomy_sw/{hong,kim} "$APPT"/state/{gpu_log,notice,reports,images,notice_seen,tty} "$APPT"/inbox
-    install -m 755 server/bin/gpu server/bin/docker server/bin/nvidia-smi "$APPT/admin/bin/"
+    install -m 755 admin/server/bin/gpu admin/server/bin/docker admin/server/bin/nvidia-smi "$APPT/admin/bin/"
     printf '홍길동 인지\nhong 인지\nkim 판단\n관리자 인지\n' > "$APPT/admin/team.txt"
     printf '# 시험\n  # 들여쓴 주석\n0 다른팀\n1 다른팀\n2 다른팀\n3 다른팀\n4 인지\n5 판단\n6 공용\n7 공용\n' > "$APPT/admin/gpu_alloc.txt"
     : > "$APPT/state/images/loaded.tsv"
@@ -334,7 +334,7 @@ t_reports() {
     head_ '점검과 공유용 보고서'
     local rep=$T/rep host share; host=$(hostname -s)
     mkdir -p "$rep/run" "$rep/run2" "$rep/nas/tmp" "$rep/nas/teamA"; chmod 755 "$rep"; chmod 1777 "$rep/nas/tmp"
-    cp server/check.sh "$rep/check.sh"; chmod 755 "$rep/check.sh"
+    cp admin/server/check.sh "$rep/check.sh"; chmod 755 "$rep/check.sh"
     # root 로 돌리면 보고서를 공용 계정(여기서는 nobody) 홈에 공용 계정 권한으로 넣는다
     if is_root; then
         chown nobody "$rep/run" "$rep/run2"
@@ -380,7 +380,7 @@ t_reports() {
     else no '점검: 보고서가 없어요' "$(tail -5 "$LOG")"; fi
     # 같은 줄에 칸을 맞춘 이름은 바꾼 뒤에도 같은 칸 너비여서, 원래 이름의 길이가 드러나지 않는다
     local sc=$rep/sc; printf '  alice(1000)          그룹 alice      755\n  bo(1001)             그룹 bo         755\n' > "$sc.in"
-    bash -c "$(sed -n '/^share_copy() {/,/^}/p' server/check.sh)"'; share_copy "$1" "$2" alice=계정1 bo=계정2' _ "$sc.in" "$sc.out"
+    bash -c "$(sed -n '/^share_copy() {/,/^}/p' admin/server/check.sh)"'; share_copy "$1" "$2" alice=계정1 bo=계정2' _ "$sc.in" "$sc.out"
     cols() { local l; while IFS= read -r l; do printf '%s,%s ' "$(printf '%s' "${l%%그룹*}" | wc -L)" "$(printf '%s' "${l%%755*}" | wc -L)"; done < "$1"; }
     t '공유용 사본: 이름을 바꿔도 칸 너비가 그대로예요' test "$(cols "$sc.in")" = "$(cols "$sc.out")"
     # PCIe 카드(H200 NVL)면 Fabric Manager 를 찾지 않고 NVLink 브리지 묶음을 보여 준다
@@ -429,7 +429,7 @@ t_hook() {
     echo "HF_TOKEN=hf_$(printf 'a%.0s' {1..34})" > "$g/f.txt"; t 'HF 토큰처럼 보이는 값은 막아요' blocked; rm -f "$g/f.txt"; git -C "$g" reset -q
     echo "key AKIA$(printf 'A%.0s' {1..16})" > "$g/k.txt"; t 'AWS 키처럼 보이는 값은 막아요' blocked; rm -f "$g/k.txt"; git -C "$g" reset -q
     cp .env.example "$g/"; t '값 없는 .env.example 은 커밋돼요' cm
-    cp team/서버_사용_규칙.xlsx "$g/"; echo zzzz > "$g/.git/info/gpu-blocklist.txt"; t '저장소의 규칙 엑셀은 통과해요' cm
+    cp user/서버_사용_규칙.xlsx "$g/"; echo zzzz > "$g/.git/info/gpu-blocklist.txt"; t '저장소의 규칙 엑셀은 통과해요' cm
 }
 
 # ================================================================== 9. 기초 프로그램 설치(pkgs_install.sh)
@@ -443,7 +443,7 @@ mk_pkgs() {
     ( cd "$d/debs" && { dpkg-deb -f "$f"; echo "Filename: ./$f"; echo "Size: $(stat -c %s "$f")"; echo "SHA256: $(sha256sum "$f" | cut -d' ' -f1)"; echo; } > Packages )
     printf 'made=test\nubuntu=%s\npkgs=gpu-test-hello\ndebs=1\n' "$(. /etc/os-release && echo "${VERSION_CODENAME:-}")" > "$d/pkgs_info.txt"
     ( cd "$d" && sha256sum debs/"$f" debs/Packages pkgs_info.txt > MANIFEST_pkgs.sha256 )
-    cp server/pkgs_install.sh "$d/"
+    cp admin/server/pkgs_install.sh "$d/"
 }
 run_pk() { GPU_LOG_DIR=$T/pklog bash "$1/pkgs_install.sh" > "$LOG" 2>&1 < /dev/null; }
 t_pkgs() {
@@ -485,7 +485,7 @@ t_system() {
     echo evil > /app/shared/tools/bin/git; echo d > /app/shared/datasets/x/f; ln -s /etc/passwd /app/shared/datasets/x/l; echo w > /app/shared/models/org/m/w
     printf 'IDLE_HOURS=12\nNAS_DIR=/srv/gpunas/autonomy_sw\n' > /app/shared/gpu.conf; chown -R gputest /app/shared /app
     rm -rf /app/autonomy_sw; mkdir -p /app/workspace/kim && echo r > /app/workspace/kim/result.txt && chown -R gputest /app/workspace   # 예전 이름의 작업 폴더
-    local P=$T/pack; mkdir -p "$P"; cp -r server/. "$P/"
+    local P=$T/pack; mkdir -p "$P"; cp -r admin/server/. "$P/"
     bash "$P/admin_setup.sh" < /dev/null > "$LOG" 2>&1
     t '권한·규칙 설정: 준비(prepare.sh) 전에는 멈춰요' has "$LOG" '준비가 안 돼 있어요'
     bash "$P/prepare.sh" < /dev/null > "$LOG" 2>&1

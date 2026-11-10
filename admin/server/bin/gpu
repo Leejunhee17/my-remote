@@ -1,0 +1,484 @@
+#!/usr/bin/env bash
+# GPU 서버 도우미. 관리자가 /app/admin/bin/gpu 에 설치한다(prepare.sh, admin_setup.sh). 팀원이 외울 명령이 아니다.
+# 팀원은 docker, nvidia-smi 를 평소처럼 쓰고, 이 파일은 그 뒤에서 다음을 맡는다.
+#   - 접속 인사: 이름 고르기, GPU별 쓰는 사람, 나에게 온 알림
+#   - nvidia-smi 아래 "GPU별 사용자" 표, docker run 의 GPU 겹침 경고
+#   - 정기 점검(10분): 사용 기록과 알림(겹침, 놀고 있는 GPU, 디스크, 오래된 이미지). 멈추거나 지우지는 않는다
+#   - 주간 보고서(관리자)
+# 공용 계정 하나로 여럿이 쓰므로, 접속할 때 고른 이름(GPU_USER)으로 사람을 구분한다.
+set -uo pipefail
+export LC_ALL=C.UTF-8   # 한글 이름의 화면 폭 계산과 tmux·도커 출력
+APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다
+S=$APP/admin
+W=$APP/autonomy_sw
+ST=$APP/state
+ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
+[ -n "$ACC" ] || [ "$(id -u)" != 0 ] || echo "${0##*/}: 공용 계정 이름을 알 수 없어요. /etc/gpu/account 를 확인하세요(그동안 도커 컨테이너가 안 보여요)" >&2
+TEAM=$S/team.txt
+ALLOC=$S/gpu_alloc.txt
+NOTE=$ST/notice          # 알림: root(정기 점검)만 쓰는 곳
+SEEN=$ST/notice_seen     # 팀원이 어디까지 봤는지: 공용 계정이 쓰는 곳. root 는 여기를 읽거나 쓰지 않는다
+USED=$ST/gpu_log/images_used.tsv   # 이미지를 마지막으로 쓴 날: root 만 쓰는 곳(공용 계정 폴더에 root 가 쓰면 링크로 시스템 파일을 덮을 수 있다)
+ME=${GPU_USER:-}
+# 관리자가 정하는 숫자(/app/admin/gpu.conf 가 있으면 그 값). 모두 알림 기준이다
+# root(정기 점검)도 읽으므로 실행(source)하지 않고 정해진 이름의 값만 꺼내 모양을 확인한다
+conf() { local v; v=$(sed -n "s/^$1=\([^ #]*\).*/\1/p" "$S/gpu.conf" 2>/dev/null | tail -1); [[ "$v" =~ $2 ]] && printf '%s' "$v"; }
+MAX_GPUS=$(conf MAX_GPUS '^[0-9]{1,3}$');            MAX_GPUS=${MAX_GPUS:-4}
+IDLE_HOURS=$(conf IDLE_HOURS '^[0-9]{1,4}$');        IDLE_HOURS=${IDLE_HOURS:-12}
+DISK_ALERT=$(conf DISK_ALERT '^[0-9]{1,3}$');        DISK_ALERT=${DISK_ALERT:-85}
+IMAGE_NOTICE_DAYS=$(conf IMAGE_NOTICE_DAYS '^[0-9]{1,4}$'); IMAGE_NOTICE_DAYS=${IMAGE_NOTICE_DAYS:-30}
+NAS_DIR=$(conf NAS_DIR '^/[A-Za-z0-9._/-]+$'); NAS_DIR=${NAS_DIR:-/data/autonomy_sw}   # prepare.sh 와 같은 기본값
+NVSMI=${GPU_NVSMI:-/usr/bin/nvidia-smi}
+c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_b=$'\e[1m'; c_0=$'\e[0m'
+is_root() { [ "$(id -u)" = 0 ]; }
+# root 가 이 파일을 실행하는데 root 소유가 아니면(예: 누가 소유를 바꾼 뒤) 공용 계정이 고친 내용을 root 가 실행하게 된다
+if is_root && [ "$(stat -c %U "$0" 2>/dev/null)" != root ]; then
+    echo "멈춤: $0 이 root 소유가 아니에요. root 로 쓰기 전에 다시 설치하세요: cd /app/inbox && bash prepare.sh" >&2; exit 1
+fi
+
+# ------------------------------------------------------------------ 명단·배분
+# 관리자·다른팀·이름없음은 알림 받는 곳이나 표시에 쓰는 이름이라 팀원 이름으로 받지 않는다(이름표로 관리자 알림을 꾸미지 못하게)
+RESERVED='^(관리자|다른팀|이름없음|\?)$'
+members()   { [ -f "$TEAM" ] && grep -vE '^\s*(#|$)' "$TEAM" | awk '{print $1}' | grep -vE "$RESERVED"; }
+group_of()  { [ -f "$TEAM" ] && awk -v n="$1" '!/^[ \t]*#/ && $1==n {print $2; exit}' "$TEAM"; }
+alloc_of()  { [ -f "$ALLOC" ] && awk -v g="$1" '!/^[ \t]*#/ && $1==g {print $2; exit}' "$ALLOC"; }
+# 다른 팀과 같이 쓰는 서버(서버 2): gpu_alloc.txt 에서 그룹이 '다른팀' 인 GPU 는 우리 팀이 쓰지 않는다
+OTHER=다른팀
+other_gpus() { [ -f "$ALLOC" ] && awk -v o="$OTHER" '!/^[ \t]*#/ && $2==o {print $1}' "$ALLOC"; }
+is_other()   { [ "$(alloc_of "$1")" = "$OTHER" ]; }
+is_member() {
+    [ -n "$1" ] || return 1
+    case "$1" in *-*|*/*|*' '*) return 1 ;; esac
+    [ -n "$(members)" ] || return 0          # 명단이 비어 있으면(처음 설정할 때만) 아무 이름이나 받는다
+    members | grep -qxF "$1"
+}
+# 번호나 이름 → 이름
+resolve_name() {
+    local a=$1
+    if [[ "$a" =~ ^[0-9]+$ ]]; then a=$(members | sed -n "${a}p"); fi
+    is_member "$a" && echo "$a"
+}
+
+# ------------------------------------------------------------------ 도커(진짜 docker 를 바로 부른다)
+if is_root && id "$ACC" >/dev/null 2>&1 && [ -z "${GPU_DOCKER:-}" ]; then
+    # root 가 공용 계정 도커를 볼 때: 터미널을 떼고(setsid) 공용 계정이 고칠 수 있는 ~/.docker 설정(플러그인 등)은 읽지 않는다
+    DOCKER=(setsid -w runuser -u "$ACC" -- env DOCKER_HOST="unix:///run/user/$(id -u "$ACC")/docker.sock" DOCKER_CONFIG=/etc/gpu/docker/cli /opt/gpu/docker/current/docker)
+else
+    # 접속 첫 화면은 /etc/profile.d/gpu-docker.sh 보다 먼저 돌아서 DOCKER_HOST 가 아직 없다. rootless 도커 자리를 기본으로 쓴다
+    [ -n "${DOCKER_HOST:-}" ] || is_root || export DOCKER_HOST="unix:///run/user/$(id -u)/docker.sock"
+    DOCKER=(${GPU_DOCKER:-/opt/gpu/docker/current/docker})
+fi
+# 도커가 필요한 명령에서만 확인한다(접속할 때 알림 보기 등에서는 도커를 부르지 않는다)
+HAVE_DOCKER=; DOCKER_CHECKED=
+have_docker() {
+    [ -n "$DOCKER_CHECKED" ] || { DOCKER_CHECKED=1; "${DOCKER[@]}" version --format '{{.Server.Version}}' </dev/null >/dev/null 2>&1 && HAVE_DOCKER=1; }
+    [ -n "$HAVE_DOCKER" ]
+}
+
+# 실행 중인 컨테이너: "pid<TAB>이름<TAB>사람<TAB>GPU<TAB>이미지<TAB>컨테이너ID"
+# GPU 는 3,4 | all | n2(앞에서 2장) | -(없음). 사람은 docker 래퍼가 붙인 이름표(gpu.USER)
+CONTAINERS=
+load_containers() {
+    have_docker || return 0
+    local ids; ids=$("${DOCKER[@]}" ps -q 2>/dev/null); [ -n "$ids" ] || return 0
+    # shellcheck disable=SC2086
+    CONTAINERS=$("${DOCKER[@]}" inspect -f '{{.State.Pid}}{{"\t"}}{{slice .Name 1}}{{"\t"}}{{printf "%q" (index .Config.Labels "gpu.USER")}}{{"\t"}}{{range .HostConfig.DeviceRequests}}{{if .DeviceIDs}}{{join .DeviceIDs ","}}{{else if eq .Count -1}}all{{else}}n{{.Count}}{{end}}{{end}}{{"\t"}}{{printf "%q" .Config.Image}}{{"\t"}}{{printf "%q" (index .Config.Labels "gpu.GPUS")}}{{"\t"}}{{.Id}}' $ids 2>/dev/null |
+        # 이름표는 누구나 아무 글자(줄바꿈 포함)나 넣을 수 있다. %q 로 한 줄로 받고, 모양이 맞는 줄만 쓴다(root 가 읽는다)
+        # GPU 요청 정보가 비어 있으면 이름표(gpu.GPUS)로 본다
+        awk -F'\t' -v OFS='\t' 'NF==7 && $1 ~ /^[0-9]+$/ && $7 ~ /^[0-9a-f]+$/ {
+            gsub(/^"|"$/, "", $3); gsub(/^"|"$/, "", $5); gsub(/^"|"$/, "", $6)
+            if ($3 ~ /[\\"[:space:][:cntrl:]]/ || $3=="관리자") $3="?"; if ($5 ~ /[\\"[:space:][:cntrl:]]/) $5="?"
+            if ($4=="" && $6 ~ /^[0-9,]+$/) $4=$6
+            $6=$7; NF=6; print}')
+}
+gpu_count() { "$NVSMI" -L 2>/dev/null | grep -c '^GPU'; }
+# 3,4 | all | n2 → GPU 번호들(줄마다 하나)
+# 값은 도커(공용 계정이 돌린다)에서 오므로 숫자 모양만 받는다. 계산식에 넣으면 그 안의 명령이 실행된다
+expand_gpus() {
+    case "$1" in
+        all) seq 0 $(( $(gpu_count) - 1 )) ;;
+        n*)  [[ "$1" =~ ^n[0-9]{1,2}$ ]] && seq 0 $(( 10#${1#n} - 1 )) ;;
+        ''|-) ;;
+        *)   # GPU 번호 대신 UUID(GPU-…)로 고를 수도 있다. nvidia-smi 의 번호로 바꾼다
+             echo "$1" | tr ',' '\n' | while read -r t; do
+                 if [[ "$t" =~ ^[0-9]{1,2}$ ]]; then echo "$t"
+                 elif [[ "$t" =~ ^GPU-[0-9a-fA-F-]{8,}$ ]]; then
+                     "$NVSMI" --query-gpu=index,uuid --format=csv,noheader 2>/dev/null | awk -F', ' -v u="$t" '$2==u {print $1}'
+                 fi
+             done ;;
+    esac
+    return 0
+}
+
+# ------------------------------------------------------------------ GPU 프로세스 → 사람
+# ① 컨테이너 안 프로세스면 그 컨테이너의 이름표 ② 프로세스 환경의 GPU_USER(접속할 때 고른 이름이 따라간다)
+# ③ 작업 폴더 이름 순서로 찾는다. 결과는 "사람 어디(컨테이너 이름이나 -)"
+# docker exec 로 띄운 프로세스는 컨테이너 첫 프로세스의 자손이 아니라서(부모가 containerd-shim), cgroup 의 컨테이너 ID 로 먼저 찾는다
+owner_of_pid() {
+    local pid=$1 p=$1 u cwd line i cid
+    for cid in $(grep -oE '[0-9a-f]{64}' "/proc/$pid/cgroup" 2>/dev/null); do
+        line=$(echo "$CONTAINERS" | awk -F'\t' -v c="$cid" '$6==c' | head -1)
+        if [ -n "$line" ]; then
+            u=$(echo "$line" | cut -f3); echo "${u:-?} $(echo "$line" | cut -f2)"; return
+        fi
+    done
+    for i in $(seq 1 40); do
+        [ "$p" -gt 1 ] 2>/dev/null || break
+        line=$(echo "$CONTAINERS" | awk -F'\t' -v p="$p" '$1==p' | head -1)
+        if [ -n "$line" ]; then
+            u=$(echo "$line" | cut -f3); echo "${u:-?} $(echo "$line" | cut -f2)"; return
+        fi
+        p=$(sed 's/.*) //' "/proc/$p/stat" 2>/dev/null | cut -d' ' -f2)
+    done
+    u=$( { tr '\0' '\n' < "/proc/$pid/environ"; } 2>/dev/null | sed -n 's/^GPU_USER=//p' | head -1)
+    if [ -z "$u" ]; then
+        cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null)
+        case "$cwd" in "$W"/*) u=${cwd#"$W"/}; u=${u%%/*} ;; esac
+    fi
+    # 프로세스 환경·폴더 이름은 누구나 정할 수 있다. 화면 제어 문자나 띄어쓰기가 든 이름은 쓰지 않는다
+    [[ "$u" =~ ^[^[:cntrl:][:space:]/]{1,32}$ ]] || u=
+    [[ "$u" =~ $RESERVED ]] && u=
+    echo "${u:-?} -"
+}
+# 한 줄에 "gpu pid 메모리MiB 사람 어디"
+gpu_procs() {
+    local map oth; oth=" $(other_gpus | tr '\n' ' ')"
+    map=$("$NVSMI" --query-gpu=index,uuid --format=csv,noheader 2>/dev/null)
+    "$NVSMI" --query-compute-apps=gpu_uuid,pid,used_memory --format=csv,noheader,nounits 2>/dev/null |
+        while IFS=', ' read -r uuid pid mem; do
+            [ -n "$pid" ] || continue
+            local g; g=$(echo "$map" | awk -F', ' -v u="$uuid" '$2==u {print $1}')
+            # 다른 팀 GPU 의 다른 계정 프로세스는 들여다보지 않는다(우리 공용 계정 것만 주인을 찾는다)
+            case "$oth" in *" $g "*) [ "$(stat -c %U "/proc/$pid" 2>/dev/null)" = "$ACC" ] || continue ;; esac
+            echo "$g $pid $mem $(owner_of_pid "$pid")"
+        done
+}
+# GPU 마다 "gpu 사람 어디" (프로세스 + GPU를 잡은 컨테이너. 아직 GPU를 안 써도 잡은 것으로 본다)
+USAGE=
+load_usage() {
+    load_containers
+    USAGE=$( { gpu_procs | awk '{print $1, $4, $5}'
+               echo "$CONTAINERS" | while IFS=$'\t' read -r _ name who gpus _; do
+                   [ -n "$name" ] || continue
+                   for g in $(expand_gpus "$gpus"); do echo "$g ${who:-?} $name"; done
+               done; } | grep . |
+             # 다른 팀 GPU 에서 주인을 모르는 프로세스는 다른 팀 것이다(우리 이름표·이름이 없다). 우리 것만 남긴다
+             awk -v o="$(other_gpus | tr '\n' ' ')" 'BEGIN {n = split(o, a, " "); for (i = 1; i <= n; i++) x[a[i]] = 1}
+                 !(($1 in x) && $2 == "?" && $3 == "-")' | sort -u -k1,1n -k2,2 -k3,3)
+}
+users_of() { echo "$USAGE" | awk -v g="$1" '$1==g {print $2}' | sort -u; }   # GPU 하나를 쓰는 사람들
+my_gpus()  { echo "$USAGE" | awk -v me="$1" '$2==me {print $1}' | sort -un; }
+
+# 화면 폭(한글은 두 칸)에 맞춰 채운다
+pad() { local w; w=$(printf '%s' "$1" | wc -L); printf '%s%*s' "$1" $(( $2 > w ? $2 - w : 0 )) ''; }
+
+# ------------------------------------------------------------------ GPU별 사용자 (nvidia-smi 아래, 접속 인사)
+cmd_who() {
+    "$NVSMI" -L >/dev/null 2>&1 || { echo "${c_y}GPU 정보를 읽지 못했어요(nvidia-smi). 관리자에게 알려 주세요.${c_0}"; return; }
+    load_usage
+    echo "${c_b}GPU별 사용자${c_0}  (공용 계정이라 접속할 때 고른 이름으로 보여요)"
+    echo "$(pad GPU 4)$(pad 배분 15)$(pad '쓰는 사람' 16)$(pad 사용률 7)$(pad '메모리 GB' 10)컨테이너"
+    "$NVSMI" --query-gpu=index,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits |
+    while IFS=', ' read -r i mu mt ut; do
+        local grp who where col='' u n
+        grp=$(alloc_of "$i"); grp=${grp:--}
+        who=$(users_of "$i" | tr '\n' ',' | sed 's/,$//')
+        where=$(echo "$USAGE" | awk -v g="$i" '$1==g && $3!="-" {print $3}' | sort -u | tr '\n' ',' | sed 's/,$//')
+        n=$(users_of "$i" | grep -c .)
+        if [ "$grp" = "$OTHER" ]; then grp='다른 팀'; [ -n "$who" ] && { col=$c_r; who="$who(다른 팀)"; }
+        elif [ "$n" -ge 2 ]; then col=$c_r; who="$who(겹침)"
+        elif [ "$who" = '?' ]; then col=$c_r; who='?(이름 없음)'
+        elif [ -n "$who" ] && [ "$grp" != 공용 ] && [ "$grp" != - ] && [ "$(group_of "$who")" != "$grp" ]; then col=$c_y; who="$who(빌림)"
+        fi
+        echo "$(pad "$i" 4)$(pad "$grp" 15)$col$(pad "${who:--}" 16)$c_0$(pad "$ut%" 7)$(pad "$((mu / 1024))/$((mt / 1024))" 10)${where:--}"
+    done
+    echo "  빈 GPU를 골라 docker run --gpus '\"device=번호\"' 처럼 번호로 쓰세요. 내 그룹이나 공용 GPU부터 골라요."
+    local oth; oth=$(other_gpus | tr '\n' ',' | sed 's/,$//')
+    [ -z "$oth" ] || echo "  ${c_y}GPU ${oth}번은 다른 팀 GPU예요. 우리 팀은 쓰지 않아요.${c_0}"
+}
+
+# ------------------------------------------------------------------ docker 래퍼가 부른다: GPU 겹침 경고
+# $1: 3,4 | all | n2.  경고만 한다. 남이 쓰는 GPU 면 2 를 돌려줘(래퍼가 한 번 묻는다)
+cmd__gpu_warn() {
+    local spec=$1 g others grp mygrp rc=0 mine cnt free oth=
+    load_usage
+    mygrp=$(group_of "$ME")
+    w() { echo "  ${c_y}[경고]${c_0} $*" >&2; }
+    [ "$spec" = all ] && { w "--gpus all 은 GPU ${c_b}$(gpu_count)장을 모두${c_0} 잡아요. 다른 사람$( [ -n "$(other_gpus)" ] && echo '·다른 팀')과 겹쳐요. 번호로 정하세요: --gpus '\"device=5\"'"; rc=2; }
+    case "$spec" in n*) w "--gpus ${spec#n} 처럼 장 수만 쓰면 0번부터 ${spec#n}장을 잡아요. 번호로 정하세요: --gpus '\"device=5\"'" ;; esac
+    for g in $(expand_gpus "$spec"); do
+        if is_other "$g"; then oth="$oth$g,"; continue; fi
+        others=$(users_of "$g" | grep -vxF "${ME:-}" | tr '\n' ',' | sed 's/,$//')
+        if [ -n "$others" ]; then
+            others=$(echo "$others" | tr ',' '\n' | sed 's/^?$/이름 없는 작업/; /^이름 없는 작업$/!s/$/ 님/' | paste -sd, | sed 's/,/, /g')
+            w "GPU ${g}번은 지금 ${c_b}${others}${c_0}이 쓰고 있어요. 같이 쓰면 메모리가 모자라 둘 다 멈출 수 있어요."; rc=2
+        fi
+        grp=$(alloc_of "$g")
+        if [ "$spec" != all ] && [ -n "$grp" ] && [ "$grp" != 공용 ] && [ -n "$mygrp" ] && [ "$grp" != "$mygrp" ]; then
+            w "GPU ${g}번은 '$grp' 그룹 GPU예요. 비어 있을 때 빌려 쓰고, 그 그룹이 말하면 돌려주세요."
+        fi
+    done
+    [ -z "$oth" ] || { w "GPU ${oth%,}번은 ${c_b}다른 팀${c_0} GPU예요. 우리 팀은 쓰지 않아요."; rc=2; }
+    if [ -n "$ME" ] && [ "$spec" != all ]; then
+        mine=$( { my_gpus "$ME"; expand_gpus "$spec"; } | sort -un | grep -c .)
+        [ "$mine" -gt "$MAX_GPUS" ] && w "이 컨테이너까지 띄우면 내가 쓰는 GPU가 ${mine}장이 돼요. 한 사람이 ${MAX_GPUS}장까지 쓰기로 정했어요."
+    fi
+    if [ "$rc" = 2 ]; then
+        free=$(for g in $(seq 0 $(( $(gpu_count) - 1 ))); do
+                   [ -z "$(users_of "$g")" ] && ! is_other "$g" || continue
+                   grp=$(alloc_of "$g"); { [ "$grp" = 공용 ] || [ -z "$grp" ] || [ "$grp" = "$mygrp" ]; } && echo "$g"
+               done | tr '\n' ' ')
+        echo "  내 그룹·공용의 빈 GPU: ${free:-없음}  (현황: nvidia-smi)" >&2
+    fi
+    return $rc
+}
+
+# ------------------------------------------------------------------ 알림
+# 같은 알림(키)은 한 번만 보낸다. 사람별 파일에 남기고(접속할 때 보여 줌), 열려 있는 그 사람 창에도 한 줄 띄운다
+notify() {
+    local who=$1 key=$2 msg=$3 f
+    # 이름은 프로세스 환경·컨테이너 이름표에서 오므로 누구나 정할 수 있다. 명단에 있는 이름에만 보낸다(파일 경로로 쓰이므로)
+    if [ "$who" != 관리자 ]; then
+        case "$who" in ''|*/*|.*) return 0 ;; esac
+        is_member "$who" || return 0
+    fi
+    mkdir -p "$NOTE"; f="$NOTE/$who.txt"
+    [ -f "$f" ] && grep -qF "	$key	" "$f" && return 0
+    printf '%s\t%s\t%s\n' "$(date '+%F %H:%M')" "$key" "$msg" >> "$f"
+    [ "$who" = 관리자 ] && return 0
+    push_tty "$who" "$msg"
+}
+# 그 사람이 열어 둔 터미널 찾기. 로그인 셸은 이름을 나중에 고르므로 프로세스 환경에는 없다.
+# 이름을 고를 때 접속 설정이 $ST/tty/pts-N 에 이름을 적어 둔다. 쓸 터미널 경로는 /proc 에서 직접 읽은 것만 쓴다
+push_tty() {
+    local who=$1 msg=$2 p t n f
+    for p in /proc/[0-9]*; do
+        [ "$(cat "$p/comm" 2>/dev/null)" = bash ] || continue
+        [ "$(stat -c %U "$p" 2>/dev/null)" = "$ACC" ] || continue
+        t=$(readlink "$p/fd/0" 2>/dev/null); [[ "$t" =~ ^/dev/pts/[0-9]+$ ]] || continue
+        n=; f="$ST/tty/pts-${t##*/}"   # 공용 계정이 쓰는 파일이라 보통 파일일 때만, 잠깐만 읽는다
+        [ -f "$f" ] && [ ! -L "$f" ] && n=$(timeout 1 head -c 64 "$f" 2>/dev/null)
+        [ "$n" = "$who" ] || { tr '\0' '\n' < "$p/environ"; } 2>/dev/null | grep -qxF "GPU_USER=$who" || continue
+        echo "$t"
+    done | sort -u | while read -r t; do
+        timeout 2 bash -c 'printf "\r\n\e[33m[서버 알림]\e[0m %s\r\n" "$1" > "$2"' _ "$msg" "$t" 2>/dev/null
+    done
+}
+# 접속할 때: 아직 안 본 알림을 보여 준다(최근 14일, 많아도 5줄)
+cmd__notices() {
+    local who=${1:-$ME} f seen total since
+    [ -n "$who" ] || return 0
+    case "$who" in */*|.*) return 0 ;; esac
+    f="$NOTE/$who.txt"; [ -f "$f" ] || return 0
+    local sf="$SEEN/$who"; is_root && sf="$ST/reports/.notice_seen"   # 관리자 것은 root 만 쓰는 곳에
+    seen=$(cat "$sf" 2>/dev/null); [[ "$seen" =~ ^[0-9]+$ ]] || seen=0   # 숫자만 믿는다
+    total=$(wc -l < "$f")
+    [ "$total" -gt "$seen" ] || return 0
+    since=$(date -d '14 days ago' +%F)
+    echo "${c_y}알림${c_0}"
+    tail -n +"$((seen + 1))" "$f" | awk -F'\t' -v s="$since" '$1>=s {print "  [" substr($1,6) "] " $3}' | tail -5
+    [ "$((total - seen))" -le 5 ] || echo "  (최근 5개만 보여요. 전체: less $f)"
+    { echo "$total" > "$sf"; } 2>/dev/null
+}
+
+# ------------------------------------------------------------------ 접속 인사
+cmd__hello() {
+    echo
+    echo "${c_b}GPU 서버 ($(hostname -s))${c_0}  팀원 모두가 공용 계정으로 써요. 이름을 고르면 GPU·컨테이너 옆에 이름이 보여요."
+    cmd_who
+}
+cmd__names() {   # 고르기 쉽게 번호를 붙인다
+    members | awk '{printf "  %2d %s", NR, $0; if (NR % 6 == 0) printf "\n"} END {if (NR % 6) printf "\n"}'
+}
+
+# ------------------------------------------------------------------ 정기 점검(root, 10분마다): 기록과 알림
+cmd__check() {
+    local now day week f use
+    now=$(date '+%F %T'); day=$(date +%F); week=$(date +%G-W%V)
+    mkdir -p "$ST/gpu_log" "$NOTE"
+    f="$ST/gpu_log/$(date +%Y-%m).tsv"
+    load_usage
+    # 1. 기록: 시각 GPU 사람 어디 사용률 메모리
+    local util; util=$("$NVSMI" --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader,nounits 2>/dev/null)
+    echo "$USAGE" | while read -r g who where; do
+        [ -n "$g" ] || continue
+        printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$now" "$g" "$who" "$where" \
+            "$(echo "$util" | awk -F', ' -v g="$g" '$1==g {print $2}')" "$(echo "$util" | awk -F', ' -v g="$g" '$1==g {print $3}')"
+    done >> "$f"
+    # 2. 겹침: 한 GPU를 두 사람 이상이 쓴다 → 각자에게 하루 한 번
+    for g in $(echo "$USAGE" | awk '{print $1}' | sort -un); do
+        local us; us=$(users_of "$g" | grep -v '^?$')
+        [ "$(echo "$us" | grep -c .)" -ge 2 ] || continue
+        for u in $us; do
+            notify "$u" "겹침-$g-$day" "GPU ${g}번을 $(echo "$us" | tr '\n' ' ' | sed 's/ $//; s/ /, /g') 님이 같이 쓰고 있어요. 메모리가 모자라면 둘 다 멈춰요. nvidia-smi로 확인하고 누가 옮길지 정해 주세요."
+        done
+    done
+    # 2-1. 다른 팀 GPU: 우리 팀이 쓰고 있으면 그 사람과 관리자에게 하루 한 번
+    for g in $(other_gpus); do
+        echo "$USAGE" | awk -v g="$g" '$1==g {print $2, $3}' | sort -u | while read -r u where; do
+            local wtxt=''; [ "$where" = - ] || wtxt="(컨테이너 $where)"
+            notify "$u" "다른팀-$g-$day" "GPU ${g}번은 다른 팀 GPU예요$wtxt. 멈추고 우리 팀 GPU로 옮겨 주세요(nvidia-smi 아래 표의 배분 칸)."
+            [ "$u" = '?' ] && u='이름 없는 작업' || u="$u 님"
+            notify 관리자 "다른팀-$g-$u-$day" "${u}이 다른 팀 GPU ${g}번을 쓰고 있어요$wtxt."
+        done
+    done
+    # 3. 놀고 있는 GPU: 정한 시간 내내 사용률 0% → 그 사람에게 하루 한 번
+    local need=$(( IDLE_HOURS * 6 * 9 / 10 )) since; since=$(date -d "$IDLE_HOURS hours ago" '+%F %T')
+    cat "$ST/gpu_log/$(date -d "$IDLE_HOURS hours ago" +%Y-%m).tsv" "$f" 2>/dev/null | sort -u |
+        awk -F'\t' -v s="$since" -v need="$need" '$1>=s && $3!="?" {k=$2"\t"$3"\t"$4; n[k]++; if ($5+0>0) busy[k]=1}
+            END {for (k in n) if (n[k]>=need && !busy[k]) print k}' |
+        while IFS=$'\t' read -r g u where; do
+            echo "$USAGE" | awk -v g="$g" -v u="$u" '$1==g && $2==u' | grep -q . || continue   # 지금도 잡고 있을 때만
+            local how="다 썼으면 GPU를 놓아 주세요"
+            [ "$where" != - ] && how="다 썼으면 docker stop $where 로 GPU를 놓아 주세요"
+            notify "$u" "놀고있음-$g-$day" "GPU ${g}번을 ${IDLE_HOURS}시간째 잡고만 있어요(사용률 0%). $how."
+        done
+    # 4. 이름 없는 GPU 사용 → 관리자에게만
+    echo "$USAGE" | awk '$2=="?" {print $1, $3}' | sort -u | while read -r g where; do
+        is_other "$g" && continue   # 2-1 에서 알렸다
+        [ "$where" = - ] && where='' || where="(컨테이너 $where)"
+        notify 관리자 "이름없음-$g-$day" "GPU ${g}번을 이름 없는 작업이 쓰고 있어요$where. nvidia-smi로 확인하세요."
+    done
+    # 5. 디스크 → 많이 쓰는 3명과 관리자에게 주 한 번
+    use=$(df -P "$APP" 2>/dev/null | awk 'NR==2 {gsub("%","",$5); print $5}')
+    if [ "${use:-0}" -ge "$DISK_ALERT" ]; then
+        notify 관리자 "디스크-$week" "/app 디스크가 ${use}% 찼어요. 큰 작업 폴더 3곳의 주인에게도 알렸어요(폴더별 크기는 주간 보고서에 있어요)."
+        # 끝에 / 를 붙이면 링크를 따라간다(누가 ln -s / 를 두면 root 가 파일시스템 전체를 잰다). du 는 기본으로 링크를 따라가지 않는다
+        du -sx -- "$W"/* 2>/dev/null | sort -rn | head -3 | while read -r _ d; do
+            local u; u=$(basename "$d"); is_member "$u" || continue
+            notify "$u" "디스크-$week" "디스크가 ${use}% 찼어요. 내 작업 폴더($(du -shx -- "$d" | cut -f1))와 안 쓰는 도커 이미지를 정리해 주세요."
+        done
+    fi
+    # 6. 이미지: 쓰는 날 기록, 오래 안 쓴 이미지는 들여온 사람에게 주 한 번
+    if have_docker; then
+        # 처음에는 $USED 가 없다. 없어도 새로 만들게 cat 실패가 pipefail 로 번지지 않게 묶는다
+        { echo "$CONTAINERS" | cut -f5 | grep . | sort -u | while read -r ref; do printf '%s\t%s\n' "$ref" "$day"; done
+          [ -f "$USED" ] && [ ! -L "$USED" ] && cat "$USED"; true; } |
+            sort -t$'\t' -k1,1 -k2,2r | sort -t$'\t' -u -k1,1 > "$USED.new" &&
+            mv "$USED.new" "$USED"
+        local old; old=$(date -d "$IMAGE_NOTICE_DAYS days ago" +%F)
+        image_table | while IFS=$'\t' read -r ref who last _; do
+            [ "$last" != - ] && [[ "$last" < "$old" ]] || continue
+            if is_member "$who" && [ -n "$(members)" ]; then
+                notify "$who" "이미지-$ref-$week" "도커 이미지 $ref: ${IMAGE_NOTICE_DAYS}일 넘게 안 썼어요(마지막 $last). 필요 없으면 docker rmi $ref 로 지워 주세요."
+            else
+                notify 관리자 "이미지-$ref-$week" "도커 이미지 $ref: 들여온 사람을 모르고 ${IMAGE_NOTICE_DAYS}일 넘게 안 썼어요(마지막 $last)."
+            fi
+        done
+    fi
+    # 7. GPU 오류 → 관리자에게 하루 한 번
+    if "$NVSMI" -q -d ECC 2>/dev/null | grep -qiE 'uncorr.*: [1-9]'; then notify 관리자 "ECC-$day" "GPU 메모리 오류(ECC)가 있어요: nvidia-smi -q -d ECC"; fi
+    if journalctl -k --since '10 min ago' 2>/dev/null | grep -qi 'NVRM: Xid'; then notify 관리자 "Xid-$day" "GPU 오류(Xid)가 있어요: journalctl -k | grep Xid"; fi
+    true
+}
+
+# 이미지마다 "이미지<TAB>들여온 사람<TAB>마지막 사용일<TAB>크기" (들여온 날과 컨테이너로 쓴 날 중 늦은 날)
+image_table() {
+    have_docker || return 0
+    local led=() f
+    for f in "$ST/images/loaded.tsv" "$USED"; do [ -f "$f" ] && [ ! -L "$f" ] && led+=("$f"); done   # loaded.tsv 는 docker 래퍼(공용 계정)가 쓴다. root 가 만들지 않는다
+    "${DOCKER[@]}" images --format '{{.Repository}}:{{.Tag}}{{"\t"}}{{.CreatedAt}}{{"\t"}}{{.Size}}' 2>/dev/null | grep -v '^<none>' |
+    while IFS=$'\t' read -r ref created size; do
+        awk -F'\t' -v r="$ref" -v c="${created:0:10}" -v sz="$size" '
+            FILENAME ~ /loaded/ && $3==r {who=$2; d=substr($1,1,10); if (d>last) last=d}
+            FILENAME ~ /used/ && $1==r {if ($2>last) last=$2}
+            END {if (!last) last=c; printf "%s\t%s\t%s\t%s\n", r, (who?who:"모름"), (last?last:"-"), sz}' \
+            "${led[@]}" /dev/null
+    done
+}
+
+# ------------------------------------------------------------------ 주간 보고서(root, 월요일 아침)
+cmd__report() {
+    local since; since=$(date -d '7 days ago' '+%F %T')
+    echo "GPU 서버 주간 보고서  $(date -d '7 days ago' +%F) ~ $(date +%F)"
+    echo
+    echo "== 사람별 GPU 사용 시간 (10분마다 남긴 기록으로 계산)"
+    cat "$ST/gpu_log/$(date -d '7 days ago' +%Y-%m).tsv" "$ST/gpu_log/$(date +%Y-%m).tsv" 2>/dev/null | sort -u |
+        awk -F'\t' -v s="$since" '$1>=s {k=$1"\t"$2"\t"$3; if (!(k in seen)) {seen[k]=1; n[$3]++; if ($5+0==0) idle[$3]++}}
+            END {for (u in n) printf "%s\t%.1f\t%.1f\n", u, n[u]/6, idle[u]/6}' | sort -t$'\t' -k2,2 -rn |
+        while IFS=$'\t' read -r u h i; do echo "  $(pad "$u" 12) $h 시간 (그중 사용률 0% $i 시간)"; done
+    echo
+    echo "== 디스크"
+    df -h "$APP" | awk 'NR==2 {print "  /app "$3" / "$2" ("$5")"}'
+    du -shx -- "$W"/* 2>/dev/null | sort -rh | head -10 | sed "s#$W/##; s/[[:cntrl:]]//g; s/^/  /"
+    if have_docker; then
+        echo
+        echo "== 도커 이미지 (이미지, 들여온 사람, 마지막 사용, 크기)"
+        image_table | sort -t$'\t' -k3,3 | awk -F'\t' '{printf "  %-50s %-10s %s  %s\n", $1, $2, $3, $4}'
+    fi
+    # NAS 우리 팀 폴더(gpu.conf 의 NAS_DIR). root squash 에서도 읽히고 링크를 심어도 root 가 따라가지 않게 공용 계정으로 본다
+    if [ -n "${NAS_DIR:-}" ] && [ -d "$NAS_DIR" ] && [ ! -L "$NAS_DIR" ]; then
+        local as=(); is_root && as=(setsid -w runuser -u "$ACC" --)
+        echo
+        echo "== NAS ($NAS_DIR)"
+        "${as[@]}" df -hP "$NAS_DIR" 2>/dev/null | awk 'NR==2 {print "  전체 "$2", 쓴 것 "$3", 남은 것 "$4" ("$5")  (할당량이 있으면 할당량 기준)"}'
+        "${as[@]}" timeout 1800 du -sh "$NAS_DIR"/datasets "$NAS_DIR"/models "$NAS_DIR"/originals "$NAS_DIR"/docker_images/* "$NAS_DIR"/backup/* "$NAS_DIR"/tmp_transfer 2>/dev/null |
+            sed "s#$NAS_DIR/##; s/\t/  /; s/[[:cntrl:]]//g; s/^/  /"
+        local old; old=$("${as[@]}" find "$NAS_DIR/tmp_transfer" -mindepth 1 -maxdepth 1 -mtime +14 -printf '  %TY-%Tm-%Td  %f\n' 2>/dev/null | sed 's/[[:cntrl:]]//g' | sort | head -20)
+        [ -z "$old" ] || { echo "  tmp_transfer/ 에서 14일 넘은 것(옮겼으면 지워 주세요):"; echo "$old"; }
+    fi
+    echo
+    echo "== 지난 7일 알림"
+    for f in "$NOTE"/*.txt; do
+        [ -f "$f" ] || continue
+        awk -F'\t' -v s="${since:0:16}" -v who="$(basename "$f" .txt)" '$1>=s {print "  " $1 " " who ": " $3}' "$f"
+    done | sort
+}
+
+# ------------------------------------------------------------------ 관리자 점검
+cmd_doctor() {
+    echo "== GPU"; "$NVSMI" -L 2>&1 | head -8
+    echo "== 도커"
+    have_docker || { echo '  도커 데몬에 연결하지 못했어요. root로 확인하세요: systemctl status gpu-docker'; return; }
+    "${DOCKER[@]}" info --format '  Docker {{.ServerVersion}}, {{.DockerRootDir}}, {{.SecurityOptions}}' 2>&1 | tail -1
+    [ $# -ge 1 ] || { echo '  컨테이너 안 GPU 계산까지 보려면 이미지를 붙여 실행하세요: gpu doctor <PyTorch 이미지>'; return; }
+    # 다른 팀 GPU(서버 2의 0~3번)는 피해서 우리 GPU 하나로 시험한다
+    local g; g=$(seq 0 $(( $(gpu_count) - 1 )) | while read -r i; do is_other "$i" || { echo "$i"; break; }; done)
+    echo "== 컨테이너에서 GPU ${g:-0}번으로 시험"
+    "${DOCKER[@]}" run --rm --gpus "\"device=${g:-0}\"" --entrypoint '' "$1" sh -c \
+        'P=$(command -v python || command -v python3); $P -c "import torch; x=torch.randn(64,64,device=\"cuda\"); ok=float((x@x).sum())==float((x@x).sum()); print(\"  PyTorch\", torch.__version__, \"/ CUDA\", torch.version.cuda, \"/ 보이는 GPU \"+str(torch.cuda.device_count())+\"장 / GPU 계산\", \"정상\" if ok else \"이상\")"' 2>&1 | tail -3
+    echo "  보이는 GPU가 1장이고 GPU 계산이 정상이면 돼요. 오류가 나면 admin/6_문제_해결.md 의 'gpu doctor' 줄을 보세요."
+}
+
+# ------------------------------------------------------------------ 관리자: 올린 파일 들여오기
+# NAS 의 inbox(공용 계정이 FileZilla 로 올리는 곳, gpu.conf 의 NAS_DIR/inbox) → /app/inbox(root 만 고침)로 설치 묶음(.tar)을 새로 복사하고 지문을 보여 준다.
+# 공용 계정이 고칠 수 있는 파일을 root 가 그대로 실행하지 않게 하려는 것이다. 데이터셋·모델(4·5단계)은 사용자가 공용 계정으로 넣어서 여기서 다루지 않는다
+cmd_fetch() {
+    is_root || { echo "root 전용이에요."; return 1; }
+    local n=${1:-} up=$NAS_DIR/inbox in=$APP/inbox
+    case "$n" in
+        gpu-setup.tar|gpu-pkgs.tar|gpu-docker.tar) ;;
+        datasets|models) echo "데이터셋·모델은 root 말고 공용 계정으로 넣어요: bash $up/$n/$( [ "$n" = datasets ] && echo datasets_unpack.sh || echo models_place.sh)"; return 1 ;;
+        *) echo "쓰는 법: gpu fetch gpu-setup.tar | gpu-pkgs.tar | gpu-docker.tar"; return 1 ;;
+    esac
+    [ "$(stat -c '%U %a' "$in" 2>/dev/null)" = "root 755" ] && [ ! -L "$in" ] ||
+        { echo "${c_r}멈춤:${c_0} $in 이 root 소유(755)가 아니에요. 먼저 실행하세요: cd /app/inbox && bash prepare.sh"; return 1; }
+    rm -f "${in:?}/$n"   # 예전 복사본은 먼저 지운다(멈췄을 때 예전 묶음을 실행하지 않게)
+    [ -e "$up/$n" ] || { echo "${c_r}멈춤:${c_0} $up/$n 이 없어요. 공용 계정 FileZilla로 NAS 의 $up 에 먼저 올리세요."; return 1; }
+    [ -f "$up/$n" ] && [ ! -L "$up/$n" ] || { echo "${c_r}멈춤:${c_0} $up/$n 이 보통 파일이 아니에요(폴더나 링크). 접근 PC의 파일을 다시 올리세요."; return 1; }
+    cp "$up/$n" "$in/" || { echo "${c_r}멈춤:${c_0} 복사하지 못했어요(남은 공간: df -h /app)"; return 1; }
+    echo "지문(sha256): $(sha256sum "$in/$n" | cut -d' ' -f1)"
+    case "$n" in
+        gpu-setup.tar)  echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash prepare.sh"
+                        echo "  (권한·규칙 설정까지 끝낸 서버면 bash admin_setup.sh 도 다시 실행해야 고친 도우미가 /app/admin/bin 에 설치돼요)" ;;
+        gpu-pkgs.tar)   echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash pkgs_install.sh" ;;
+        gpu-docker.tar) echo "접근 PC 화면의 지문과 같으면 실행하세요: cd $in && tar xf $n && bash docker_install.sh" ;;
+    esac
+    echo "다르면 실행하지 마세요. $up/$n 을 지우고 다시 올린 뒤 이 명령을 다시 실행하세요."
+}
+
+case "${1:-}" in
+    ''|who)       cmd_who ;;
+    fetch)        shift; cmd_fetch "$@" ;;
+    doctor)       shift; cmd_doctor "$@" ;;
+    docker)       shift; is_root || { echo "root 전용이에요. 공용 계정은 docker 를 바로 쓰세요."; exit 1; }
+                  "${DOCKER[@]}" "$@" ;;   # 관리자가 공용 계정 도커를 볼 때: /app/admin/bin/gpu docker ps -a
+    _hello)       cmd__hello ;;
+    _names)       cmd__names ;;
+    _resolve)     resolve_name "${2:-}" ;;
+    _notices)     cmd__notices "${2:-}" ;;
+    _gpu-warn)    cmd__gpu_warn "${2:-}" ;;
+    _check)       cmd__check ;;
+    _report)      cmd__report ;;
+    *)            echo "쓰는 법: gpu [who] | doctor [이미지] | docker <명령>(root) | fetch <이름>(root)   (나머지 명령은 접속 설정·docker·정기 점검이 내부에서 써요)"; exit 1 ;;
+esac
