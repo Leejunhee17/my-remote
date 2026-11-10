@@ -225,7 +225,7 @@ function Get-Size($path) {
 }
 
 # 끊긴 뒤 기다리기. 받은 양이 늘었으면 진전이 있는 것이라 센 횟수를 0으로 되돌리고 10초만 쉰다.
-# 진전 없이 끊긴 횟수만 세고, 기다리는 시간을 30초씩 늘린다(최대 5분). 새 횟수를 돌려준다.
+# 진전 없이 끊긴 횟수만 세고, 기다리는 시간을 30초씩 늘린다(최대 2분). 마지막 번에는 기다리지 않는다. 새 횟수를 돌려준다.
 function Step-Retry($stall, $before, $after, $max, $what) {
     if ($after -gt $before) {
         Write-Warn "$what 연결이 끊겼어요. 받은 데까지($(Format-Size $after)) 이어서 받아요"
@@ -233,8 +233,9 @@ function Step-Retry($stall, $before, $after, $max, $what) {
         return 0
     }
     $stall++
-    $wait = [math]::Min(300, 30 * $stall)
-    Write-Warn "$what 연결이 끊겼고 더 받지 못했어요. ${wait}초 뒤 다시 해요(더 받지 못한 채 끊긴 횟수 $stall/$max)"
+    if ($stall -ge $max) { Write-Warn "$what 연결이 끊겼고 더 받지 못했어요($stall/$max). 이 파일은 그만 받아요"; return $stall }
+    $wait = [math]::Min(120, 30 * $stall)
+    Write-Warn "$what 연결이 끊겼고 더 받지 못했어요. ${wait}초 뒤 다시 해요($stall/$max)"
     Start-Sleep $wait
     return $stall
 }
@@ -313,7 +314,7 @@ function Invoke-Aria2($url, $file, [string[]]$extra = @(), [int]$conn = 1) {
     if ((Test-Path $file) -and (Get-Item $file).Length -eq 0 -and -not (Test-Path "$file.aria2")) { Remove-Item -Force $file }
     $px = @(Get-Aria2Proxy $url)
     & $a -c -d $dir -o $name -x $conn -s $conn --auto-file-renaming=false --file-allocation=none `
-        --max-tries=3 --retry-wait=10 --connect-timeout=30 --timeout=120 `
+        --max-tries=2 --retry-wait=10 --connect-timeout=30 --timeout=120 `
         --summary-interval=0 --console-log-level=warn --download-result=hide @px @extra $url | Out-Host   # 화면에만(결과값에 섞이지 않게)
     return $LASTEXITCODE
 }

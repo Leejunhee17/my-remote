@@ -6,7 +6,7 @@ Ubuntu 버전이 정해지지 않아도 된다(22.04, 24.04 용 패키지를 모
   powershell -ExecutionPolicy Bypass -File .\pc\docker_pack.ps1
 #>
 param(
-    [int]$MaxTries = 20
+    [int]$MaxTries = 5
 )
 $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent

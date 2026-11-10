@@ -88,7 +88,7 @@ def main(cmd, repo, d):
         if name in done and os.path.exists(path) and os.path.getsize(path) == size:
             continue
         print(f"  ({i}/{len(files)}) {name} ({size / 2**20:.0f} MB)", flush=True)
-        for attempt in range(1, 6):
+        for attempt in range(1, 4):
             try:
                 hf_hub_download(repo, name, revision=info.sha, local_dir=d, token=token)
                 break
@@ -96,7 +96,7 @@ def main(cmd, repo, d):
                 print("  승인이 필요한 파일이에요. 약관 동의와 토큰을 확인하세요.")
                 return 3
             except Exception as e:  # 끊김 등은 이어받기로 다시 시도
-                print(f"  연결이 끊겼어요({type(e).__name__}). 20초 뒤 이어받아요({attempt}/5)", flush=True)
+                print(f"  연결이 끊겼어요({type(e).__name__}). 20초 뒤 이어받아요({attempt}/3)", flush=True)
                 time.sleep(20)
         else:
             return 1

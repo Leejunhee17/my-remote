@@ -9,7 +9,7 @@
 param(
     [string]$Dest = (Join-Path (Split-Path $PSScriptRoot -Parent) 'models'),
     [string[]]$Only = @(),            # 이 그룹만 받는다(쉼표로 여러 개)
-    [int]$MaxTries = 30               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 모델은 포기(약 2시간)
+    [int]$MaxTries = 5                # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 모델은 포기(약 5분). 받는 중이면 끊겨도 계속해요
 )
 $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent   # 저장소 맨 위(D:\gpu). 결과 폴더와 uv.exe 는 여기

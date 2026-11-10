@@ -18,7 +18,7 @@ param(
     [string]$WildScenesLinks = '',    # WildScenes 를 포털 "Get a list of file download links" 로 받은 목록 파일로 받는다
     [string[]]$Only = @(),            # 이 폴더만 받는다(쉼표로 여러 개)
     [switch]$DriveCheck,              # 받지 않고 Google Drive 파일마다 받을 수 있는지, 안 되면 왜인지 진단만 한다
-    [int]$MaxTries = 30,              # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 2시간)
+    [int]$MaxTries = 5,               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 5분). 받는 중이면 끊겨도 계속해요
     [int]$LateTries = 3,              # 맨 끝에 받는 것(사내망에서 막히는 사이트)은 이만큼만 해 보고 넘어간다(받아지기 시작하면 끝까지 이어받아요)
     [switch]$Auto,                    # 받지 않고, 몇 시간마다 자동으로 다시 받도록 윈도우 작업 스케줄러에 등록한다(-Only 가 없으면 Google Drive 데이터셋만)
     [int]$AutoHours = 6,              # 몇 시간마다 다시 받을지
@@ -249,6 +249,12 @@ function Get-Url($url, $file, $tries = $MaxTries) {
             if ($code -in 3, 22, 24 -and -not ((Get-Size $file) -gt $local)) {
                 $r = Invoke-Http $url -Range '0-0' -Max 2048
                 Write-Bad "사이트가 거절했어요(HTTP $($r.Status)): $(Split-Path -Leaf $file). 주소가 바뀌었거나 막혔을 수 있어요"
+                Write-Info "    주소: $(($url -split '\?')[0])"
+                return $null
+            }
+            # 사이트에 아예 접속되지 않으면(크기도 모르고 한 바이트도 못 받음) 기다려도 같아서 바로 넘어간다
+            if ($code -ne 0 -and -not $remote -and -not ((Get-Size $file) -gt $local)) {
+                Write-Bad "사이트에 접속되지 않아요: $(Split-Path -Leaf $file). 네트워크(방화벽·프록시)를 확인하고 다시 실행하세요(받은 데까지는 이어받아요)"
                 Write-Info "    주소: $(($url -split '\?')[0])"
                 return $null
             }
@@ -651,7 +657,7 @@ if ($doWild) {
                 $px = @(Get-Aria2Proxy $todo[0].Url)
                 # -c 이어받기, --save-session: 끝나지 않았거나 실패한 것만 적어 둔다(거기 없는 것 = 다 받은 것)
                 & $aria -i $ain -d $wdir -c -j 16 -x 1 --auto-file-renaming=false --file-allocation=none `
-                    --max-tries=5 --retry-wait=10 --connect-timeout=30 --timeout=120 `
+                    --max-tries=2 --retry-wait=10 --connect-timeout=30 --timeout=120 `
                     --summary-interval=60 --console-log-level=warn --download-result=hide `
                     --save-session=$asess --log=$alog --log-level=notice @px
                 $acode = $LASTEXITCODE

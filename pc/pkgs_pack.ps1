@@ -7,7 +7,7 @@
   powershell -ExecutionPolicy Bypass -File .\pc\pkgs_pack.ps1
 #>
 param(
-    [int]$MaxTries = 20
+    [int]$MaxTries = 5
 )
 $here = $PSScriptRoot
 $root = Split-Path $PSScriptRoot -Parent
