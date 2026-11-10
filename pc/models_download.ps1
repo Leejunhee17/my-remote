@@ -118,23 +118,36 @@ Write-Ok "남은 공간 $free GB, 앞으로 받을 양 약 $needGB GB"
 # ------------------------------------------------------------------ 2. 받기
 Write-Step 2 $T '받기 (끊기면 이어받고, 파일마다 sha256을 검사해요)'
 $result = [ordered]@{}
+# 한 번 못 받은 모델은 그 자리에서 오래 붙잡지 않고 맨 뒤로 미룬다(한 번만). 처음에는 진전 없이 $first 번 끊기면 미루고,
+# 다른 모델을 다 받은 뒤 $MaxTries 번까지 다시 해 본다. 받는 중(받은 양이 느는 동안)에는 끊겨도 계속 이어받는 것은 같다
+$first = [math]::Min(2, $MaxTries)
+$queue = New-Object System.Collections.ArrayList
+foreach ($m in $Models) { [void]$queue.Add(@{ M = $m; Again = $false }) }
 $n = 0
-foreach ($m in $Models) {
-    $n++
+for ($qi = 0; $qi -lt $queue.Count; $qi++) {
+    $m = $queue[$qi].M; $again = $queue[$qi].Again
+    if (-not $again) { $n++ }
     $dir = Get-Dir $m.Repo
     $label = "[$($m.Group)] $($m.Repo)"
-    if (Test-Path (Join-Path $dir 'gpu_model.json')) { Write-Host "  ($n/$($Models.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
+    $pos = if ($again) { '미룸' } else { "$n/$($Models.Count)" }
+    if (Test-Path (Join-Path $dir 'gpu_model.json')) { Write-Host "  ($pos) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
     if ($m.Gated -and -not $env:HF_TOKEN) { $result[$label] = '건너뜀(승인 필요, 토큰 없음)'; continue }
     Write-Host ''
-    Write-Host "  ($n/$($Models.Count)) $label 받는 중" -ForegroundColor Cyan
+    Write-Host "  ($pos) $label $(if ($again) { '다시 ' })받는 중" -ForegroundColor Cyan
+    $tries = if ($again) { $MaxTries } else { $first }
     $code = 1
     $stall = 0
-    while ($stall -lt $MaxTries) {
+    while ($stall -lt $tries) {
         $before = Get-Size $dir
         Invoke-Fetch fetch $m.Repo $dir | Out-Host
         $code = $LASTEXITCODE
         if ($code -ne 1) { break }
-        $stall = Step-Retry $stall $before (Get-Size $dir) $MaxTries 'Hugging Face'
+        $stall = Step-Retry $stall $before (Get-Size $dir) $tries 'Hugging Face'
+    }
+    if ($code -eq 1 -and -not $again) {
+        Write-Warn "$label 맨 뒤로 미뤄요. 다른 모델을 다 받은 뒤 한 번 더 받아 봐요"
+        [void]$queue.Add(@{ M = $m; Again = $true }); $result[$label] = '미룸'
+        continue
     }
     switch ($code) {
         0 { Write-Ok "$label 받았어요"; $result[$label] = '받음' }

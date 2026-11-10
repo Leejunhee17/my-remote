@@ -233,7 +233,7 @@ function Step-Retry($stall, $before, $after, $max, $what) {
         return 0
     }
     $stall++
-    if ($stall -ge $max) { Write-Warn "$what 연결이 끊겼고 더 받지 못했어요($stall/$max). 이 파일은 그만 받아요"; return $stall }
+    if ($stall -ge $max) { Write-Warn "$what 연결이 끊겼고 더 받지 못했어요($stall/$max). 이번에는 여기까지 해요"; return $stall }
     $wait = [math]::Min(120, 30 * $stall)
     Write-Warn "$what 연결이 끊겼고 더 받지 못했어요. ${wait}초 뒤 다시 해요($stall/$max)"
     Start-Sleep $wait

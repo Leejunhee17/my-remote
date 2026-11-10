@@ -410,12 +410,13 @@ function Show-DriveDiag($d, $label) {
 }
 
 # Google Drive 파일을 aria2c 로 받는다. 끊기면 이어받고, 큰 파일의 "바이러스 검사 안 함" 확인 페이지도 넘긴다(쿠키는 $DriveJar 에 유지)
-function Get-Drive($id, $target) {
+function Get-Drive($id, $target, $tries = $MaxTries) {
+    $script:DriveFinal = $false   # 한도·권한 없음처럼 다시 해도 같은 이유로 못 받았으면 $true(맨 뒤로 미루지 않는다)
     New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
     $part = "$target.download"
     $url  = "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
     $stall = 0
-    while ($stall -lt $MaxTries) {
+    while ($stall -lt $tries) {
         $local = Get-Size $part
         if ($local) { Write-Info "이어받기: $(Format-Size $local)부터" }
         if (-not (Test-Path $DriveJar)) { [IO.File]::WriteAllText($DriveJar, '') }
@@ -429,11 +430,12 @@ function Get-Drive($id, $target) {
                 if ($local) { Write-Warn 'Google Drive가 이어받기 요청을 거절했어요. 처음부터 다시 받아요'; Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
             } elseif ($d.Kind -ne 'net') {
                 Show-DriveDiag $d $id
+                $script:DriveFinal = $true
                 return $null
             }
         }
         if ($code -ne 0) {
-            $stall = Step-Retry $stall $local (Get-Size $part) $MaxTries "aria2c $code"
+            $stall = Step-Retry $stall $local (Get-Size $part) $tries "aria2c $code"
             continue
         }
         $ext = Get-ArchiveExt $part
@@ -442,6 +444,7 @@ function Get-Drive($id, $target) {
             Remove-Item -Force $part
             if ($html -match 'Quota exceeded|Too many users|할당량') {
                 Write-Bad 'Google Drive 하루 다운로드 한도에 걸렸어요. 내일 다시 실행하세요.'
+                $script:DriveFinal = $true
                 return $null
             }
             $inputs = [regex]::Matches($html, 'name="([^"]+)"\s+value="([^"]*)"')
@@ -454,6 +457,7 @@ function Get-Drive($id, $target) {
             }
             Write-Bad 'Google Drive가 파일 대신 웹 페이지를 보냈어요.'
             Show-DriveDiag (Test-DriveFile $id) $id
+            $script:DriveFinal = $true
             return $null
         }
         $r = Test-Archive $part
@@ -602,8 +606,17 @@ Write-Ok "남은 공간 $free GB, 앞으로 받을 양 약 $needGB GB"
 # ------------------------------------------------------------------ 2. 받기
 Write-Step 2 $T '받기 (끊기면 이어받아요)'
 $result = [ordered]@{}
-# 직접 링크 목록을 차례로 받는다. $tag 는 화면의 번호 앞에 붙는 글자
-function Get-Items($list, $tag, $tries = $MaxTries) {
+# 한 번 못 받은 파일은 그 자리에서 오래 붙잡지 않고 맨 뒤로 미룬다(한 번만). 다른 것을 다 받은 뒤 $MaxTries 번까지 다시 해 본다.
+# 처음에는 진전 없이 $FirstTries 번 끊기면 미룬다. 받는 중(받은 양이 느는 동안)에는 끊겨도 계속 이어받는 것은 같다
+$FirstTries = [math]::Min(2, $MaxTries)
+$Deferred = New-Object System.Collections.ArrayList
+function Defer-Item($it, $label, $kind) {
+    Write-Warn "$label 맨 뒤로 미뤄요. 다른 것을 다 받은 뒤 한 번 더 받아 봐요"
+    [void]$Deferred.Add(@{ It = $it; Label = $label; Kind = $kind })
+    $result[$label] = '미룸'
+}
+# 직접 링크 목록을 차례로 받는다. $tag 는 화면의 번호 앞에 붙는 글자. -Defer 면 못 받은 것을 맨 뒤로 미룬다
+function Get-Items($list, $tag, $tries = $MaxTries, [switch]$Defer) {
     $n = 0
     foreach ($it in $list) {
         $n++
@@ -614,10 +627,11 @@ function Get-Items($list, $tag, $tries = $MaxTries) {
         Write-Host "  ($tag$n/$($list.Count)) $label 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
         $f = if ($it.Parts) { Get-Parts $it.Url $target $it.Parts } else { Get-Url $it.Url $target $tries }
         if ($f) { Set-Done "$target.ok" $f; Write-Ok "$label 받았어요"; $result[$label] = '받음' }
+        elseif ($Defer) { Defer-Item $it $label 'url' }
         else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
     }
 }
-Get-Items $Items ''
+Get-Items $Items '' $FirstTries -Defer
 
 if ($doWild) {
     $wdir = Join-Path $Dest 'wildscenes'
@@ -711,9 +725,10 @@ foreach ($it in $DriveItems) {
     if (-not $driveOk) { $result[$label] = '건너뜀(Drive 접속 안 됨. 접속되면 다시 실행)'; continue }
     Write-Host ''
     Write-Host "  (Drive $n/$($DriveItems.Count)) $label 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
-    $f = Get-Drive $it.Id $target
+    $f = Get-Drive $it.Id $target $FirstTries
     if ($f) { Set-Done "$f.ok" $f; Write-Ok "$label 받았어요"; $result[$label] = '받음' }
-    else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
+    elseif ($script:DriveFinal) { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }   # 한도·권한 문제는 같은 날 다시 해도 같다
+    else    { Defer-Item $it $label 'drive' }
 }
 
 # ORAD-3D (ModelScope)
@@ -736,6 +751,28 @@ if ($doOrad) {
             Write-Bad 'ORAD-3D 받지 못했어요. www.modelscope.cn 접속을 확인하고 같은 명령을 다시 실행하세요(받은 데까지 이어서 받아요)'
             $result['ORAD-3D'] = '실패'
         }
+    }
+}
+
+# 미룬 것을 한 번 더(이번에는 $MaxTries 번까지). 또 못 받으면 실패로 남기고, 다음 실행(자동 받기 포함) 때 이어받는다
+if ($Deferred.Count) {
+    Write-Host ''
+    Write-Host "  미룬 $($Deferred.Count)개를 다시 받아요" -ForegroundColor Cyan
+    $n = 0
+    foreach ($d in $Deferred) {
+        $n++; $it = $d.It; $label = $d.Label
+        $target = Join-Path (Join-Path $Dest $it.Set) $it.Name
+        Write-Host ''
+        Write-Host "  (미룸 $n/$($Deferred.Count)) $label 다시 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
+        if ($d.Kind -eq 'drive') {
+            $f = Get-Drive $it.Id $target $MaxTries
+            if ($f) { Set-Done "$f.ok" $f }
+        } else {
+            $f = if ($it.Parts) { Get-Parts $it.Url $target $it.Parts } else { Get-Url $it.Url $target $MaxTries }
+            if ($f) { Set-Done "$target.ok" $f }
+        }
+        if ($f) { Write-Ok "$label 받았어요"; $result[$label] = '받음' }
+        else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
     }
 }
 
