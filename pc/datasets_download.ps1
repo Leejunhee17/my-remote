@@ -366,16 +366,18 @@ function Test-DriveFile($id) {
     $r = Invoke-Http $url -Range '0-65535' -Max 65536 -Cookies $script:DriveCookies -TimeoutSec 90
     $http = $r.Status; $final = $r.Url; $ctype = [string]$r.Headers['content-type']; $text = $r.Body
     $bp = Get-BrowserProxy $url
+    $html = ($ctype -like 'text/html*') -or $text.TrimStart().StartsWith('<')
+    # 웹 페이지가 아니면 본문은 파일 내용(압축 파일 등)이라 글자로 읽을 수 없다. 기록에는 그 사실만 적는다
+    $body = if ($html -or -not $text) { $text.Substring(0, [math]::Min(4000, $text.Length)) } else { "(웹 페이지가 아니라 파일 내용이 와서 적지 않았어요. Google Drive가 파일을 정상으로 보내고 있다는 뜻이에요. content-type: $ctype)" }
     # 응답이 없어도 진단 기록은 항상 남긴다(쿠키 머리글은 뺀다)
     $hl = @($r.Headers.Keys | Where-Object { $_ -notmatch 'cookie' } | Sort-Object | ForEach-Object { "${_}: $($r.Headers[$_])" })
     [IO.File]::WriteAllText((Join-Path $save "$id.report.txt"), (@(
         "시각: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')", "주소: $url", "응답: $(if ($r.Ok) { "HTTP $http" } else { "없음($($r.Kind)) $($r.Error)" })", "마지막 주소: $final",
         "HTTPS_PROXY: $env:HTTPS_PROXY", "윈도우 프록시: $(Get-WindowsProxy)", "브라우저가 이 주소에 쓰는 프록시: $bp",
-        '', '---- 응답 머리글 ----') + $hl + @('', '---- 본문 앞부분 ----', $text.Substring(0, [math]::Min(4000, $text.Length))) -join "`r`n"), (New-Object Text.UTF8Encoding $false))
+        '', '---- 응답 머리글 ----') + $hl + @('', '---- 본문 앞부분 ----', $body) -join "`r`n"), (New-Object Text.UTF8Encoding $false))
     $server = [string]$r.Headers['server']
     $google = $r.Headers.ContainsKey('x-guploader-uploadid') -or $server -match '(?i)uploadserver|esf|gse|sffe|gws|google'
     $title = if ($text -match '(?is)<title>(.*?)</title>') { ($Matches[1] -replace '\s+', ' ').Trim() } else { '' }
-    $html = ($ctype -like 'text/html*') -or $text.TrimStart().StartsWith('<')
     $kind = 'other'
     if (-not $r.Ok -and $r.Kind -eq 'proxy') { $kind = 'proxy' }
     elseif (-not $r.Ok) { $kind = 'net' }
