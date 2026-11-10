@@ -53,8 +53,13 @@ function Show-File($label, $url) {
         $rh = ([uri]$r.Url).Host
         Write-Bad "$($label): 실제 파일 앞부분이 안 받아져요 - $why" "$($label): $rh 이(가) $why. 사내 IT에 $rh 허용을 요청하세요"
         Write-Info "    거절한 주소: $rh$(if ($r.Headers['server']) { " (Server: $($r.Headers['server']))" })$(if ($rh -ne ([uri]$url).Host) { ", 처음 주소 $(([uri]$url).Host) 가 넘겨준 곳이에요" })"
-        $b = (($r.Body -replace '<[^>]+>', ' ') -replace '\s+', ' ').Trim()
-        if ($b) { Write-Info "    응답 앞부분: $($b.Substring(0, [math]::Min(200, $b.Length)))" }
+        # 회사 보안 장비의 차단 안내 페이지면 분류만 보여 준다(정책 이름 등 사내 정보가 공유용 보고서에 섞이지 않게)
+        if ($r.Body -match "getCategory\(\)\s*\{\s*return\s*'([^']*)'") {
+            Write-Info "    회사 보안 장비가 '$($Matches[1])' 분류로 막았어요. 사이트가 거절한 게 아니에요. 사내 IT에 이 분류의 예외로 $rh 허용을 요청하세요"
+        } else {
+            $b = (($r.Body -replace '<[^>]+>', ' ') -replace '\s+', ' ').Trim()
+            if ($b) { Write-Info "    응답 앞부분: $($b.Substring(0, [math]::Min(200, $b.Length)))" }
+        }
     } else {
         Write-Bad "$($label): 실제 파일 앞부분이 안 받아져요 ($($r.Kind))" "$($label) 파일 받기가 막혀 있어요. 사내 IT에 그 주소 허용을 요청하세요"
         Write-Info "    오류: $($r.Error)"
