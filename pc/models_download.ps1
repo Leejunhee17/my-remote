@@ -34,6 +34,10 @@ $Listed = @($listLines | ForEach-Object { if ($_ -match '^\s*#?\s*[a-z]+\s+([\w.
 
 New-Item -ItemType Directory -Force $Dest | Out-Null
 $Dest = (Resolve-Path $Dest).Path.TrimEnd('\')
+if (-not (Enter-SingleRun $Dest)) {
+    Write-Bad "다른 창에서 이미 모델을 받고 있어요($Dest). 그 실행이 끝난 뒤 다시 실행하세요"
+    exit 1
+}
 Start-Log (Join-Path $Dest 'download.log')
 Stop-Sleep
 Write-Host "[접근 PC] Hugging Face 사전학습 모델 받기  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))"

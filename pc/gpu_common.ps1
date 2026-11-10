@@ -42,6 +42,16 @@ function Import-DotEnv($path) {
 }
 Import-DotEnv (Join-Path (Split-Path $PSScriptRoot -Parent) '.env')
 
+# 같은 받기를 두 곳에서 동시에 돌리지 않게 잠근다(직접 실행한 창과 자동 받기가 겹치는 경우 등).
+# 겹치면 같은 파일을 둘이 받아 꼬이고, 기록 파일(download.log)도 "다른 프로세스가 사용 중" 이라 열리지 않는다.
+# 잠금 파일을 이 실행이 끝날 때까지 혼자 열어 둔다(창이 닫히거나 PC가 꺼지면 윈도우가 저절로 푼다). 이미 누가 열었으면 $false
+function Enter-SingleRun($dir) {
+    try {
+        $script:RunLock = [IO.File]::Open((Join-Path $dir '.running.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+        return $true
+    } catch { return $false }
+}
+
 function Start-Log($path) {
     $script:LogPath = $path
     New-Item -ItemType Directory -Force (Split-Path $path) | Out-Null

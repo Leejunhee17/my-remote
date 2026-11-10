@@ -174,6 +174,13 @@ if ($Auto) {
     Write-Info '    끄려면: powershell -ExecutionPolicy Bypass -File .\pc\datasets_download.ps1 -AutoOff'
     exit 0
 }
+if (-not (Enter-SingleRun $Dest)) {
+    if ($FromTask) { exit 0 }   # 자동 받기 차례인데 이미 받고 있으면 조용히 건너뛴다
+    Write-Bad "다른 창이나 자동 받기가 이미 데이터셋을 받고 있어요($Dest)"
+    Write-Info '    그 실행이 끝난 뒤 다시 실행하세요. 자동 받기가 도는 중인지 보기: Get-ScheduledTask -TaskName ''GPU 데이터셋 자동 받기'' | Select-Object State'
+    Write-Info "    진행 상황은 기록 파일 끝에 쌓여요: Get-Content -Tail 30 -Wait $(Join-Path $Dest 'download.log')"
+    exit 1
+}
 Start-Log (Join-Path $Dest 'download.log')
 Stop-Sleep
 Write-Host "[접근 PC] 세그멘테이션 데이터셋 받기(라벨이 있는 데이터셋 전부)  ($(Get-Date -Format 'yyyy-MM-dd HH:mm'))"

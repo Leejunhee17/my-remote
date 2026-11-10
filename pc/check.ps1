@@ -49,7 +49,10 @@ function Show-File($label, $url) {
     if ($r.Ok -and $r.Status -lt 300) { Write-Ok "$($label): 실제 파일 앞부분이 받아져요 (HTTP $($r.Status))"; return }
     if ($r.Ok) {
         $why = switch ($r.Status) { 401 { '인증이 필요해요(401)' } 403 { '거절됐어요(403)' } 404 { '없는 주소예요(404). 사이트에서 파일을 옮겼을 수 있어요' } 407 { '프록시가 인증을 요구해요(407)' } default { "HTTP $($r.Status)" } }
-        Write-Bad "$($label): 실제 파일 앞부분이 안 받아져요 - $why" "$($label): $why"
+        # 어느 주소가 거절했는지: 넘겨받았으면 마지막 주소. Server 머리글로 사이트가 거절했는지 회사 보안 장비가 막았는지 가늠한다
+        $rh = ([uri]$r.Url).Host
+        Write-Bad "$($label): 실제 파일 앞부분이 안 받아져요 - $why" "$($label): $rh 이(가) $why. 사내 IT에 $rh 허용을 요청하세요"
+        Write-Info "    거절한 주소: $rh$(if ($r.Headers['server']) { " (Server: $($r.Headers['server']))" })$(if ($rh -ne ([uri]$url).Host) { ", 처음 주소 $(([uri]$url).Host) 가 넘겨준 곳이에요" })"
         $b = (($r.Body -replace '<[^>]+>', ' ') -replace '\s+', ' ').Trim()
         if ($b) { Write-Info "    응답 앞부분: $($b.Substring(0, [math]::Min(200, $b.Length)))" }
     } else {
@@ -213,7 +216,8 @@ $Sites = @(
     @{ Use = '데이터셋 CaSSeD';              Name = 'www.cavs.msstate.edu';          Url = 'https://www.cavs.msstate.edu/'; File = 'https://www.cavs.msstate.edu/resources/downloads/CaSSeD/CaSSeD.tar.gz' }
     @{ Use = '데이터셋 RELLIS-3D·TAS500·GO'; Name = 'Google Drive';                  Url = 'https://drive.google.com/' }
     @{ Use = '데이터셋 RELLIS-3D·TAS500·GO'; Name = 'Google Drive 파일 서버';        Url = 'https://drive.usercontent.google.com/' }
-    @{ Use = '데이터셋 ORAD-3D';             Name = 'ModelScope';                    Url = 'https://www.modelscope.cn/'; File = 'https://www.modelscope.cn/api/v1/datasets/Georgehhhh/ORAD-3D/repo?Source=SDK&Revision=master&FilePath=training_zip/c2021_0228_1819.zip' }
+    @{ Use = '데이터셋 ORAD-3D(파일 목록)';  Name = 'ModelScope';                    Url = 'https://www.modelscope.cn/'; File = 'https://www.modelscope.cn/api/v1/datasets/Georgehhhh/ORAD-3D/repo?Source=SDK&Revision=master&FilePath=training_zip/c2021_0228_1819.zip' }
+    @{ Use = '데이터셋 ORAD-3D(실제 파일. 위 주소가 여기로 넘겨줘요)'; Name = 'ModelScope 파일 서버'; Url = 'https://cdn-lfs-cn-1.modelscope.cn/' }
     @{ Use = '데이터셋 WildScenes(포털)';    Name = 'CSIRO 포털';                    Url = 'https://data.csiro.au/' }
     @{ Use = '데이터셋 WildScenes(링크 목록의 파일)'; Name = 'CSIRO S3 저장소';         Url = 'https://s3.data.csiro.au/' }
 )
