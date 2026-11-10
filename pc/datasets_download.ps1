@@ -427,7 +427,7 @@ function Get-Drive($id, $target, $tries = $MaxTries) {
     New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
     $part = "$target.download"
     $url  = "https://drive.usercontent.google.com/download?id=$id&export=download&confirm=t"
-    $reset = $false
+    $reset = $false; $swapped = $false
     $stall = 0
     while ($stall -lt $tries) {
         $local = Get-Size $part
@@ -437,9 +437,38 @@ function Get-Drive($id, $target, $tries = $MaxTries) {
         if ($code -eq 99) { return $null }
         if ($code -in 8, 13) { Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
         if ($code -ne 0 -and -not $reset -and -not ((Get-Size $part) -gt $local) -and (Reset-SmallPart $part)) { $reset = $true; continue }
+        if ($code -ne 0 -and $local -ge 1MB -and -not ((Get-Size $part) -gt $local)) {
+            # 받다 만 큰 파일을 이어받으려는데 한 바이트도 못 받았으면, 이어받는 위치로 직접 요청해 Drive 가 무엇을 보내는지 본다.
+            # Drive 가 파일 대신 웹 페이지(한도 안내, 확인 페이지)를 보내면 aria2c 는 크기가 다르다며
+            # "total length mismatch. expected: <페이지 크기>, actual: <받던 파일 크기>"(errorCode=1)로 멈춘다
+            $pr = Invoke-Http $url -Range "$local-$($local + 65535)" -Max 65536 -Cookies $script:DriveCookies -TimeoutSec 90
+            $pt = [string]$pr.Body
+            if ($pr.Ok -and (([string]$pr.Headers['content-type'] -like 'text/html*') -or $pt.TrimStart().StartsWith('<'))) {
+                $save = Join-Path (Join-Path $Dest 'drive_check') "$id.resume.html"
+                New-Item -ItemType Directory -Force (Split-Path $save) | Out-Null
+                [IO.File]::WriteAllText($save, $pt, (New-Object Text.UTF8Encoding $false))
+                $title = if ($pt -match '(?is)<title>(.*?)</title>') { ($Matches[1] -replace '\s+', ' ').Trim() } else { '' }
+                if ($pt -match 'Too many users|Quota exceeded|download quota|할당량') {
+                    Write-Bad "Google Drive 하루 다운로드 한도에 걸렸어요(이어받기 요청에 한도 안내 페이지가 왔어요). 받은 $(Format-Size $local)는 그대로 두고, 한도가 풀리면 이어받아요"
+                    $script:DriveFinal = $true
+                    return $null
+                }
+                $inputs = [regex]::Matches($pt, 'name="([^"]+)"\s+value="([^"]*)"')
+                if (-not $swapped -and $inputs.Count -and $pt -match 'uuid') {
+                    $q = ($inputs | ForEach-Object { "$($_.Groups[1].Value)=$([uri]::EscapeDataString($_.Groups[2].Value))" }) -join '&'
+                    $url = "https://drive.usercontent.google.com/download?$q"
+                    $swapped = $true
+                    Write-Info '이어받기 요청에 큰 파일 확인 페이지가 와서, 확인을 넘긴 주소로 다시 이어받아요'
+                    continue
+                }
+                Write-Bad "Google Drive가 이어받기 요청에 파일 대신 웹 페이지를 보냈어요(HTTP $($pr.Status)$(if ($title) { ", 제목: $title" }))"
+                Write-Info "    받은 페이지: $save  (이 파일을 담당자에게 보내 주세요. 받은 $(Format-Size $local)는 그대로 둬요)"
+                $script:DriveFinal = $true
+                return $null
+            }
+        }
         if ($code -ne 0 -and -not ((Get-Size $part) -gt $local)) {
-            # 한 바이트도 더 못 받고 끝났으면 이유를 확인한다. 받다 만 파일이 있을 때 한도에 걸리면 aria2c 는 한도 안내 페이지를
-            # 이어 붙이지 못해 거절(22)이 아니라 errorCode=1 로 끝나서, 코드만 보면 한도인 줄 모른다
+            # 한 바이트도 더 못 받고 끝났으면 이유를 확인한다(거절이면 한도·권한 문제인지 진단한다)
             $d = Test-DriveFile $id
             if ($d.Kind -eq 'ok' -or $d.Kind -eq 'confirm') {
                 if ($local -and $code -in 3, 22, 24) { Write-Warn 'Google Drive가 이어받기 요청을 거절했어요. 처음부터 다시 받아요'; Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
