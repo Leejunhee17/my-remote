@@ -243,7 +243,7 @@ function Get-Url($url, $file, $tries = $MaxTries) {
         if (-not ($remote -and $local -eq $remote -and -not (Test-Path "$file.aria2"))) {
             if ($remote -and $local -gt $remote) { Remove-Item -Force $file }
             if ($local) { Write-Info "이어받기: $(Format-Size $local)부터" }
-            $code = Invoke-Aria2 $url $file @() $conn
+            $code = Invoke-Aria2 $url $file @(if ($tries -le 1) { '--max-tries=1' }) $conn   # 처음 받을 때는 aria2c 도 다시 해 보지 않는다
             if ($code -eq 99) { return $null }
             if ($code -ne 0 -and -not $reset -and -not ((Get-Size $file) -gt $local) -and (Reset-SmallPart $file)) { $reset = $true; continue }
             if ($code -ne 0 -and $conn -gt 1 -and -not ((Get-Size $file) -gt $local)) {
@@ -433,7 +433,7 @@ function Get-Drive($id, $target, $tries = $MaxTries) {
         $local = Get-Size $part
         if ($local) { Write-Info "이어받기: $(Format-Size $local)부터" }
         if (-not (Test-Path $DriveJar)) { [IO.File]::WriteAllText($DriveJar, '') }
-        $code = Invoke-Aria2 $url $part @("--load-cookies=$DriveJar", "--save-cookies=$DriveJar")
+        $code = Invoke-Aria2 $url $part @("--load-cookies=$DriveJar", "--save-cookies=$DriveJar"; if ($tries -le 1) { '--max-tries=1' })
         if ($code -eq 99) { return $null }
         if ($code -in 8, 13) { Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
         if ($code -ne 0 -and -not $reset -and -not ((Get-Size $part) -gt $local) -and (Reset-SmallPart $part)) { $reset = $true; continue }
@@ -622,8 +622,8 @@ Write-Ok "남은 공간 $free GB, 앞으로 받을 양 약 $needGB GB"
 Write-Step 2 $T '받기 (끊기면 이어받아요)'
 $result = [ordered]@{}
 # 한 번 못 받은 파일은 그 자리에서 오래 붙잡지 않고 맨 뒤로 미룬다(한 번만). 다른 것을 다 받은 뒤 $MaxTries 번까지 다시 해 본다.
-# 처음에는 진전 없이 $FirstTries 번 끊기면 미룬다. 받는 중(받은 양이 느는 동안)에는 끊겨도 계속 이어받는 것은 같다
-$FirstTries = [math]::Min(2, $MaxTries)
+# 처음에는 진전 없이 끊기면 다시 해 보지 않고 바로 미룬다. 받는 중(받은 양이 느는 동안)에는 끊겨도 계속 이어받는 것은 같다
+$FirstTries = 1
 $Deferred = New-Object System.Collections.ArrayList
 function Defer-Item($it, $label, $kind) {
     Write-Warn "$label 맨 뒤로 미뤄요. 다른 것을 다 받은 뒤 한 번 더 받아 봐요"

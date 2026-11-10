@@ -118,9 +118,9 @@ Write-Ok "남은 공간 $free GB, 앞으로 받을 양 약 $needGB GB"
 # ------------------------------------------------------------------ 2. 받기
 Write-Step 2 $T '받기 (끊기면 이어받고, 파일마다 sha256을 검사해요)'
 $result = [ordered]@{}
-# 한 번 못 받은 모델은 그 자리에서 오래 붙잡지 않고 맨 뒤로 미룬다(한 번만). 처음에는 진전 없이 $first 번 끊기면 미루고,
+# 한 번 못 받은 모델은 그 자리에서 오래 붙잡지 않고 맨 뒤로 미룬다(한 번만). 처음에는 진전 없이 끊기면 다시 해 보지 않고 바로 미루고,
 # 다른 모델을 다 받은 뒤 $MaxTries 번까지 다시 해 본다. 받는 중(받은 양이 느는 동안)에는 끊겨도 계속 이어받는 것은 같다
-$first = [math]::Min(2, $MaxTries)
+$first = 1
 $queue = New-Object System.Collections.ArrayList
 foreach ($m in $Models) { [void]$queue.Add(@{ M = $m; Again = $false }) }
 $n = 0
@@ -135,6 +135,7 @@ for ($qi = 0; $qi -lt $queue.Count; $qi++) {
     Write-Host ''
     Write-Host "  ($pos) $label $(if ($again) { '다시 ' })받는 중" -ForegroundColor Cyan
     $tries = if ($again) { $MaxTries } else { $first }
+    $env:GPU_HF_TRIES = if ($again) { '3' } else { '1' }   # 처음 받을 때는 파일마다 다시 해 보지 않는다(hf_fetch.py)
     $code = 1
     $stall = 0
     while ($stall -lt $tries) {
