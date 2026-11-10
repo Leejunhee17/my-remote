@@ -232,6 +232,9 @@ function Get-Url($url, $file, $tries = $MaxTries) {
         if ((Test-Archive $file) -eq 0) { return $file }
         Write-Warn '넣어 둔 파일이 덜 받아졌거나 깨졌어요. 사이트에서 이어서 받아 볼게요'
     }
+    # 일반 사이트는 연결 4개로 나눠 받는다(서버가 연결 하나당 속도를 제한하면 몇 배 빨라진다).
+    # Box 는 여러 연결을 거절하기 쉬워서 1개. 다른 사이트도 4개로 안 되면 그 파일은 1개로 다시 받는다
+    $conn = if ($url -match 'box\.com') { 1 } else { 4 }
     $stall = 0
     while ($stall -lt $tries) {
         $remote = Get-RemoteSize $url
@@ -239,8 +242,13 @@ function Get-Url($url, $file, $tries = $MaxTries) {
         if (-not ($remote -and $local -eq $remote -and -not (Test-Path "$file.aria2"))) {
             if ($remote -and $local -gt $remote) { Remove-Item -Force $file }
             if ($local) { Write-Info "이어받기: $(Format-Size $local)부터" }
-            $code = Invoke-Aria2 $url $file
+            $code = Invoke-Aria2 $url $file @() $conn
             if ($code -eq 99) { return $null }
+            if ($code -ne 0 -and $conn -gt 1 -and -not ((Get-Size $file) -gt $local)) {
+                Write-Warn "연결 $($conn)개로는 받지 못했어요(aria2c $code). 연결 1개로 다시 받아요"
+                $conn = 1
+                continue
+            }
             if ($code -in 8, 13) {
                 Write-Warn '다운로드 사이트가 이어받기를 지원하지 않아서 처음부터 다시 받아요'
                 Remove-Item -Force -ErrorAction SilentlyContinue $file, "$file.aria2"
@@ -423,11 +431,12 @@ function Get-Drive($id, $target, $tries = $MaxTries) {
         $code = Invoke-Aria2 $url $part @("--load-cookies=$DriveJar", "--save-cookies=$DriveJar")
         if ($code -eq 99) { return $null }
         if ($code -in 8, 13) { Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
-        if ($code -in 3, 22, 24) {
-            # 403 같은 거절: 다시 해도 소용없는 경우면 기다리지 말고 이유를 알려 준다
+        if ($code -ne 0 -and -not ((Get-Size $part) -gt $local)) {
+            # 한 바이트도 더 못 받고 끝났으면 이유를 확인한다. 받다 만 파일이 있을 때 한도에 걸리면 aria2c 는 한도 안내 페이지를
+            # 이어 붙이지 못해 거절(22)이 아니라 errorCode=1 로 끝나서, 코드만 보면 한도인 줄 모른다
             $d = Test-DriveFile $id
             if ($d.Kind -eq 'ok' -or $d.Kind -eq 'confirm') {
-                if ($local) { Write-Warn 'Google Drive가 이어받기 요청을 거절했어요. 처음부터 다시 받아요'; Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
+                if ($local -and $code -in 3, 22, 24) { Write-Warn 'Google Drive가 이어받기 요청을 거절했어요. 처음부터 다시 받아요'; Remove-Item -Force -ErrorAction SilentlyContinue $part, "$part.aria2" }
             } elseif ($d.Kind -ne 'net') {
                 Show-DriveDiag $d $id
                 $script:DriveFinal = $true
