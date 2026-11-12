@@ -8,10 +8,12 @@
                                                                      # WildScenes 는 포털의 링크 목록 파일로 받는다
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only goose,RUGD
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only ORAD-3D       # 큰 것은 따로(약 350 GB)
+  powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only cityscapes,bdd100k   # 도심 주행 세그만
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Auto           # 자동 받기: Google Drive 데이터셋 중 못 받은 것을 6시간마다 다시 받기(다 받으면 저절로 꺼짐)
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -AutoOff        # 자동 받기 끄기
 .env 에 링크 목록 파일 경로(WILDSCENES_LINKS)를 적어 두면 -WildScenesLinks 를 붙이지 않아도 WildScenes 까지 받는다.
+Cityscapes 는 회원 계정으로 로그인해서 받는다. .env 의 CITYSCAPES_USERNAME·CITYSCAPES_PASSWORD 가 없으면 실행 중에 묻는다.
 #>
 param(
     [string]$Dest = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'datasets'),
@@ -49,6 +51,9 @@ $Items = @(
     @{ Set = 'gooseEx'; GB = 3;  Name = 'gooseEx_2d_test.zip';    Url = 'https://goose-dataset.de/storage/gooseEx_2d_test.zip' }
     @{ Set = 'RUGD';    GB = 5;  Name = 'RUGD_frames-with-annotations.zip'; Url = 'http://rugd.vision/data/RUGD_frames-with-annotations.zip' }
     @{ Set = 'RUGD';    GB = 1;  Name = 'RUGD_annotations.zip';   Url = 'http://rugd.vision/data/RUGD_annotations.zip' }
+    # BDD100K 세그(도심 주행 10,000장: train 7,000·val 1,000·test 2,000, 라벨은 train·val). 회원가입 없는 공식 미러(dl.yf.io, 2026-11-12 확인)
+    @{ Set = 'bdd100k'; GB = 2;  Name = 'bdd100k_images_10k.zip'; Url = 'http://dl.yf.io/bdd100k/bdd100k_images_10k.zip' }
+    @{ Set = 'bdd100k'; GB = 1;  Name = 'bdd100k_seg_maps.zip';   Url = 'http://dl.yf.io/bdd100k/bdd100k_seg_maps.zip' }
     # YCOR(Yamaha-CMU): AirLab 페이지의 Box 공유 링크(cmu.box.com/s/3fngoljhcwhqf2z5cbepufh331qtesxt)에 든 파일 하나. 받을 때마다 Box 가 임시 주소로 넘겨 준다(2026-11-06 확인)
     # Late: 사내망에서 cmu.box.com 이 막혀 있어 맨 끝에 받는다
     @{ Set = 'ycor';    GB = 1;  Name = 'yamaha_seg.tar.gz';      Url = 'https://cmu.app.box.com/index.php?rm=box_download_shared_file&shared_name=3fngoljhcwhqf2z5cbepufh331qtesxt&file_id=f_771170167866'; Late = $true }
@@ -117,7 +122,15 @@ $DriveItems = @(
 )
 # 스크립트로 받을 수 없어서 브라우저로 받아 datasets\<폴더> 에 넣는 것. 넣어 둔 압축 파일은 검사해서 목록에 넣는다(user\데이터셋_넣기.md)
 #   rellis_full: Drive 폴더(원본 rosbag 5개 시퀀스, 보정 원본), CaSSeD: 사내망에서 접속 안 될 때. ycor·freiburg_forest 도 스크립트가 못 받으면 손으로 넣을 수 있게 둔다
-$HandSets = @('rellis_full', 'ycor', 'freiburg_forest', 'CaSSeD')
+#   cityscapes·bdd100k: 브라우저로 받은 압축 파일을 넣어도 되게 둔다
+$HandSets = @('rellis_full', 'ycor', 'freiburg_forest', 'CaSSeD', 'cityscapes', 'bdd100k')
+# Cityscapes: 회원 계정으로 로그인한 뒤 받는다(packageID 는 사이트 다운로드 페이지의 번호). 받기 전에 사이트가 알려 주는 파일 이름이 맞는지 본다
+$CsItems = @(
+    @{ Set = 'cityscapes'; GB = 1;  Name = 'gtFine_trainvaltest.zip';     Url = 'https://www.cityscapes-dataset.com/file-handling/?packageID=1' }   # 정밀 라벨 5,000장(241 MB)
+    @{ Set = 'cityscapes'; GB = 11; Name = 'leftImg8bit_trainvaltest.zip'; Url = 'https://www.cityscapes-dataset.com/file-handling/?packageID=3' }   # 사진(11 GB)
+)
+$CsItems = @($CsItems | Where-Object { Want $_.Set })
+$CsLogin = 'https://www.cityscapes-dataset.com/login/'
 # ORAD-3D: ModelScope(중국) 데이터셋 저장소에서 modelscope 도구로 받는다(약 350 GB, 끊기면 이어받기)
 $ModelScopeId = 'Georgehhhh/ORAD-3D'
 $DriveItems = @($DriveItems | Where-Object { Want $_.Set })
@@ -578,6 +591,96 @@ if ($DriveCheck) {
     Stop-Transcript | Out-Null
     exit 0
 }
+# Cityscapes 에 로그인한다. 성공하면 쿠키를 $script:CsJar 에 두고 $true. 비밀번호는 화면·기록 파일에 남기지 않는다
+$script:CsJar = $null
+$script:CsWhy = ''
+function Connect-Cityscapes {
+    $script:CsJar = $null
+    $jar = New-Object Net.CookieContainer
+    $r = Invoke-Http $CsLogin -Cookies $jar -Max 0
+    if (-not $r.Ok) { $script:CsWhy = "사이트에 접속되지 않아요($($r.Error)). $(Get-NetHint $r.Kind)"; return $false }
+    $body = "username=$([uri]::EscapeDataString($env:CITYSCAPES_USERNAME))&password=$([uri]::EscapeDataString($env:CITYSCAPES_PASSWORD))&submit=Login"
+    $r = Invoke-Http $CsLogin -Cookies $jar -Body $body -NoRedirect -Max 65536
+    if (-not $r.Ok) { $script:CsWhy = "로그인 중에 연결이 끊겼어요($($r.Error))"; return $false }
+    # 맞으면 302 로 다른 페이지로 보내고, 틀리면 200 으로 로그인 페이지에 "Wrong username or password ..." 를 띄운다
+    if ($r.Status -ne 302) {
+        $script:CsWhy = if ($r.Body -match 'Wrong username or password') { '아이디나 비밀번호가 틀렸거나, 가입 확인 메일의 링크를 아직 누르지 않았어요' }
+                        else { "로그인하지 못했어요(HTTP $($r.Status)). 회사 보안 장비가 막았을 수 있어요" }
+        return $false
+    }
+    $script:CsJar = $jar
+    return $true
+}
+
+# 로그인한 채로 파일 앞 1바이트를 받아 본다. 결과: Ok(받을 수 있음), Size, FileName, Login(로그인이 풀림), Error
+function Test-CsFile($url) {
+    $r = Invoke-Http $url -Cookies $script:CsJar -Range '0-0' -Max 0 -NoRedirect
+    $o = [pscustomobject]@{ Ok = $false; Size = $null; FileName = ''; Login = $false; Error = '' }
+    if (-not $r.Ok) { $o.Error = "사이트에 접속되지 않아요($($r.Error))"; return $o }
+    if ($r.Status -in 301, 302, 303) { $o.Login = $true; $o.Error = '로그인이 풀렸어요'; return $o }
+    if ($r.Status -ge 400) { $o.Error = "사이트가 거절했어요(HTTP $($r.Status))"; return $o }
+    if ($r.Headers['content-disposition'] -match 'filename="?([^";]+)') { $o.FileName = $Matches[1].Trim() }
+    if ($r.Headers['content-range'] -match '/(\d+)$') { $o.Size = [int64]$Matches[1] }
+    elseif ($r.Headers['content-length'] -match '^\d+$') { $o.Size = [int64]$r.Headers['content-length'] }
+    $o.Ok = $true
+    return $o
+}
+
+# Cityscapes 파일 하나를 받는다(이어받기). 받을 때마다 로그인 쿠키를 aria2c 에 넘긴다. 로그인이 풀리면 다시 로그인한다
+function Get-Cityscapes($it, $file, $tries = $MaxTries) {
+    New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
+    $conn = 4
+    $stall = 0
+    while ($stall -lt $tries) {
+        if (-not $script:CsJar -and -not (Connect-Cityscapes)) { Write-Bad "Cityscapes 로그인: $script:CsWhy"; return $null }
+        $p = Test-CsFile $it.Url
+        if ($p.Login) { $script:CsJar = $null; if (-not (Connect-Cityscapes)) { Write-Bad "Cityscapes 로그인: $script:CsWhy"; return $null }; $p = Test-CsFile $it.Url }
+        if (-not $p.Ok) {
+            # 사이트에 접속되지 않을 때 브라우저로 받아 넣어 둔 파일이 있으면 그 파일을 검사한다
+            if ((Test-Path $file) -and -not (Test-Path "$file.aria2") -and (Test-Archive $file) -eq 0) { return $file }
+            Write-Bad "$($it.Name): $($p.Error)"
+            Write-Info "    주소: $($it.Url)"
+            return $null
+        }
+        if ($p.FileName -and $p.FileName -ne $it.Name) {
+            Write-Bad "사이트가 다른 파일을 보내요($($p.FileName)). 다운로드 페이지의 번호(packageID)가 바뀌었을 수 있어요"
+            Write-Info "    담당자에게 알려 주세요. 그동안은 브라우저로 $($it.Name) 를 받아 datasets\cityscapes\ 에 넣으면 돼요"
+            return $null
+        }
+        $local = Get-Size $file
+        if ($p.Size -and $local -gt $p.Size) { Remove-Item -Force $file; $local = 0 }
+        if (-not ($p.Size -and $local -eq $p.Size -and -not (Test-Path "$file.aria2"))) {
+            if ($local) { Write-Info "이어받기: $(Format-Size $local)부터" }
+            $cookie = $script:CsJar.GetCookieHeader([uri]$it.Url)
+            $code = Invoke-Aria2 $it.Url $file @("--header=Cookie: $cookie"; if ($tries -le 1) { '--max-tries=1' }) $conn
+            if ($code -eq 99) { return $null }
+            if ($code -ne 0 -and $conn -gt 1 -and -not ((Get-Size $file) -gt $local)) {
+                Write-Warn "연결 $($conn)개로는 받지 못했어요(aria2c $code). 연결 1개로 다시 받아요"
+                $conn = 1
+                continue
+            }
+            if ($code -in 8, 13) {
+                Write-Warn '다운로드 사이트가 이어받기를 지원하지 않아서 처음부터 다시 받아요'
+                Remove-Item -Force -ErrorAction SilentlyContinue $file, "$file.aria2"
+            }
+            if ($code -ne 0) {
+                $script:CsJar = $null   # 받는 사이 로그인이 풀렸을 수 있어 다음에는 다시 로그인한다
+                $stall = Step-Retry $stall $local (Get-Size $file) $tries "aria2c $code"
+                continue
+            }
+        }
+        $r = Test-Archive $file
+        if ($r -eq 0) { return $file }
+        Remove-Item -Force $file
+        if ($r -eq 2) {
+            Write-Bad "zip 파일 대신 다른 것이 왔어요($(Split-Path -Leaf $file)). 로그인 페이지나 회사 보안 장비의 차단 페이지일 수 있어요"
+            return $null
+        }
+        Write-Warn '압축 파일이 깨졌어요. 처음부터 다시 받아요'
+        $stall++
+    }
+    return $null
+}
 
 # ------------------------------------------------------------------ 1. 점검
 Write-Step 1 $T '점검'
@@ -630,6 +733,38 @@ Write-Info '검사용 Python을 준비하는 중이에요(처음 한 번만)'
 if ($LASTEXITCODE -ne 0) { Stop-Run 'uv가 Python 3.12를 받지 못했어요' '인터넷(github.com) 접속을 확인하고 다시 실행하세요.' }
 Write-Ok 'Python 3.12를 준비했어요'
 
+# Cityscapes 계정. 없으면 묻고(자동 받기는 묻지 않음), 로그인해 본다. 안 되면 Cityscapes 만 건너뛴다
+$doCs = $false
+$script:CsSkip = ''
+$csLeft = @($CsItems | Where-Object { -not (Test-Path "$(Join-Path (Join-Path $Dest $_.Set) $_.Name).ok") })
+if ($csLeft.Count) {
+    if (-not ($env:CITYSCAPES_USERNAME -and $env:CITYSCAPES_PASSWORD) -and -not $FromTask) {
+        Write-Host ''
+        Write-Host '  Cityscapes 는 회원 계정으로 로그인해야 받을 수 있어요(가입: https://www.cityscapes-dataset.com/register/)' -ForegroundColor Cyan
+        Write-Host '  비워 두고 Enter를 누르면 Cityscapes 는 건너뛰어요. 비밀번호는 화면과 기록 파일에 남지 않아요.'
+        Write-Host '  (.env 의 CITYSCAPES_USERNAME, CITYSCAPES_PASSWORD 에 적어 두면 다음부터는 묻지 않아요)'
+        if (-not $env:CITYSCAPES_USERNAME) { $u = Read-Host '  Cityscapes 아이디(또는 이메일)'; if ($u.Trim()) { $env:CITYSCAPES_USERNAME = $u.Trim() } }
+        if ($env:CITYSCAPES_USERNAME -and -not $env:CITYSCAPES_PASSWORD) {
+            $s = Read-Host '  Cityscapes 비밀번호' -AsSecureString
+            $b = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($s)
+            try { $pw = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b) }
+            if ($pw) { $env:CITYSCAPES_PASSWORD = $pw }
+            $pw = $null
+        }
+    }
+    if (-not ($env:CITYSCAPES_USERNAME -and $env:CITYSCAPES_PASSWORD)) {
+        $script:CsSkip = '계정 없음. .env 의 CITYSCAPES_USERNAME·CITYSCAPES_PASSWORD 에 적거나 실행 중에 입력'
+        Write-Warn 'Cityscapes 계정이 없어서 Cityscapes 는 건너뛰어요'
+    } elseif (Connect-Cityscapes) {
+        Write-Ok 'Cityscapes 에 로그인했어요'
+        $doCs = $true
+    } else {
+        $script:CsSkip = "로그인 실패: $script:CsWhy"
+        Write-Bad "Cityscapes 로그인: $script:CsWhy"
+        Write-Warn 'Cityscapes 는 건너뛰고 나머지를 받아요. 고친 뒤 같은 명령을 다시 실행하세요'
+    }
+}
+
 # WildScenes 준비. 안 되면 스크립트를 멈추지 않고 WildScenes 만 건너뛰고 나머지를 받는다(do … while 안의 break 로 빠져나온다)
 $script:WsSkip = ''
 function Skip-Wild($what, $fix) {
@@ -664,6 +799,7 @@ if ($driveOk) {
 }
 if ($doWild -and -not (Test-Path (Join-Path $Dest 'wildscenes.ok'))) { $needGB += 47 }
 if ($doOrad -and -not (Test-Path (Join-Path $Dest 'ORAD-3D.ok'))) { $needGB += 350 }
+if ($doCs) { $needGB += ($csLeft | ForEach-Object { $_.GB } | Measure-Object -Sum).Sum }
 $free = Get-FreeGB $Dest
 if ($free -lt $needGB + 5) {
     Stop-Run "남은 공간이 $free GB예요(앞으로 약 $needGB GB가 필요해요)" '공간을 비우거나, -Dest E:\datasets 처럼 넉넉한 드라이브로 받는 곳을 바꾸거나, -Only로 나눠 받으세요.'
@@ -782,6 +918,21 @@ if ($doWild) {
     $result['wildscenes'] = '건너뜀(받으려면 포털의 링크 목록 파일 경로를 .env 의 WILDSCENES_LINKS 에 적거나 -WildScenesLinks 를 붙여 실행)'
 }
 
+# Cityscapes (로그인해서 받기)
+$n = 0
+foreach ($it in $CsItems) {
+    $n++
+    $target = Join-Path (Join-Path $Dest $it.Set) $it.Name
+    $label  = "$($it.Set)/$($it.Name)"
+    if (Test-Path "$target.ok") { Write-Host "  (Cityscapes $n/$($CsItems.Count)) ${label}: 이미 받았어요"; $result[$label] = '받음'; continue }
+    if (-not $doCs) { $result[$label] = "건너뜀($script:CsSkip)"; continue }
+    Write-Host ''
+    Write-Host "  (Cityscapes $n/$($CsItems.Count)) $label 받는 중 (약 $($it.GB) GB)" -ForegroundColor Cyan
+    $f = Get-Cityscapes $it $target $FirstTries
+    if ($f) { Set-Done "$target.ok" $f; Write-Ok "$label 받았어요"; $result[$label] = '받음' }
+    else    { Defer-Item $it $label 'cs' }
+}
+
 # Google Drive 데이터셋
 $n = 0
 foreach ($it in $DriveItems) {
@@ -839,6 +990,9 @@ if ($Deferred.Count) {
         if ($d.Kind -eq 'drive') {
             $f = Get-Drive $it.Id $target $MaxTries
             if ($f) { Set-Done "$f.ok" $f }
+        } elseif ($d.Kind -eq 'cs') {
+            $f = Get-Cityscapes $it $target $MaxTries
+            if ($f) { Set-Done "$target.ok" $f }
         } else {
             $f = if ($it.Parts) { Get-Parts $it.Url $target $it.Parts } else { Get-Url $it.Url $target $MaxTries }
             if ($f) { Set-Done "$target.ok" $f }
@@ -855,7 +1009,7 @@ Get-Items $LateItems '나중 ' $LateTries
 foreach ($set in $Manual) {
     $dir = Join-Path $Dest $set
     if (-not (Test-Path $dir)) { continue }
-    $arcs = @(Get-ChildItem $dir -File | Where-Object { $_.Name -match '\.(zip|tar|tgz|tar\.gz|7z)$' -and -not (Test-Path "$($_.FullName).ok") })
+    $arcs = @(Get-ChildItem $dir -File | Where-Object { $_.Name -match '\.(zip|tar|tgz|tar\.gz|7z)$' -and -not (Test-Path "$($_.FullName).ok") -and -not (Test-Path "$($_.FullName).aria2") })   # .aria2 가 있으면 받는 중
     foreach ($a in $arcs) {
         $label = "$set/$($a.Name) (직접 넣음)"
         $r = Test-Archive $a.FullName
@@ -936,6 +1090,7 @@ if ($FromTask) {
         Write-Host " 아직 못 받은 파일이 $($left.Count)개 있어요. $($AutoHours)시간쯤 뒤에 알아서 다시 받아요." -ForegroundColor Yellow
     }
 }
+Remove-Item Env:CITYSCAPES_PASSWORD -ErrorAction SilentlyContinue
 Stop-Transcript | Out-Null
 if ($failed.Count) { exit 1 }
 } finally { Exit-Run }

@@ -137,6 +137,8 @@ check RUGD       RUGD       'RUGD_annotations/*'           '*.png'
 check WildScenes wildscenes '*/indexLabel/*'               '*.png'
 check TAS500     tas500v1.1 '*_labels_ids/*'               '*.png'
 check GO         go         '*/pylon_camera_node_label_id/*' '*.png'
+check Cityscapes cityscapes 'gtFine/*'                     '*_labelIds.png'
+check BDD100K    bdd100k    'labels/*'                     '*.png'
 # 라벨 위치를 정하지 않은 데이터셋(라이다·rosbag 까지 받은 것 등)은 파일 수만 보여 준다
 for s in rellis_full go_full ORAD-3D CaSSeD freiburg_forest ycor; do
     [ -d "$D/$s" ] && printf '  %-11s %s\n' "$s" "${c_g}파일 $(find "$D/$s" -type f ! -name '.gpu_*' | wc -l)개${c_0}"

@@ -136,7 +136,7 @@ function Get-EnvProxy($url) { if ($url -like 'http://*') { return $env:HTTP_PROX
 #   -Cookies        CookieContainer(여러 요청에 걸쳐 쿠키 유지)      -Head 머리글만(HEAD)     -Headers @{ 이름 = 값 }
 # 돌려주는 것: Ok(HTTP 응답을 받았으면 $true. 4xx·5xx 도 응답은 받은 것), Status, Url(마지막 주소), Headers(소문자 이름), Body(글자), Error, Kind
 #   Kind: http(응답 받음) / dns / connect / timeout / tls / proxy / reset / other
-function Invoke-Http($url, [string]$Range = '', [int]$Max = 65536, [switch]$NoRedirect, $Cookies = $null, [switch]$Head, [hashtable]$Headers = @{}, [int]$TimeoutSec = 60) {
+function Invoke-Http($url, [string]$Range = '', [int]$Max = 65536, [switch]$NoRedirect, $Cookies = $null, [switch]$Head, [hashtable]$Headers = @{}, [int]$TimeoutSec = 60, [string]$Body = '') {
     $r = [pscustomobject]@{ Ok = $false; Status = 0; Url = $url; Headers = @{}; Body = ''; Error = ''; Kind = 'other' }
     $res = $null
     try {
@@ -151,6 +151,11 @@ function Invoke-Http($url, [string]$Range = '', [int]$Max = 65536, [switch]$NoRe
         if ($Head) { $req.Method = 'HEAD' }
         if ($Range -match '^(\d+)-(\d*)$') { if ($Matches[2]) { $req.AddRange([int64]$Matches[1], [int64]$Matches[2]) } else { $req.AddRange([int64]$Matches[1]) } }
         foreach ($k in $Headers.Keys) { $req.Headers[$k] = $Headers[$k] }
+        if ($Body) {   # 로그인 양식 보내기(POST)
+            $req.Method = 'POST'; $req.ContentType = 'application/x-www-form-urlencoded'
+            $bytes = [Text.Encoding]::UTF8.GetBytes($Body); $req.ContentLength = $bytes.Length
+            $rs = $req.GetRequestStream(); try { $rs.Write($bytes, 0, $bytes.Length) } finally { $rs.Close() }
+        }
         try { $res = $req.GetResponse() } catch [Net.WebException] { $res = $_.Exception.Response; if (-not $res) { throw } }
         $r.Ok = $true; $r.Kind = 'http'; $r.Status = [int]$res.StatusCode; $r.Url = $res.ResponseUri.AbsoluteUri
         foreach ($k in $res.Headers.AllKeys) { $r.Headers[$k.ToLower()] = $res.Headers[$k] }
