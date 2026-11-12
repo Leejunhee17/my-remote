@@ -282,8 +282,8 @@ try {
     $freeGB = [math]::Round($d.AvailableFreeSpace / 1GB)
     Write-Info "저장소 드라이브 $($d.Name): $($d.DriveFormat), 전체 $([math]::Round($d.TotalSize / 1GB)) GB, 남은 공간 $freeGB GB"
     if ($d.DriveFormat -eq 'FAT32') { Write-Bad '저장소 드라이브가 FAT32 예요(4 GB 넘는 파일을 못 만들어요)' '저장소를 NTFS 나 exFAT 드라이브로 옮기세요' }
-    if ($freeGB -lt 100) { Write-Warn '남은 공간이 100 GB 보다 적어요. 데이터셋은 전부 약 785 GB(ORAD-3D 350 GB 포함)예요. -Dest 로 다른 드라이브에 받을 수 있어요' }
-    else { Write-Ok "남은 공간 $freeGB GB (데이터셋 전부 약 785 GB, ORAD-3D 350 GB 포함. 모델은 user\models.txt 에 따라 달라요)" }
+    if ($freeGB -lt 100) { Write-Warn '남은 공간이 100 GB 보다 적어요. 데이터셋은 전부 약 860 GB(ORAD-3D 350 GB 포함)예요. -Dest 로 다른 드라이브에 받을 수 있어요' }
+    else { Write-Ok "남은 공간 $freeGB GB (데이터셋 전부 약 860 GB, ORAD-3D 350 GB 포함. 모델은 user\models.txt 에 따라 달라요)" }
     $others = @([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.DriveType -eq 'Fixed' -and $_.Name -ne $d.Name } |
         ForEach-Object { "$($_.Name.TrimEnd('\')) $([math]::Round($_.AvailableFreeSpace / 1GB)) GB" })
     if ($others.Count) { Write-Info "다른 드라이브의 남은 공간: $($others -join ', ')" }

@@ -9,15 +9,18 @@
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only goose,RUGD
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only ORAD-3D       # 큰 것은 따로(약 350 GB)
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only cityscapes,bdd100k   # 도심 주행 세그만
+  powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only mapillary_vistas -VistasLink "https://…"   # Mapillary 는 사이트가 준 링크로
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Auto           # 자동 받기: Google Drive 데이터셋 중 못 받은 것을 6시간마다 다시 받기(다 받으면 저절로 꺼짐)
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -AutoOff        # 자동 받기 끄기
 .env 에 링크 목록 파일 경로(WILDSCENES_LINKS)를 적어 두면 -WildScenesLinks 를 붙이지 않아도 WildScenes 까지 받는다.
 Cityscapes 는 회원 계정으로 로그인해서 받는다. .env 의 CITYSCAPES_USERNAME·CITYSCAPES_PASSWORD 가 없으면 실행 중에 묻는다.
+Mapillary Vistas 는 사이트가 준 다운로드 링크(며칠 지나면 만료)로 받는다. -VistasLink 또는 .env 의 MAPILLARY_VISTAS_LINK.
 #>
 param(
     [string]$Dest = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'datasets'),
     [string]$WildScenesLinks = '',    # WildScenes 를 포털 "Get a list of file download links" 로 받은 목록 파일로 받는다
+    [string]$VistasLink = '',         # Mapillary Vistas 다운로드 페이지가 준 링크(여러 개면 쉼표로)
     [string[]]$Only = @(),            # 이 폴더만 받는다(쉼표로 여러 개)
     [switch]$DriveCheck,              # 받지 않고 Google Drive 파일마다 받을 수 있는지, 안 되면 왜인지 진단만 한다
     [int]$MaxTries = 5,               # 받은 양이 늘지 않은 채 연속으로 끊긴 횟수가 이만큼이면 그 파일은 포기(약 5분). 받는 중이면 끊겨도 계속해요
@@ -33,6 +36,7 @@ $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent   # 저장소 맨 
 . (Join-Path $root 'common\gpu_common.ps1')
 $Only   = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 # .env 의 WildScenes 설정. 명령에 붙인 값이 먼저다
+if (-not $VistasLink -and $env:MAPILLARY_VISTAS_LINK) { $VistasLink = $env:MAPILLARY_VISTAS_LINK }
 if (-not $WildScenesLinks -and $env:WILDSCENES_LINKS) { $WildScenesLinks = [Environment]::ExpandEnvironmentVariables($env:WILDSCENES_LINKS) }
 # 예전 S3(AWS CLI) 방식 설정은 더 쓰지 않는다. 남아 있으면 지워도 된다고 알려 준다(키가 .env 에 계속 남지 않게)
 $oldWs = @('WILDSCENES_S3_SERVER', 'WILDSCENES_S3_DIR', 'WILDSCENES_ACCESS_KEY', 'WILDSCENES_SECRET_KEY' | Where-Object { [Environment]::GetEnvironmentVariable($_) })
@@ -54,6 +58,9 @@ $Items = @(
     # BDD100K 세그(도심 주행 10,000장: train 7,000·val 1,000·test 2,000, 라벨은 train·val). 회원가입 없는 공식 미러(dl.yf.io, 2026-11-12 확인)
     @{ Set = 'bdd100k'; GB = 2;  Name = 'bdd100k_images_10k.zip'; Url = 'http://dl.yf.io/bdd100k/bdd100k_images_10k.zip' }
     @{ Set = 'bdd100k'; GB = 1;  Name = 'bdd100k_seg_maps.zip';   Url = 'http://dl.yf.io/bdd100k/bdd100k_seg_maps.zip' }
+    # Freiburg Thermal(시골·도심 주행 RGB+열화상). test 는 사람이 단 라벨 64장, train 은 라벨 없는 2만 쌍(낮에는 RGB 교사 모델이 만든 라벨 포함). 사이트의 직접 링크(2026-11-12 확인)
+    @{ Set = 'freiburg_thermal'; GB = 1;  Name = 'test.zip';  Url = 'http://aisdatasets.informatik.uni-freiburg.de/freiburg-thermal-segmentation/test.zip' }
+    @{ Set = 'freiburg_thermal'; GB = 44; Name = 'train.zip'; Url = 'http://aisdatasets.informatik.uni-freiburg.de/freiburg-thermal-segmentation/train.zip' }
     # YCOR(Yamaha-CMU): AirLab 페이지의 Box 공유 링크(cmu.box.com/s/3fngoljhcwhqf2z5cbepufh331qtesxt)에 든 파일 하나. 받을 때마다 Box 가 임시 주소로 넘겨 준다(2026-11-06 확인)
     # Late: 사내망에서 cmu.box.com 이 막혀 있어 맨 끝에 받는다
     @{ Set = 'ycor';    GB = 1;  Name = 'yamaha_seg.tar.gz';      Url = 'https://cmu.app.box.com/index.php?rm=box_download_shared_file&shared_name=3fngoljhcwhqf2z5cbepufh331qtesxt&file_id=f_771170167866'; Late = $true }
@@ -64,6 +71,14 @@ $Items = @(
     @{ Set = 'freiburg_forest'; GB = 2;  Name = 'freiburg_forest_annotated.tar.gz'; Url = 'https://deepscene.cs.uni-freiburg.de/static/datasets/freiburg_forest_annotated.tar.gz'; Parts = 3 }
     @{ Set = 'freiburg_forest'; GB = 18; Name = 'freiburg_forest_raw.tar.gz';       Url = 'https://deepscene.cs.uni-freiburg.de/static/datasets/freiburg_forest_raw.tar.gz';       Parts = 34 }
 )
+# Mapillary Vistas: 사이트(로그인·약관 동의)가 준 링크로 받는다. 링크는 며칠 지나면 만료돼서 저장소에 적어 둘 수 없다
+$VistasDir = Join-Path $Dest 'mapillary_vistas'
+$VistasHint = '링크가 만료됐을 수 있어요. https://www.mapillary.com/dataset/vistas 에서 링크를 새로 받아 .env 의 MAPILLARY_VISTAS_LINK(또는 -VistasLink)를 바꾸고 다시 실행하면 받은 데까지 이어받아요'
+foreach ($u in @($VistasLink -split '[,\s]+' | Where-Object { $_ -match '^https?://' })) {
+    $leaf = [uri]::UnescapeDataString(([uri]$u).AbsolutePath.Split('/')[-1])
+    if ($leaf -notmatch '^[\w.\-]+\.(zip|tar|tgz|tar\.gz)$') { $k = @($Items | Where-Object { $_.Set -eq 'mapillary_vistas' }).Count; $leaf = if ($k) { "mapillary-vistas-$($k + 1).zip" } else { 'mapillary-vistas.zip' } }
+    $Items += @{ Set = 'mapillary_vistas'; GB = 25; Name = $leaf; Url = $u; Hint = $VistasHint }
+}
 $Items = @($Items | Where-Object { Want $_.Set })
 $LateItems = @($Items | Where-Object { $_.Late })
 $Items     = @($Items | Where-Object { -not $_.Late })
@@ -76,6 +91,8 @@ $DriveItems = @(
     @{ Set = 'rellis_2d';  GB = 1;  Name = 'annotations_color'; Id = '1HJl8Fi5nAjOr41DPUFmkeKWtDXhCZDke' }
     @{ Set = 'rellis_2d';  GB = 1;  Name = 'split';             Id = '1zHmnVaItcYJAWat3Yti1W_5Nfux194WQ' }
     @{ Set = 'tas500v1.1'; GB = 2;  Name = 'tas500';            Id = '1dCxJNWGbQT-tbuDTD6nQvmWPwGS9MPwT' }
+    # PST900: 광산·동굴의 RGB+열화상 894쌍과 라벨. GitHub(ShreyasSkandanS/pst900_thermal_rgb) README 의 Drive 파일(2026-11-12 확인)
+    @{ Set = 'pst900';     GB = 2;  Name = 'pst900_rgbt';       Id = '1hZeM-MvdUC_Btyok7mdF00RV-InbAadm' }
     @{ Set = 'go';         GB = 2;  Name = 'images';            Id = '1Y_XHZw6BeuqwD280K7xw4eapNRpSKXA5' }
     @{ Set = 'go';         GB = 1;  Name = 'annotations_id';    Id = '1VehRXZ_Bw4DolGVvqVk4qr_pmbUXYgQA' }
     @{ Set = 'go';         GB = 1;  Name = 'annotations_color'; Id = '1qc4J1DgiWU0MsUhUhyX0p8sQROoVb4uZ' }
@@ -123,7 +140,8 @@ $DriveItems = @(
 # 스크립트로 받을 수 없어서 브라우저로 받아 datasets\<폴더> 에 넣는 것. 넣어 둔 압축 파일은 검사해서 목록에 넣는다(user\데이터셋_넣기.md)
 #   rellis_full: Drive 폴더(원본 rosbag 5개 시퀀스, 보정 원본), CaSSeD: 사내망에서 접속 안 될 때. ycor·freiburg_forest 도 스크립트가 못 받으면 손으로 넣을 수 있게 둔다
 #   cityscapes·bdd100k: 브라우저로 받은 압축 파일을 넣어도 되게 둔다
-$HandSets = @('rellis_full', 'ycor', 'freiburg_forest', 'CaSSeD', 'cityscapes', 'bdd100k')
+#   MFNet: 받는 곳이 Synology 공유 페이지(브라우저 전용)라 늘 손으로. mapillary_vistas: 링크 없이 브라우저로 받아 넣어도 되게
+$HandSets = @('rellis_full', 'ycor', 'freiburg_forest', 'CaSSeD', 'cityscapes', 'bdd100k', 'MFNet', 'mapillary_vistas')
 # Cityscapes: 회원 계정으로 로그인한 뒤 받는다(packageID 는 사이트 다운로드 페이지의 번호). 받기 전에 사이트가 알려 주는 파일 이름이 맞는지 본다
 $CsItems = @(
     @{ Set = 'cityscapes'; GB = 1;  Name = 'gtFine_trainvaltest.zip';     Url = 'https://www.cityscapes-dataset.com/file-handling/?packageID=1' }   # 정밀 라벨 5,000장(241 MB)
@@ -831,7 +849,7 @@ function Get-Items($list, $tag, $tries = $MaxTries, [switch]$Defer) {
         $f = if ($it.Parts) { Get-Parts $it.Url $target $it.Parts } else { Get-Url $it.Url $target $tries }
         if ($f) { Set-Done "$target.ok" $f; Write-Ok "$label 받았어요"; $result[$label] = '받음' }
         elseif ($Defer) { Defer-Item $it $label 'url' }
-        else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
+        else    { Write-Bad "$label 받지 못했어요"; if ($it.Hint) { Write-Info "    $($it.Hint)" }; $result[$label] = '실패' }
     }
 }
 Get-Items $Items '' $FirstTries -Defer
@@ -918,6 +936,15 @@ if ($doWild) {
     $result['wildscenes'] = '건너뜀(받으려면 포털의 링크 목록 파일 경로를 .env 의 WILDSCENES_LINKS 에 적거나 -WildScenesLinks 를 붙여 실행)'
 }
 
+# Mapillary Vistas 링크가 없으면: 받아 둔 것이 없을 때만 건너뜀으로 알린다(손으로 넣은 압축은 아래에서 검사한다)
+if ((Want 'mapillary_vistas') -and -not @($Items | Where-Object { $_.Set -eq 'mapillary_vistas' }).Count -and
+    -not ((Test-Path $VistasDir) -and (Get-ChildItem $VistasDir -File | Where-Object { $_.Name -match '\.(zip|tar|tgz|tar\.gz|7z)(\.ok)?$' }))) {
+    $result['mapillary_vistas'] = '건너뜀(받으려면 https://www.mapillary.com/dataset/vistas 에서 받은 링크를 .env 의 MAPILLARY_VISTAS_LINK 에 적거나 -VistasLink 를 붙여 실행)'
+}
+if ((Want 'MFNet') -and -not (Test-Path (Join-Path $Dest 'MFNet'))) {
+    $result['MFNet'] = '건너뜀(브라우저로 받아 datasets\MFNet 에 넣기. user\데이터셋_넣기.md 의 "손으로 받아 넣는 것")'
+}
+
 # Cityscapes (로그인해서 받기)
 $n = 0
 foreach ($it in $CsItems) {
@@ -998,7 +1025,7 @@ if ($Deferred.Count) {
             if ($f) { Set-Done "$target.ok" $f }
         }
         if ($f) { Write-Ok "$label 받았어요"; $result[$label] = '받음' }
-        else    { Write-Bad "$label 받지 못했어요"; $result[$label] = '실패' }
+        else    { Write-Bad "$label 받지 못했어요"; if ($it.Hint) { Write-Info "    $($it.Hint)" }; $result[$label] = '실패' }
     }
 }
 
