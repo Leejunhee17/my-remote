@@ -35,7 +35,7 @@ powershell -ExecutionPolicy Bypass -File .\admin\pc\run_all.ps1              # �
 |---|---|---|
 | 대수 | | 2대. 서버 1은 GPU 8장, 서버 2는 다른 팀과 같이 써서 4장(4~7번) |
 | GPU | | NVIDIA H200 NVL(141 GB, PCIe 카드, NVLink 브리지) × 8. 드라이버 595 |
-| 운영체제 | 윈도우 | 지금은 RHEL 9. 2026-11-12까지 Ubuntu 24.04 LTS 로 다시 설치할 예정이에요. 문서는 Ubuntu 기준이에요 |
+| 운영체제 | 윈도우 | 지금은 RHEL 9. 2026-11-27까지 Ubuntu 24.04 LTS 로 다시 설치할 예정이에요(11-09에 11-12에서 연기됨). 문서는 Ubuntu 기준이에요 |
 | 인터넷 | 돼요. 여기서 내려받아요 | 안 돼요 |
 | 접속 | | HIWARE(서버에 접속할 때 거치는 사내 접속 관리 시스템)를 거쳐요. 팀원은 모두 공용 계정 하나(PuTTY, FileZilla). 관리자는 root(PuTTY만 돼요). 파일은 공용 계정 FileZilla로 올려요 |
 | 저장 공간 | | 홈 10 GB, `/app` 2 TB SSD(작업 폴더·도커), NAS `/data`(다른 팀과 같이 써요). 데이터셋·모델은 NAS의 우리 팀 폴더 `/data/autonomy_sw` 에 한 번만 두고 두 서버가 같이 읽어요(`admin/5_NAS.md`) |
