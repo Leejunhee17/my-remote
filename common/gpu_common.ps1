@@ -150,7 +150,7 @@ function Invoke-Http($url, [string]$Range = '', [int]$Max = 65536, [switch]$NoRe
         if ($Cookies) { $req.CookieContainer = $Cookies }
         if ($Head) { $req.Method = 'HEAD' }
         if ($Range -match '^(\d+)-(\d*)$') { if ($Matches[2]) { $req.AddRange([int64]$Matches[1], [int64]$Matches[2]) } else { $req.AddRange([int64]$Matches[1]) } }
-        foreach ($k in $Headers.Keys) { $req.Headers[$k] = $Headers[$k] }
+        foreach ($k in $Headers.Keys) { if ($k -eq 'Referer') { $req.Referer = $Headers[$k] } else { $req.Headers[$k] = $Headers[$k] } }   # Referer 는 Headers 로 못 넣는다
         if ($Body) {   # 로그인 양식 보내기(POST)
             $req.Method = 'POST'; $req.ContentType = 'application/x-www-form-urlencoded'
             $bytes = [Text.Encoding]::UTF8.GetBytes($Body); $req.ContentLength = $bytes.Length
