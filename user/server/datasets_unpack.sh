@@ -145,7 +145,7 @@ check PST900     pst900     '*/labels/*'                   '*.png'
 check Freiburg-T freiburg_thermal 'test/*/SegmentationClassPNG/*' '*.png'
 check MFNet      MFNet      '*labels/*'                    '*.png'
 # 라벨 위치를 정하지 않은 데이터셋(라이다·rosbag 까지 받은 것 등)은 파일 수만 보여 준다
-for s in rellis_full go_full ORAD-3D CaSSeD freiburg_forest ycor; do
+for s in rellis_full go_full ORAD-3D CaSSeD freiburg_forest ycor cityscapes_sequence; do
     [ -d "$D/$s" ] && printf '  %-11s %s\n' "$s" "${c_g}파일 $(find "$D/$s" -type f ! -name '.gpu_*' | wc -l)개${c_0}"
 done
 if [ -d "$D/RUGD" ] && [ ! -f "$D/RUGD/RUGD_annotation-colormap.txt" ]; then

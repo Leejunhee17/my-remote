@@ -9,6 +9,7 @@
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only goose,RUGD
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only ORAD-3D       # 큰 것은 따로(약 350 GB)
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only cityscapes,bdd100k   # 도심 주행 세그만
+  powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only cityscapes_sequence   # Cityscapes 시퀀스는 따로(약 324 GB)
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Only mapillary_vistas -VistasLink "https://…"   # Mapillary 는 사이트가 준 링크로
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -DriveCheck     # Google Drive 파일마다 받을 수 있는지만 진단
   powershell -ExecutionPolicy Bypass -File .\user\pc\datasets_download.ps1 -Auto           # 자동 받기: Google Drive 데이터셋 중 못 받은 것을 6시간마다 다시 받기(다 받으면 저절로 꺼짐)
@@ -141,11 +142,14 @@ $DriveItems = @(
 #   rellis_full: Drive 폴더(원본 rosbag 5개 시퀀스, 보정 원본), CaSSeD: 사내망에서 접속 안 될 때. ycor·freiburg_forest 도 스크립트가 못 받으면 손으로 넣을 수 있게 둔다
 #   cityscapes·bdd100k: 브라우저로 받은 압축 파일을 넣어도 되게 둔다
 #   MFNet: 받는 곳이 Synology 공유 페이지(브라우저 전용)라 늘 손으로. mapillary_vistas: 링크 없이 브라우저로 받아 넣어도 되게
-$HandSets = @('rellis_full', 'ycor', 'freiburg_forest', 'CaSSeD', 'cityscapes', 'bdd100k', 'MFNet', 'mapillary_vistas', 'idd')
+$HandSets = @('rellis_full', 'ycor', 'freiburg_forest', 'CaSSeD', 'cityscapes', 'cityscapes_sequence', 'bdd100k', 'MFNet', 'mapillary_vistas', 'idd')
 # Cityscapes: 회원 계정으로 로그인한 뒤 받는다(packageID 는 사이트 다운로드 페이지의 번호). 받기 전에 사이트가 알려 주는 파일 이름이 맞는지 본다
 $CsItems = @(
     @{ Set = 'cityscapes'; GB = 1;  Name = 'gtFine_trainvaltest.zip';     Url = 'https://www.cityscapes-dataset.com/file-handling/?packageID=1' }   # 정밀 라벨 5,000장(241 MB)
     @{ Set = 'cityscapes'; GB = 11; Name = 'leftImg8bit_trainvaltest.zip'; Url = 'https://www.cityscapes-dataset.com/file-handling/?packageID=3' }   # 사진(11 GB)
+    # 시퀀스: 라벨 붙은 사진마다 앞뒤 30프레임(324 GB). 커서 폴더를 따로 둔다(-Only cityscapes 로는 받지 않는다).
+    # 사이트가 붙이는 이름이 문서마다 달라(leftImg8bit_sequence.zip / _trainvaltest.zip) 둘 다 받아 준다
+    @{ Set = 'cityscapes_sequence'; GB = 324; Name = 'leftImg8bit_sequence_trainvaltest.zip'; Alt = @('leftImg8bit_sequence.zip'); Url = 'https://www.cityscapes-dataset.com/file-handling/?packageID=14' }
 )
 $CsItems = @($CsItems | ForEach-Object { $_.Site = 'cs'; $_ } | Where-Object { Want $_.Set })
 $CsLogin = 'https://www.cityscapes-dataset.com/login/'
@@ -721,7 +725,7 @@ function Get-AuthFile($it, $file, $tries = $MaxTries) {
             Write-Info "    주소: $(($it.Url -split '\?')[0])"
             return $null
         }
-        if ($p.FileName -and $p.FileName -ne $it.Name) {
+        if ($p.FileName -and $p.FileName -ne $it.Name -and -not (@($it.Alt) -contains $p.FileName)) {
             Write-Bad "사이트가 다른 파일을 보내요($($p.FileName)). 다운로드 페이지의 번호가 바뀌었을 수 있어요"
             Write-Info "    담당자에게 알려 주세요. 그동안은 브라우저로 $($it.Name) 를 받아 datasets\$($it.Set)\ 에 넣으면 돼요"
             return $null
@@ -818,10 +822,10 @@ $script:Skip = @{}
 $authGB = 0
 foreach ($site in $Sites.Keys) {
     $si = $Sites[$site]
-    if (-not (Want $si.Set)) { continue }
+    if ($site -eq 'cs') { if (-not $CsItems.Count) { continue } } elseif (-not (Want $si.Set)) { continue }
     $dir = Join-Path $Dest $si.Set
     if ($site -eq 'cs') {
-        $left = @($CsItems | Where-Object { -not (Test-Path "$(Join-Path $dir $_.Name).ok") })
+        $left = @($CsItems | Where-Object { -not (Test-Path "$(Join-Path (Join-Path $Dest $_.Set) $_.Name).ok") })
         if (-not $left.Count) { $AuthItems += $CsItems; continue }
     } elseif (-not ((Get-SiteUser $site) -and (Get-SitePass $site)) -and $FromTask -and (Test-Path $dir) -and (Get-ChildItem $dir -Filter '*.ok' -File)) {
         continue   # 받아 둔 IDD 가 있고 계정이 없는 자동 받기: 파일 목록을 알 수 없으니 그대로 둔다
@@ -856,7 +860,7 @@ foreach ($site in $Sites.Keys) {
         } else {
             if ($site -eq 'idd') { Write-Ok "IDD 세그 파일 $(@($found).Count)개: $(($found | ForEach-Object { $_.Name }) -join ', ')" }
             $AuthItems += $found
-            $authGB += ($found | Where-Object { -not (Test-Path "$(Join-Path $dir $_.Name).ok") } | ForEach-Object { $_.GB } | Measure-Object -Sum).Sum
+            $authGB += ($found | Where-Object { -not (Test-Path "$(Join-Path (Join-Path $Dest $_.Set) $_.Name).ok") } | ForEach-Object { $_.GB } | Measure-Object -Sum).Sum
         }
     }
 }
