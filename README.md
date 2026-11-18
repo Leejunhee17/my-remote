@@ -45,16 +45,16 @@ powershell -ExecutionPolicy Bypass -File .\admin\pc\run_all.ps1              # �
 
 | 이럴 때 | 문서 |
 |---|---|
-| 서버를 처음 설치해요(Ubuntu로 다시 설치한 뒤). 접근 PC 설정(`.env`)·점검과 한 번에 받기도 여기 | `admin/1_처음_설치.md` |
-| 팀원 추가, GPU 배분, 알림 기준, 도커·드라이버 관리 | `admin/2_서버_운영.md` |
-| 잠금·알림·사람 구분이 왜 이렇게 생겼는지 알고 싶어요 | `admin/3_구조와_보안.md` |
-| 두 서버와 NAS 사이 속도, 큰 파일 옮기는 방법, 점검 결과 올리기 | `admin/4_네트워크.md` |
-| 데이터셋을 받거나 폴더 구조를 확인해요 | `user/데이터셋_넣기.md` |
-| 사전학습 모델을 받거나 목록을 바꿔요. 주행 영상 의사 라벨도 만들어요 | `user/모델_넣기.md` |
-| 스크립트가 멈췄거나 `[문제]` 가 나왔어요 | `admin/6_문제_해결.md` |
-| NAS에 무엇을 어디에 두고(`originals`, `backup`, `docker_images`, `tmp_transfer`), 누가 쓰고, 얼마나 필요한지 | `admin/5_NAS.md` |
-| 팀원에게 줄 규칙(한눈에 보기) | `user/서버_사용_규칙.md`, `user/서버_사용_규칙.xlsx` |
-| 팀원에게 줄 사용법(코드·이미지 반입 → 도커에서 실행) | `user/사용_안내.md` |
+| 서버를 처음 설치해요(Ubuntu로 다시 설치한 뒤). 접근 PC 설정(`.env`)·점검과 한 번에 받기도 여기 | [`admin/1_처음_설치.md`](admin/1_처음_설치.md) |
+| 팀원 추가, GPU 배분, 알림 기준, 도커·드라이버 관리 | [`admin/2_서버_운영.md`](admin/2_서버_운영.md) |
+| 잠금·알림·사람 구분이 왜 이렇게 생겼는지 알고 싶어요 | [`admin/3_구조와_보안.md`](admin/3_구조와_보안.md) |
+| 두 서버와 NAS 사이 속도, 큰 파일 옮기는 방법, 점검 결과 올리기 | [`admin/4_네트워크.md`](admin/4_네트워크.md) |
+| 데이터셋을 받거나 폴더 구조를 확인해요 | [`user/데이터셋_넣기.md`](user/데이터셋_넣기.md) |
+| 사전학습 모델을 받거나 목록을 바꿔요. 주행 영상 의사 라벨도 만들어요 | [`user/모델_넣기.md`](user/모델_넣기.md) |
+| 스크립트가 멈췄거나 `[문제]` 가 나왔어요 | [`admin/6_문제_해결.md`](admin/6_문제_해결.md) |
+| NAS에 무엇을 어디에 두고(`originals`, `backup`, `docker_images`, `tmp_transfer`), 누가 쓰고, 얼마나 필요한지 | [`admin/5_NAS.md`](admin/5_NAS.md) |
+| 팀원에게 줄 규칙(한눈에 보기) | [`user/서버_사용_규칙.md`](user/서버_사용_규칙.md), `user/서버_사용_규칙.xlsx` |
+| 팀원에게 줄 사용법(코드·이미지 반입 → 도커에서 실행) | [`user/사용_안내.md`](user/사용_안내.md) |
 
 ## 설치 순서 한눈에
 
@@ -108,7 +108,7 @@ D:\gpu
 | `user/server/` | GPU 서버에서 공용 계정으로 실행하는 데이터셋 풀기·모델 넣기 스크립트(받을 때 결과 폴더에 같이 들어가요) |
 | `common/` | 접근 PC 스크립트가 같이 쓰는 함수(`gpu_common.ps1`). 직접 실행하지 않아요 |
 | `.env.example` | 접근 PC 설정 예시. 복사해 `.env` 를 만들고 토큰·프록시를 적어요(`.env` 는 git에 올라가지 않아요) |
-| `reports/` | 서버·접근 PC 점검 결과 중 사내 정보를 가린 공유용만 올리는 곳 |
+| `reports/` | 서버·접근 PC 점검 결과 중 사내 정보를 가린 공유용만 올리는 곳([설명](reports/README.md)) |
 | `.githooks/` | 커밋 전에 사내 정보·`.env`·토큰이 들어가지 않았는지 보는 검사(`git config core.hooksPath .githooks`) |
 | `tests/` | 자동 시험(`bash tests/run.sh`). 가짜 `/app`·docker·nvidia-smi 로 스크립트를 실제로 돌려 봐요 |
 | `.github/workflows/` | 푸시할 때마다 GitHub 에서 자동 시험을 돌리는 설정 |
