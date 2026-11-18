@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
-# [GPU 서버 · 사용자(공용 계정)] NAS inbox 에 올린 models 폴더의 모델을 NAS 팀 폴더의 /data/autonomy_sw/models/<만든 곳>/<모델> 아래 둔다(5단계).
-# 점검 → 체크섬 확인 → 제자리로 옮기기 → 가중치 파일을 열어 보는 검사까지 한 번에 한다.
-#   bash /data/autonomy_sw/inbox/models/models_place.sh
-# 다시 실행해도 된다. 이미 옮긴 것은 건너뛴다. 모델 폴더 몇 개씩 나눠 올려도 된다.
-# models 폴더에 원래 있던 다른 폴더는 건드리지 않는다. 같은 이름의 모델 폴더가 있는데 이 스크립트가 넣은 것이 아니면 그 모델은 건너뛰고 알린다
 set -uo pipefail
 if [ "$(uname -s)" != Linux ]; then echo "이 스크립트는 GPU 서버(리눅스)에서 실행해요. 접근 PC에서는 pc 폴더의 .ps1 을 쓰세요."; exit 1; fi
-# 모델은 팀원이 같이 쓰고 고치는 것이라 공용 계정으로 넣는다. root 로 넣으면 팀원이 고치거나 지울 수 없는 파일이 생긴다
 if [ "$(id -u)" = 0 ] && [ -z "${GPU_TEST_ROOT_OK:-}" ]; then echo "멈춤: root 말고 공용 계정으로 실행하세요(모델 넣기는 사용자 몫이에요): bash $0"; exit 1; fi
 cd "$(dirname "$0")"
-HERE=$PWD   # 올린 models 폴더. 목록(MANIFEST.sha256)과 이 스크립트, 모델 폴더가 같이 있다
-APP=${GPU_APP:-/app}   # 시험할 때만 바꾼다(tests/run.sh)
-# 넣을 곳: NAS 팀 폴더의 models(/app/admin/gpu.conf 의 NAS_DIR, 기본 /data/autonomy_sw)
-NAS=${GPU_NAS_DIR:-$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$APP/admin/gpu.conf" 2>/dev/null | tail -1)}   # GPU_NAS_DIR: 시험할 때만
+HERE=$PWD
+APP=${GPU_APP:-/app}
+NAS=${GPU_NAS_DIR:-$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$APP/admin/gpu.conf" 2>/dev/null | tail -1)}
 NAS=${NAS:-/data/autonomy_sw}
 D="$NAS/models"
 SRC=$HERE
@@ -22,7 +15,7 @@ LOG="$HERE/models_place_$(date +%Y%m%d_%H%M%S).log"
 exec > >(tee -a "$LOG") 2>&1
 T=3
 FAILS=0
-PY=python3   # 표준 라이브러리만 쓴다. -I 로 실행해 지금 폴더의 파일을 모듈로 잘못 읽지 않게 한다
+PY=python3
 
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 step() { echo; echo "${c_c}==== [$1/$T] $2 ====${c_0}"; }
@@ -43,20 +36,15 @@ echo "[GPU 서버] 사전학습 모델 넣기  ($(date '+%Y-%m-%d %H:%M'), $(hos
 echo "올린 곳:   $SRC"
 echo "두는 곳:   $D"
 
-# ------------------------------------------------------------------ 1. 점검
 step 1 '점검'
 [ -f MANIFEST.sha256 ] || stop "MANIFEST.sha256 파일이 없어요" "접근 PC의 models 폴더 자체를 NAS 의 $(dirname "$SRC") 에 올렸는지 확인하세요(폴더 안에 폴더가 한 겹 더 있으면 안 돼요)."
-# 목록이 비었거나 모양이 다른 줄이 있으면 따로 본다
 [ "$(grep -c . MANIFEST.sha256)" -gt 0 ] && ! grep -v '^$' MANIFEST.sha256 | grep -qvE '^[0-9a-f]{64}  [^/].*$' && ! grep -q '\.\./' MANIFEST.sha256 ||
     stop "체크섬 목록(MANIFEST.sha256)이 비었거나 모양이 이상해요" "접근 PC에서 models_download.ps1 을 다시 실행해 목록을 새로 만든 뒤 models 폴더를 다시 올리세요."
-# 체크섬 목록에는 접근 PC에서 받은 모든 모델이 들어 있다. 나눠 올릴 수 있게,
-# 이번에 올린 모델 폴더(목록의 맨 앞 폴더, 예: org__model)만 다룬다. 폴더째 안 올린 모델은 건너뛴다
 SUMS=$(mktemp); trap 'rm -f "$SUMS"' EXIT
 skipped=; conflict=; dirs=()
 for m in $(sed -n 's/^[0-9a-f]\{64\}  \([^/]*\)\/.*/\1/p' MANIFEST.sha256 | sort -u); do
     repo=${m/__//}
     if [ ! -d "$SRC/$m" ]; then skipped+=" $repo"; continue; fi
-    # 같은 이름의 모델 폴더가 있는데 이 스크립트가 넣은 것(gpu_model.json 이나 처음 만들 때 남긴 .gpu_placed 가 있음)이 아니면 건너뛴다
     if [ -e "$D/$repo" ] && [ ! -f "$D/$repo/gpu_model.json" ] && [ ! -f "$D/$repo/.gpu_placed" ]; then conflict+=" $repo"; continue; fi
     dirs+=("$m"); grep -F "  $m/" MANIFEST.sha256 >> "$SUMS"
 done
@@ -65,7 +53,6 @@ if [ -n "$conflict" ]; then
     for r in $conflict; do warn "$D/$r 가 이미 있는데 이 스크립트가 넣은 폴더가 아니에요. 덮어쓰지 않고 건너뛰어요. 안을 확인하고 지우거나 이름을 바꾼 뒤 다시 실행하세요"; done
 fi
 [ -s "$SUMS" ] || stop "넣을 모델이 없어요" "$SRC 안에 모델 폴더(예: facebook__mask2former-swin-large-cityscapes-semantic)를 넣어 올렸는지, 위 [주의] 의 같은 이름 폴더를 정리했는지 확인하세요(user/모델_넣기.md)."
-# 빠진 파일은 먼저 알린다(이미 제자리로 옮긴 파일이나 다 넣은 모델의 파일은 올린 곳에 없어도 된다)
 have() { local m=${1%%/*}; [ -f "$SRC/$1" ] || [ -f "$D/${m/__//}/${1#*/}" ] || [ -f "$D/${m/__//}/gpu_model.json" ]; }
 missing=$( { sed -n 's/^[0-9a-f]\{64\}  //p' "$SUMS"; for m in "${dirs[@]}"; do echo "$m/gpu_model.json"; done; } | while IFS= read -r f; do have "$f" || echo "$f"; done)
 if [ -n "$missing" ]; then
@@ -79,7 +66,6 @@ free=$(( $(df -Pm "$D" | awk 'NR==2 {print $4}') / 1024 ))
 [ "$free" -ge "$need" ] || stop "남은 공간이 ${free} GB예요(약 ${need} GB 필요)" "NAS 팀 폴더($NAS)의 안 쓰는 파일을 정리하거나 서버 관리 팀에 물어보세요."
 ok "남은 공간 ${free} GB (필요한 공간 약 ${need} GB)"
 
-# ------------------------------------------------------------------ 2. 옮기기
 step 2 "체크섬 확인하고 옮기기 → $D/<만든 곳>/<모델>"
 for d in "${dirs[@]}"; do
     repo=${d/__//}
@@ -89,7 +75,6 @@ for d in "${dirs[@]}"; do
         echo "  $repo: 이미 있어요"; continue
     fi
     echo "  $repo 확인하는 중이에요"
-    # gpu_model.json(모델 이름·라이선스)은 목록에 없어서, JSON 이고 폴더 이름과 같은 모델인지 따로 확인한다
     if ! "$PY" -I -c 'import json,sys; m=json.load(open(sys.argv[1],encoding="utf-8")); sys.exit(0 if isinstance(m,dict) and m.get("repo")==sys.argv[2] else 1)' "$SRC/$d/gpu_model.json" "$repo" 2>/dev/null; then
         bad "$repo: gpu_model.json 이 이상해요(모델 이름이 폴더와 다르거나 JSON 이 아니에요). 접근 PC의 모델 폴더를 다시 올리세요"; continue
     fi
@@ -98,15 +83,13 @@ for d in "${dirs[@]}"; do
     while IFS= read -r line; do
         sum=${line%%  *}; f=${line#*  }
         out="$dest/${f#"$d"/}"; src="$SRC/$f"
-        [ ! -f "$src" ] && [ -f "$out" ] && continue   # 지난번에 이미 옮긴 파일
+        [ ! -f "$src" ] && [ -f "$out" ] && continue
         if ! printf '%s  %s\n' "$sum" "$src" | sha256sum -c --quiet --strict - >/dev/null 2>&1; then
             bad "$f: 체크섬이 맞지 않아요(받거나 올리는 중에 깨졌어요). 이 파일만 다시 올리고 다시 실행하세요"; ok_all=; continue
         fi
         mkdir -p "$(dirname "$out")" && mv "$src" "$out" || { bad "$f: 옮기지 못했어요(남은 공간과 권한을 확인하세요)"; ok_all=; }
     done < <(grep -F "  $d/" "$SUMS")
-    # 파일이 모두 맞을 때만 gpu_model.json 을 둔다(이게 있어야 "이미 있어요" 로 건너뛴다)
     [ -n "$ok_all" ] && cp "$SRC/$d/gpu_model.json" "$dest/gpu_model.json" || continue
-    # GitHub 코드 묶음은 code/ 폴더로 푼다(맨 위 폴더 한 단계는 뺀다)
     if [ -f "$dest/code.zip" ]; then
         rm -rf "$dest/code"
         "$PY" -I - "$dest/code.zip" "$dest/code" <<'EOF' && rm -f "$dest/code.zip" && echo "    코드를 풀었어요: $dest/code" || bad "$repo: 코드 묶음(code.zip)을 풀지 못했어요"
@@ -133,11 +116,10 @@ EOF
 done
 [ "$FAILS" -eq 0 ] && ok "다 옮겼어요" || warn "옮기지 못한 모델이 있어요. 위 [문제] 줄의 파일만 다시 올리고 같은 명령을 다시 실행하세요(된 것은 건너뛰어요)"
 
-# ------------------------------------------------------------------ 3. 검사
 step 3 '검사 (설정 파일과 가중치 파일을 열어 봐요)'
 for d in "${dirs[@]}"; do
     repo=${d/__//}
-    [ -f "$D/$repo/gpu_model.json" ] || continue   # 위에서 옮기지 못한 모델(이미 [문제] 로 셌어요)
+    [ -f "$D/$repo/gpu_model.json" ] || continue
     "$PY" -I - "$D/$repo" "$repo" <<'EOF' || FAILS=$((FAILS + 1))
 import glob, json, os, struct, sys
 d, repo = sys.argv[1], sys.argv[2]

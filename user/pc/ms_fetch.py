@@ -16,7 +16,7 @@ try:
 except Exception:
     pass
 
-from modelscope.cli.cli import run_cmd  # "python -m modelscope.cli.cli" 와 같은 입구(modelscope 가 계속 두겠다고 한 곳)
+from modelscope.cli.cli import run_cmd
 
 sys.argv = ["modelscope", "download", "--dataset", sys.argv[1], "--local_dir", sys.argv[2]]
 run_cmd()

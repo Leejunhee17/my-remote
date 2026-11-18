@@ -1,31 +1,18 @@
 #!/usr/bin/env bash
-# [GPU 서버] 서버·NAS·네트워크를 한 번에 점검하고 보고서 하나로 남겨요. 설정은 아무것도 바꾸지 않아요.
-# root 로 실행해요(1단계 전에는 root 만 NAS(/data/tmp)에 써서 두 서버가 서로 찾을 수 있어요). 보고서는 공용 계정 홈에 넣어요.
-# 공용 계정으로도 돼요. 그때는 공용 계정이 쓸 수 있는 NAS 폴더(1단계 뒤 /data/autonomy_sw/tmp_transfer)가 있어야 속도를 재요.
-#   bash check.sh                     전체 점검. 두 서버에서 각각 실행하면 NAS로 서로를 찾아 서버 사이(이더넷·InfiniBand·RDMA),
-#                                     로컬 SSD, NAS 속도까지 재요. 상대 서버를 최대 10분 기다려요
-#   bash check.sh <NAS 안 폴더>        속도 측정에 쓸 NAS 폴더를 직접 정해요(내가 쓸 수 있는 폴더)
-#   QUICK=1 bash check.sh             속도 측정 없이 상태만 봐요(1분 안에 끝나요)
-#   bash check.sh listen              서버 사이 속도만: 받는 쪽(먼저 실행, 2분 기다려요)
-#   bash check.sh send <받는 쪽 IP>     서버 사이 속도만: 보내는 쪽(10초)
-#   bash check.sh disk <폴더>          그 폴더(NAS나 /app)의 쓰기·읽기 속도만(시험 파일 4 GB를 쓰고 지워요)
-#   JOBS=8 bash check.sh disk <폴더>   파일 8개를 동시에(여럿이 함께 쓸 때의 전체 속도)
-# [문제] 줄은 마지막 "고칠 것" 목록에 모여요. 보고서는 원본(check_report_…txt)과 사내 정보를 가린 공유용(check_공유용_…txt)
-# 두 개예요. root 면 공용 계정 홈에(FileZilla로 바로 내려받게), 공용 계정이면 실행한 폴더(내 폴더가 아니면 홈)에 남아요. 숫자는 GB/s 와 Gbps(카드 속도 단위)를 같이 보여 줘요. 1 GB/s = 8 Gbps.
 set -uo pipefail
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 ok()   { echo "  ${c_g}[정상]${c_0} $*"; }
 warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 ASK=(); MINE=(); SUM=()
-bad()  { echo "  ${c_r}[문제]${c_0} $1"; [ -z "${2:-}" ] || ASK+=("$2"); }   # $2: 서버 관리 팀에 요청할 것
-mine() { echo "  ${c_r}[문제]${c_0} $1"; MINE+=("$2"); }                    # $2: 관리자가 직접 할 것
+bad()  { echo "  ${c_r}[문제]${c_0} $1"; [ -z "${2:-}" ] || ASK+=("$2"); }
+mine() { echo "  ${c_r}[문제]${c_0} $1"; MINE+=("$2"); }
 head_() { echo; echo "${c_c}== $* ==${c_0}"; }
 
 IS_ROOT=; [ "$(id -u)" = 0 ] && IS_ROOT=1
 APP=${APP:-/app}
 ME=${GPU_HOST:-$(hostname -s)}
-ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
-ACC_SET=${ACC:+1}; [ -n "$ACC" ] || [ -n "$IS_ROOT" ] || ACC=$(id -un)   # 아직 안 적었으면 지금 계정을 공용 계정으로 본다(root 는 빼고)
+ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}
+ACC_SET=${ACC:+1}; [ -n "$ACC" ] || [ -n "$IS_ROOT" ] || ACC=$(id -un)
 TEAM=${NAS_DIR:-$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$APP/admin/gpu.conf" 2>/dev/null | tail -1)}; TEAM=${TEAM:-/data/autonomy_sw}
 PORT=${PORT:-5201}
 STREAMS=${STREAMS:-8}
@@ -34,12 +21,9 @@ WAIT_PEER=${WAIT_PEER:-600}
 NAS_FS=nfs,nfs4,cifs,smb3,lustre,gpfs,beegfs
 
 ver_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
-# 화면 폭(한글은 두 칸)에 맞춰 채운다
 pad() { local w; w=$(printf '%s' "$1" | LC_ALL=C.UTF-8 wc -L); printf '%s%*s' "$1" $(( $2 > w ? $2 - w : 0 )) ''; }
 grp_name() { local n; n=$(getent group "$1" | cut -d: -f1); echo "${n:-$1}"; }
-# 주인 번호 → "이름(번호)". 이 서버에 없는 번호면 그렇다고 적는다
 who_uid() { local n; n=$(getent passwd "$1" | cut -d: -f1); echo "${n:-이 서버에 없는 계정}($1)"; }
-# 권한 숫자 → 누가 쓸 수 있는지
 who_writes() {
     local m=$1 s=''
     [ $(( 8#$m & 8#0002 )) -ne 0 ] && s='누구나 씀'
@@ -48,12 +32,11 @@ who_writes() {
     [ $(( 8#$m & 8#1000 )) -ne 0 ] && s="$s, 스티키(남의 파일은 못 지움)"
     echo "$s"
 }
-# NAS 로 연결된 폴더: "TARGET SOURCE FSTYPE OPTIONS" 한 줄씩. GPU_NAS 는 mount 목록에 안 보일 때(시험할 때) 직접 적는다
 nas_mounts() {
     if [ -n "${GPU_NAS:-}" ]; then echo "$GPU_NAS (직접지정) - -"
     else findmnt -rn -t "$NAS_FS" -o TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null; fi
 }
-main_nas() {   # 팀 폴더가 들어 있는 NAS, 없으면 첫 NAS
+main_nas() {
     local t best=
     while read -r t _; do
         [ -n "$best" ] || best=$t
@@ -61,8 +44,6 @@ main_nas() {   # 팀 폴더가 들어 있는 NAS, 없으면 첫 NAS
     done < <(nas_mounts)
     echo "$best"
 }
-# root 만 고칠 수 있는 폴더인지: 그 폴더부터 / 까지 모두 root 소유이고 남이 못 쓰거나 스티키(남의 파일·폴더를 못 지움).
-# 위 폴더 하나라도 남이 쓸 수 있으면, 그 사람이 아래 폴더를 다른 이름으로 옮기고 같은 이름의 링크를 심을 수 있다
 root_only() {
     local p m; p=$(readlink -f "$1") && [ -d "$p" ] || return 1
     while :; do
@@ -72,25 +53,20 @@ root_only() {
         [ "$p" = / ] && return 0; p=$(dirname "$p")
     done
 }
-# 시험 파일·주소 파일을 써도 되는 폴더인지. root 는 남이 바꿔치기할 수 없는 폴더(root_only)에만 쓴다.
-# 그렇지 않은 폴더에 root 가 쓰면, 그 폴더를 고칠 수 있는 사람이 링크를 심어 root 가 시스템 파일을 덮게 만들 수 있다
 usable_dir() {
     [ -d "$1" ] && [ ! -L "$1" ] && [ -w "$1" ] || return 1
     [ -z "$IS_ROOT" ] || root_only "$1"
 }
-# 속도 측정과 상대 서버 찾기에 쓸 NAS 폴더: 직접 적은 폴더 → 팀 폴더의 tmp_transfer(공용 계정) → NAS/tmp → NAS
 nas_dir() {
     [ -n "${1:-}" ] && { usable_dir "$1" && echo "$1"; return; }
     local c t
     { echo "$TEAM/tmp_transfer"; while read -r t _; do echo "$t/tmp"; echo "$t"; done < <(nas_mounts); } |
         while IFS= read -r c; do usable_dir "$c" && { echo "$c"; break; }; done
 }
-# 공용 계정이 그 폴더에 쓸 수 있는지. root 는 공용 계정 권한으로 확인한다(setsid: 공용 계정 프로그램이 root 화면에 글자를 넣지 못하게)
 acc_writes() {
     if [ -n "$IS_ROOT" ]; then setsid -w runuser -u "$ACC" -- test -w "$1" 2>/dev/null; else [ -w "$1" ]; fi
 }
 
-# nvidia-smi topo -m 에서 NVLink(NV숫자)로 이어진 GPU 묶음: "[0,1,2,3] [4,5,6,7]". 묶인 것이 없으면 빈 줄
 nvl_groups() {
     nvidia-smi topo -m 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | awk '
         function f(x) { while (p[x] != x) x = p[x]; return x }
@@ -102,7 +78,6 @@ nvl_groups() {
               print out }'
 }
 
-# 카드 하나: 이름 종류 상태 속도(Mb/s) MTU 주소
 nic_line() {
     local n=$1 d=/sys/class/net/$1 type kind speed state mtu addr
     type=$(cat "$d/type" 2>/dev/null); state=$(cat "$d/operstate" 2>/dev/null)
@@ -112,7 +87,6 @@ nic_line() {
     [ -d "$d/device" ] || kind="$kind(가상)"
     addr=$(ip -4 -br addr show "$n" 2>/dev/null | awk '{print $3}')
     echo "  $(pad "$n" 16)$(pad "$kind" 16)$(pad "$state" 8)$(pad "${speed:+$((speed / 1000)) Gbps}" 11)$(pad "$mtu" 7)${addr:--}"
-    # 묶은 카드(bond): 어떤 카드를 묶었는지와 나눠 보내는 방식(모드마다 한 연결이 낼 수 있는 속도가 다르다)
     if [ -d "$d/bonding" ]; then
         local bmode; bmode=$(cut -d' ' -f1 "$d/bonding/mode" 2>/dev/null)
         case "$bmode" in
@@ -128,7 +102,6 @@ nic_line() {
         esac
     fi
 }
-# IP 로 가는 카드와 그 카드의 속도
 route_to() {
     local ip=$1 dev speed
     dev=$(ip route get "$ip" 2>/dev/null | grep -oP 'dev \K\S+' | head -1)
@@ -136,11 +109,10 @@ route_to() {
     speed=$(cat "/sys/class/net/$dev/speed" 2>/dev/null)
     [ "${speed:--1}" -gt 0 ] 2>/dev/null && echo "$dev ($((speed / 1000)) Gbps)" || echo "$dev (속도 모름)"
 }
-rate() {   # 바이트 초 → "x.xx GB/s (y Gbps)"
+rate() {
     awk -v b="$1" -v s="$2" 'BEGIN {g=b/s/1e9; printf "%.2f GB/s (%.1f Gbps)", g, g*8}'
 }
 
-# ================================================================== 서버
 sec_os() {
     head_ '운영체제·공용 계정'
     local os; os=$(. /etc/os-release 2>/dev/null && echo "$PRETTY_NAME")
@@ -176,7 +148,6 @@ sec_gpu() {
     [ "$ngpu" -eq 8 ] && ok "GPU 8장이 보여요" || warn "GPU가 ${ngpu}장만 보여요(8장이어야 해요). 서버 관리 팀에 확인하세요"
     case "$gname" in
     *NVL*|*PCIe*)
-        # PCIe 카드(H200 NVL 등)는 NVSwitch 가 없어 Fabric Manager 가 필요 없다. NVLink 는 브리지로 2장·4장씩 묶인다
         ok "PCIe 카드라 Fabric Manager가 필요 없어요"
         groups=$(nvl_groups)
         if [ -n "$groups" ]; then
@@ -186,7 +157,6 @@ sec_gpu() {
             warn "NVLink 브리지로 묶인 GPU가 없어요(GPU끼리 PCIe로만 주고받아요). 브리지를 끼웠는지 서버 관리 팀에 확인하세요"
         fi ;;
     *)
-        # HGX(SXM) 보드는 Fabric Manager 가 NVLink 를 초기화해야 CUDA 가 GPU를 쓸 수 있다(Blackwell 세대부터는 nvlsm 도)
         fab=$(nvidia-smi -q 2>/dev/null | awk '/^ *Fabric/{f=1} f && /State/{print $3; exit}')
         case "$fab" in
             Completed) ok "NVLink Fabric 초기화가 끝났어요" ;;
@@ -215,7 +185,6 @@ sec_storage() {
     rota=$(lsblk -ndo ROTA "$app_dev" 2>/dev/null || lsblk -no ROTA "$app_dev" 2>/dev/null | head -1)
     kind=$([ "$(echo $rota)" = 0 ] && echo SSD || { [ "$(echo $rota)" = 1 ] && echo HDD || echo 종류 모름; })
     echo "  $APP: $app_dev, $kind, 남은 공간 ${app_gb} GB"
-    # /app 은 root 소유로 둔다(1단계 prepare.sh 가 잠근다). 팀원은 그 아래 /app/autonomy_sw 에 쓴다
     owner=$(stat -c %U "$APP")
     if [ "$owner" = root ]; then ok "$APP 주인이 root예요(팀원은 $APP/autonomy_sw 에 써요)"
     else warn "$APP 주인: $owner. 1단계에서 root로 prepare.sh 를 실행하면 root 소유로 잠가요"; fi
@@ -225,9 +194,7 @@ sec_storage() {
     [ -e "$APP/shared" ] && warn "$APP/shared 가 남아 있어요(예전 설치). 1단계 prepare.sh 가 명단·설정만 $APP/admin 으로 옮기고 나머지는 치워요. 예전 데이터셋·모델을 NAS로 옮기는 명령도 알려 줘요"
 }
 
-# ================================================================== 서버 폴더·권한(읽기만 한다)
-# 한 줄: 이름  주인(번호)  그룹  권한  누가 쓰는지. 링크·파일·없음도 표시한다
-perm_line() {   # $1 경로 $2 보일 이름(없으면 경로) $3 이름 칸 너비
+perm_line() {
     local p=$1 name=${2:-$1} w=${3:-34} st uid gid mode extra=
     if [ -L "$p" ]; then extra=" → $(readlink "$p")"; name="$name (링크)"
     elif [ ! -e "$p" ]; then echo "  $(pad "$name" "$w") (없어요)"; return; fi

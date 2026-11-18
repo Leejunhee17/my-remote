@@ -1,20 +1,9 @@
 #!/usr/bin/env bash
-# [GPU 서버 · 관리자(root) 전용] 6단계 권한·규칙 설정. 설치를 다 끝낸 뒤, 팀원에게 서버를 열기 전에 실행한다. 여러 번 실행해도 된다.
-#   bash admin_setup.sh          적용
-#   bash admin_setup.sh --undo   되돌리기(접속 설정과 정기 점검만 지운다. 준비(prepare.sh)에서 만든 폴더·잠금·gpu 명령·기록은 그대로 둔다)
-# 하는 일 (팀원에게 새 명령을 외우게 하지 않고, 막기보다 알린다)
-#   - 공용 계정(/etc/gpu/account)에 관리자 권한(sudo, docker·disk·lxd 등 그룹)이 없는지 확인한다(있으면 알려만 준다)
-#   - 팀원 명단·GPU 배분 파일과 이름별 작업 폴더, NAS 의 이름별 backup·docker_images 폴더를 만든다
-#   - 접속할 때 이름을 고르게 하고, 이름별 캐시·명령 기록을 나눈다(/etc/profile.d/gpu.sh)
-#   - docker, nvidia-smi 도우미를 /app/admin/bin 에 설치한다(이름표, GPU 겹침 경고, "GPU별 사용자" 표)
-#   - GPU 서비스(persistenced, HGX 보드면 Fabric Manager)를 켠다. 드라이버 버전은 고정하지 않는다(업데이트는 서버 관리 팀이 정한다)
-#   - 10분마다 GPU 사용 기록과 알림, 월요일 아침 주간 보고서(/etc/cron.d/gpu)
-# 권한은 서버 관리 팀 설정에 따라 마음대로 안 될 수 있다. 그래서 하나가 안 돼도 멈추지 않고 [주의]로 알린 뒤 나머지를 계속한다
 set -uo pipefail
 cd "$(dirname "$0")"
 HERE=$PWD
-ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}   # 공용 계정 이름은 서버의 /etc/gpu/account 한 곳에 적는다
-S=/app/admin          # 도우미(bin)·명단·GPU 배분·알림 설정. root 만 고친다
+ACC=${GPU_ACCOUNT:-$(cat /etc/gpu/account 2>/dev/null)}
+S=/app/admin
 W=/app/autonomy_sw
 ST=/app/state
 c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
@@ -22,8 +11,6 @@ step() { echo; echo "${c_c}==== $1 ====${c_0}"; }
 ok()   { echo "  ${c_g}[정상]${c_0} $*"; }
 warn() { echo "  ${c_y}[주의]${c_0} $*"; }
 stop() { echo "${c_r}멈춤: $1${c_0}"; echo "할 일: $2"; exit 1; }
-# 폴더와 그 위의 모든 폴더가 root 소유이고 root 만 쓸 수 있는지(스티키 폴더는 남이 써도 바꿔치기를 못 해서 괜찮다).
-# 이런 곳은 공용 계정이 링크를 심거나 폴더를 바꿔치기할 수 없어서 root 가 써도 안전하다
 safe_dir() {
     local p m; p=$(readlink -f "$1") && [ -d "$p" ] || return 1
     while :; do
@@ -53,31 +40,21 @@ fi
 
 echo "[GPU 서버] 권한·규칙 설정  ($(date '+%Y-%m-%d %H:%M'), 공용 계정 $ACC)"
 
-# 준비(prepare.sh)가 만든 /app/admin 이 있어야 한다(root 소유 + root 가 잠근 표시 파일)
 { [ "$(stat -c %U "$S" 2>/dev/null)" = root ] && [ "$(stat -c %U "$S/.gpu_root" 2>/dev/null)" = root ] && [ ! -L "$S" ]; } ||
     stop "준비가 안 돼 있어요($S 가 없거나 root 가 잠그지 않았어요)" "먼저 실행하세요: cd /app/inbox && bash prepare.sh"
 
-# ------------------------------------------------------------------ 1. 공용 계정 권한 (확인만)
-# 공용 계정이 sudo 나 docker 그룹을 가지면 누구든 root 가 될 수 있어, 아래 잠금이 모두 무의미해진다.
-# 지금은 없다고 들었지만 서버 관리 팀이 나중에 넣을 수도 있어 실행할 때마다 확인만 한다(바꾸지는 않는다)
 step '1. 공용 계정 권한 확인'
-# disk(디스크 장치 직접 읽고 쓰기), lxd·incus-admin(컨테이너로 root), libvirt(가상 머신)도 root 와 다름없다
 bad=$(id -nG "$ACC" | tr ' ' '\n' | grep -xE 'sudo|admin|wheel|docker|disk|lxd|incus-admin|libvirt' | tr '\n' ' ')
 [ -z "$bad" ] && ok "공용 계정($ACC)은 관리자 권한 그룹(sudo·docker·disk·lxd 등)에 없어요" ||
     warn "공용 계정($ACC)이 관리자 그룹에 있어요: $bad. 팀원 누구나 root가 될 수 있으니 서버 관리 팀과 확인하세요(빼는 명령: gpasswd -d $ACC 그룹이름)"
 sudo -l -U "$ACC" 2>/dev/null | grep -q 'may run' && warn "공용 계정($ACC)이 sudo를 쓸 수 있어요. 설정 위치: grep -rn $ACC /etc/sudoers /etc/sudoers.d/" || ok "공용 계정($ACC)은 sudo를 못 써요"
 
-# ------------------------------------------------------------------ 2. 팀원 명단과 작업 폴더
 step '2. 팀원 명단, GPU 배분, 작업 폴더'
-# 팀원 명단과 GPU 배분: 관리자가 고치고, gpu 명령이 읽는다(엑셀 '팀원', 'GPU 배분' 시트와 같게)
 [ -f "$S/team.txt" ] || cat > "$S/team.txt" <<'EOF'
 # 팀원 명단. 관리자만 고친다. 엑셀 '팀원' 시트와 같게 맞춘다.
 # 형식: 이름  그룹   (그룹은 gpu_alloc.txt 의 그룹 이름)
 # 예:  홍길동  인지
 EOF
-# GPU 배분은 서버마다 다르다. 서버 2는 다른 팀과 같이 써서 0~3번이 다른 팀 것이다.
-# 서버 이름만으로 정하면 이름이 예상과 다를 때 서버 1 배분이 들어가고(다른 팀 GPU 경고가 빠진다),
-# 처음 만들 때는 관리자에게 묻는다. 이름 끝이 p2 면 2를 기본값으로 보여 준다
 if [ ! -f "$S/gpu_alloc.txt" ]; then
     guess=1; case "$(hostname -s)" in *p2) guess=2 ;; esac
     [ -t 0 ] || stop 'GPU 배분 파일을 처음 만들려면 서버 번호를 답해야 해요' 'PuTTY 화면에서 직접 실행하세요: bash admin_setup.sh'
@@ -127,7 +104,6 @@ grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name grp _; do
         warn "$name: gpu_alloc.txt에 없는 그룹이에요(${grp:-그룹 칸 비어 있음}). team.txt의 그룹 이름을 gpu_alloc.txt와 글자까지 같게 적으세요"
     [ -d "$W/$name" ] || { setsid -w runuser -u "$ACC" -- mkdir -p "$W/$name/images" && echo "    작업 폴더를 만들었어요: $W/$name"; }
 done
-# NAS 의 이름별 폴더(backup·docker_images). 준비(prepare.sh)가 NAS 팀 폴더를 만들었을 때만
 NAS_DIR=$(sed -n 's/^NAS_DIR=\([^ #]*\).*/\1/p' "$S/gpu.conf" 2>/dev/null | tail -1); NAS_DIR=${NAS_DIR:-/data/autonomy_sw}
 if [ -d "$NAS_DIR/backup" ] && [ ! -L "$NAS_DIR/backup" ] && [ ! -L "$NAS_DIR/docker_images" ]; then
     grep -vE '^\s*(#|$)' "$S/team.txt" | while read -r name _; do
@@ -138,15 +114,13 @@ if [ -d "$NAS_DIR/backup" ] && [ ! -L "$NAS_DIR/backup" ] && [ ! -L "$NAS_DIR/do
 else
     warn "NAS 팀 폴더($NAS_DIR/backup)가 없어서 이름별 폴더를 만들지 않았어요. 준비(prepare.sh)의 NAS 줄을 확인하세요"
 fi
-# ------------------------------------------------------------------ 3. 도우미
 step '3. 도우미 설치 (docker, nvidia-smi, gpu)'
 for f in gpu docker nvidia-smi; do
     [ -f "bin/$f" ] || stop "도우미 파일이 없어요: $HERE/bin/$f" "묶음을 다시 푸세요: cd $HERE && tar xf gpu-setup.tar"
     install -m 755 "bin/$f" "$S/bin/$f"
 done
-rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"   # 예전 버전의 파일
+rm -f "$S/bin/rules.txt" "$ST/claims.tsv" "$ST/unknown_seen.tsv"
 ok "$S/bin 에 설치했어요: docker(이름표·GPU 겹침 경고), nvidia-smi(GPU별 사용자 표), gpu(접속 인사·정기 점검)"
-# docker ps 에 사람(USER)과 GPU 열을 보이게 한다(공용 계정의 docker 설정). 공용 계정 홈이라 공용 계정 권한으로 쓴다
 setsid -w runuser -u "$ACC" -- mkdir -p "$HOME_A/.docker"
 setsid -w runuser -u "$ACC" -- python3 -I - "$HOME_A/.docker/config.json" <<'PY'
 import json, os, sys
@@ -159,7 +133,6 @@ PY
 ok 'docker ps 에 이름(USER)과 GPU(GPUS) 열을 넣었어요'
 
 
-# ------------------------------------------------------------------ 4. 접속 설정
 step '4. 접속 설정 (/etc/profile.d/gpu.sh)'
 cat > /etc/profile.d/gpu.sh <<EOF
 # GPU 서버 공용 설정. admin_setup.sh 가 만든다. 관리자만 고칠 수 있다.
@@ -215,16 +188,12 @@ if [ -z "\${TMUX:-}" ]; then
 fi
 EOF
 chmod 644 /etc/profile.d/gpu.sh
-# 로그인 셸이 아닌 새 셸에서도 같은 설정을 읽게 한다
 grep -q '# gpu admin_setup' /etc/bash.bashrc ||
     echo '[ -r /etc/profile.d/gpu.sh ] && . /etc/profile.d/gpu.sh  # gpu admin_setup' >> /etc/bash.bashrc
-# 예전 방식(~/.bashrc 의 PATH 줄)은 지운다. 이제 시스템 설정이 맡는다
 [ -f "$HOME_A/.bashrc" ] && setsid -w runuser -u "$ACC" -- sed -i '\#shared/tools/bin#d' "$HOME_A/.bashrc"
 ok '접속 설정: 이름 고르기(번호), 이름별 캐시·명령 기록, 작업 폴더로 이동, 알림 보기'
 
-# ------------------------------------------------------------------ 5. GPU 서비스
 step '5. GPU 서비스'
-# PCIe 카드(H200 NVL 등)는 NVSwitch 가 없어 Fabric Manager 가 필요 없다(켜면 시작하지 못하고 실패만 남긴다)
 gname=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
 svcs=(nvidia-persistenced nvidia-fabricmanager nvlsm)
 case "$gname" in *NVL*|*PCIe*) svcs=(nvidia-persistenced); ok "PCIe 카드($gname)라 Fabric Manager는 켜지 않아요" ;; esac
@@ -237,7 +206,6 @@ for svc in "${svcs[@]}"; do
     fi
 done
 
-# ------------------------------------------------------------------ 6. 정기 점검
 step '6. 정기 점검'
 cat > /etc/cron.d/gpu <<EOF
 # gpu admin_setup.sh 가 만든다. cron 기본 PATH 에는 /usr/sbin(runuser)이 없다

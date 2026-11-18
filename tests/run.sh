@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
-# 저장소 자동 시험. 임시 폴더에 가짜 /app, 가짜 docker·nvidia-smi 를 만들고 스크립트를 실제로 돌려 본다.
-# 서버에서 돌리지 않는다(실제 /app 이 있으면 멈춘다). 이 저장소를 고친 뒤, 커밋하기 전에 돌린다.
-#   bash tests/run.sh                 전체(root 가 아니면 root 가 필요한 시험은 건너뛴다)
-#   bash tests/run.sh docs gpu       고른 묶음만: static docs installers gpu wrapper fetch reports hook pkgs system
-#   GPU_TEST_SYSTEM=1 bash tests/run.sh system
-#                                     prepare.sh 와 admin_setup.sh 를 진짜 /app 과 /etc 에 돌린다. 버리는 가상 머신(GitHub Actions)에서만
-# 시험이 하나라도 실패하면 종료 코드가 1 이다.
 set -uo pipefail
 export LC_ALL=C.UTF-8
 cd "$(dirname "$0")/.." || exit 1
 R=$PWD
-# root 로 돌릴 때 저장소 주인이 달라도 git 이 멈추지 않게(GitHub Actions 는 sudo 로 돌린다)
 export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'
 G=$'\e[32m'; RD=$'\e[31m'; Y=$'\e[33m'; C=$'\e[36m'; Z=$'\e[0m'
 PASS=0; FAIL=0; SKIP=0
@@ -19,9 +11,8 @@ no()   { FAIL=$((FAIL + 1)); echo "  ${RD}[실패]${Z} $1"; [ -z "${2:-}" ] || p
 skip() { SKIP=$((SKIP + 1)); echo "  ${Y}[건너뜀]${Z} $1"; }
 head_() { echo; echo "${C}== $1 ==${Z}"; }
 is_root() { [ "$(id -u)" = 0 ]; }
-# 조건이 참이면 통과: t "이름" 명령...   (실패하면 명령 출력을 보여 준다)
 t() { local n=$1 out; shift; if out=$("$@" 2>&1); then ok "$n"; else no "$n" "$out"; fi; }
-has()   { grep -qF -- "$2" "$1"; }   # 파일 $1 에 글자 $2 가 있다
+has()   { grep -qF -- "$2" "$1"; }
 lacks() { ! grep -qF -- "$2" "$1"; }
 
 if [ -e /app ] && [ ! -e /app/.gpu_test_sandbox ]; then
@@ -31,8 +22,6 @@ T=$(mktemp -d); chmod 755 "$T"
 trap 'rm -rf "$T"' EXIT
 LOG=$T/out.txt
 
-# ------------------------------------------------------------------ 가짜 nvidia-smi·docker
-# GPU 8장. 5번의 UUID 는 GPU-bbbbbbbb-2222
 mkdir -p "$T/fake" && chmod 777 "$T/fake"
 cat > "$T/fake/nvidia-smi" <<'EOF'
 #!/usr/bin/env bash
@@ -52,7 +41,6 @@ case "$*" in
     *) ;;
 esac
 EOF
-# 컨테이너 목록은 $FAKE_DIR/inspect(이미 docker inspect 모양으로 적은 줄), 그 밖의 호출은 args.log 에 남긴다
 cat > "$T/fake/docker" <<'EOF'
 #!/usr/bin/env bash
 D=${FAKE_DIR:?}
@@ -67,7 +55,6 @@ esac
 EOF
 chmod 755 "$T/fake/nvidia-smi" "$T/fake/docker"
 
-# ================================================================== 1. 문법·형식
 t_static() {
     head_ '문법·형식'
     local f bad=
@@ -82,10 +69,8 @@ t_static() {
         local out; out=$(pwsh -NoProfile -Command '$bad=0; foreach ($f in Get-ChildItem admin/pc/*.ps1, user/pc/*.ps1, common/*.ps1) { $e=$null; [void][Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$e); foreach ($x in $e) { $bad++; "$($f.Name):$($x.Extent.StartLineNumber): $($x.Message)" } }; exit $bad' 2>&1)
         [ $? = 0 ] && ok 'PowerShell 문법(pwsh)' || no 'PowerShell 문법' "$out"
     else skip 'PowerShell 문법: pwsh 가 없어요(GitHub Actions 에서는 돌아요)'; fi
-    # .ps1: Windows PowerShell 5.1 이 한글을 읽으려면 BOM 이 있어야 한다. 줄 끝은 받을 때 CRLF(.gitattributes)
     bad=; for f in admin/pc/*.ps1 user/pc/*.ps1 common/*.ps1; do [ "$(head -c3 "$f" | od -An -tx1 | tr -d ' ')" = efbbbf ] || bad+=" $f"; done
     [ -z "$bad" ] && ok '.ps1 은 모두 UTF-8 BOM' || no ".ps1 BOM 없음:$bad"
-    # PowerShell 은 한글도 변수 이름으로 읽는다: "$n번째" 는 $n 이 아니라 $n번째. "$($n)번째" 로 써야 한다
     bad=$(grep -nP '(?<!`)\$[A-Za-z_][A-Za-z0-9_]*[가-힣]' admin/pc/*.ps1 user/pc/*.ps1 common/*.ps1)
     [ -z "$bad" ] && ok '.ps1 에 한글이 붙은 변수가 없어요("$($n)번째" 처럼 써요)' || no '.ps1 에 한글이 붙은 변수' "$bad"
     bad=$(git ls-files --eol -- '*.ps1' '*.sh' 'admin/server/bin/*' | awk '($NF ~ /\.ps1$/ && $0 !~ /eol=crlf/) || ($NF !~ /\.ps1$/ && $0 !~ /eol=lf/) || $1 != "i/lf"')
@@ -95,7 +80,6 @@ t_static() {
     bad=$(grep -nE '^[A-Za-z_][A-Za-z0-9_]*=.+' .env.example | grep -vE '^[0-9]+:GPU_RUN=')
     [ -z "$bad" ] && ok '.env.example 에는 값이 비어 있어요(GPU_RUN 만 기본값)' || no '.env.example 에 값이 들어 있어요' "$bad"
     if command -v pwsh >/dev/null; then
-        # .env 읽기: 주석·빈 값·따옴표·뒤 # 설명·export·이상한 줄, 그리고 이미 정한 환경 변수가 이긴다
         printf '# 설명\r\nGPU_T1=a b\r\nexport GPU_T2 = "x # y"\r\nGPU_T3=v # 설명\r\nGPU_T4=\r\n이상한 줄\r\nGPU_T5=env\r\n' > "$T/dotenv"
         out=$(GPU_T5=mine pwsh -NoProfile -Command ". ./common/gpu_common.ps1; Import-DotEnv '$T/dotenv'; '[{0}][{1}][{2}][{3}][{4}]' -f \$env:GPU_T1, \$env:GPU_T2, \$env:GPU_T3, \$env:GPU_T4, \$env:GPU_T5" 2>&1)
         case "$out" in *'[a b][x # y][v][][mine]'*) ok '.env 읽기(pwsh)' ;; *) no '.env 읽기(pwsh)' "$out" ;; esac

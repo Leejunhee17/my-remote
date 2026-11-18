@@ -13,7 +13,7 @@ import os
 import sys
 import time
 
-try:  # 회사 보안 장비 인증서를 쓰는 망에서도 되도록 윈도우 인증서 저장소를 쓴다
+try:
     import truststore
 
     truststore.inject_into_ssl()
@@ -23,12 +23,11 @@ except Exception:
 from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
 
-# 같은 가중치의 다른 형식, 학습에 안 쓰는 파일
 SKIP = [
     "*.h5", "*.msgpack", "*.ot", "*.onnx", "*.onnx_data", "*.gguf", "*.tflite",
     "*.mlmodel", "*.mlpackage/*", "onnx/*", "openvino/*", "coreml/*", "*.png", "*.jpg", "*.gif", "*.mp4",
 ]
-WEIGHT_ALT = ["*.bin", "*.pth", "*.pt", "*.ckpt"]  # safetensors 가 있으면 뺀다
+WEIGHT_ALT = ["*.bin", "*.pth", "*.pt", "*.ckpt"]
 STATE = ".gpu_state.json"
 SUMS = ".gpu_sha256"
 
@@ -88,7 +87,7 @@ def main(cmd, repo, d):
         if name in done and os.path.exists(path) and os.path.getsize(path) == size:
             continue
         print(f"  ({i}/{len(files)}) {name} ({size / 2**20:.0f} MB)", flush=True)
-        tries = int(os.environ.get("GPU_HF_TRIES") or 3)  # 처음 받을 때는 1(바로 미룬다), 미룬 뒤 다시 받을 때는 3
+        tries = int(os.environ.get("GPU_HF_TRIES") or 3)
         for attempt in range(1, tries + 1):
             try:
                 hf_hub_download(repo, name, revision=info.sha, local_dir=d, token=token)
@@ -96,7 +95,7 @@ def main(cmd, repo, d):
             except GatedRepoError:
                 print("  승인이 필요한 파일이에요. 약관 동의와 토큰을 확인하세요.")
                 return 3
-            except Exception as e:  # 끊김 등은 이어받기로 다시 시도
+            except Exception as e:
                 if attempt == tries:
                     print(f"  연결이 끊겼어요({type(e).__name__}).", flush=True)
                     return 1
@@ -115,7 +114,6 @@ def main(cmd, repo, d):
         with open(os.path.join(d, STATE), "w", encoding="utf-8") as f:
             json.dump(state, f)
 
-    # GPU 서버에서 확인할 체크섬 목록(경로는 받는 곳 기준 상대 경로)
     base = os.path.basename(os.path.normpath(d))
     with open(os.path.join(d, SUMS), "w", encoding="utf-8", newline="\n") as f:
         for s in files:
