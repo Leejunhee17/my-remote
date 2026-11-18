@@ -108,6 +108,12 @@ t_static() {
         out=$(pwsh -NoProfile -Command ". ./common/gpu_common.ps1; Hide-Text 'get https://s3.example/a?X-Amz-Signature=abc from $ip key $key tok $tk'; Proxy-Label 'http://proxy.example:8080'" 2>&1)
         case "$out" in *'get https://s3.example/a?… from (사내 IP) key (키) tok (토큰)'*'있음(http, 포트 8080)'*) ok '점검 결과 가리기(pwsh)' ;; *) no '점검 결과 가리기(pwsh)' "$out" ;; esac
     else skip '점검 결과 가리기: pwsh 가 없어요(GitHub Actions 에서는 돌아요)'; fi
+    # PowerShell 변수는 대소문자를 가리지 않는다. 한 파일에서 $Sites·$sites 처럼 대소문자만 다른 이름을 쓰면 서로 덮어쓴다
+    bad=; for f in $(git ls-files '*.ps1'); do
+        n=$(tr -d '\r' < "$f" | grep -oE '^\s*\$[A-Za-z_][A-Za-z0-9_]*\s*=' | sed -E 's/^\s*\$//; s/\s*=$//' | sort -u | awk '{ l = tolower($0); if (l in seen && seen[l] != $0) print seen[l] "·" $0; seen[l] = $0 }')
+        [ -n "$n" ] && bad+=" $f($n)"
+    done
+    [ -z "$bad" ] && ok 'PowerShell 에 대소문자만 다른 같은 변수가 없어요' || no 'PowerShell 에 대소문자만 다른 같은 변수가 있어요(서로 덮어써요)' "$bad"
     # 사내 IP(사설 대역)는 저장소에 없어야 한다. 이 시험 파일의 예시 IP 는 실행할 때 만든다
     bad=$(git grep -nIE '(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)' -- . ':!*.xlsx' | grep -v 'check.sh send 10\.0\.0\.2')
     [ -z "$bad" ] && ok '사설 IP가 없어요' || no '사설 IP가 있어요' "$bad"

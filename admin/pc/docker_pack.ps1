@@ -144,15 +144,15 @@ foreach ($plug in @(
     # releases/latest 가 넘겨주는 주소(…/tag/v1.2.3)에서 버전을 읽는다
     $loc = [string](Invoke-Http "https://github.com/$($plug.Repo)/releases/latest" -NoRedirect -Max 0).Headers['location']
     if ($loc -match '/tag/(v[\d.]+)$') {
-        $t = $Matches[1]
-        $fn = & $plug.File $t
+        $ver = $Matches[1]
+        $fn = & $plug.File $ver
         # 파일 이름이 버전과 상관없이 같으므로, 공식 체크섬으로 확인한다(없으면 매번 새로 받아 예전 파일에 이어 붙지 않게)
         $sha = $null
-        $sr = Invoke-Http "https://github.com/$($plug.Repo)/releases/download/$t/checksums.txt" -Max 1048576
+        $sr = Invoke-Http "https://github.com/$($plug.Repo)/releases/download/$ver/checksums.txt" -Max 1048576
         if ($sr.Ok -and $sr.Status -eq 200) {
             foreach ($l in ($sr.Body -split "`r?`n")) { if ($l -match "^([0-9a-f]{64})\s+\*?$([regex]::Escape($fn))\s*$") { $sha = $Matches[1] } }
         }
-        $plan += [pscustomobject]@{ Dir = 'plugins'; Url = "https://github.com/$($plug.Repo)/releases/download/$t/$fn"; Sha = $sha; Name = $plug.Name; Fresh = (-not $sha) }
+        $plan += [pscustomobject]@{ Dir = 'plugins'; Url = "https://github.com/$($plug.Repo)/releases/download/$ver/$fn"; Sha = $sha; Name = $plug.Name; Fresh = (-not $sha) }
         if ($sha) { Write-Ok "$($plug.Name) $t" } else { Write-Warn "$($plug.Name) ${t}: 공식 체크섬을 찾지 못해서, 받아 둔 파일이 있어도 새로 받아요(받은 뒤 맞는지 확인은 못 해요)" }
     } else { Write-Warn "최신 버전을 찾지 못해 묶음에서 뺐어요: $($plug.Name) (없어도 docker는 돼요)" }
 }

@@ -156,8 +156,9 @@ $CsLogin = 'https://www.cityscapes-dataset.com/login/'
 # IDD(인도 도로, 비포장 섞임): 회원 계정으로 로그인한 뒤, 다운로드 페이지에서 세그(Segmentation) 링크를 찾아 받는다.
 # 다운로드 페이지는 로그인해야만 보여서 파일 주소를 미리 적어 둘 수 없다(로그인 화면 확인 2026-11-12)
 $IddBase = 'https://idd.insaan.iiit.ac.in'
-# 로그인해서 받는 사이트. 계정은 .env 의 <Env>_USERNAME·<Env>_PASSWORD
-$Sites = [ordered]@{
+# 로그인해서 받는 사이트. 계정은 .env 의 <Env>_USERNAME·<Env>_PASSWORD.
+# 이름을 $Sites 로 하면 안 된다: PowerShell 변수는 대소문자를 가리지 않아서, 1단계 점검의 $sites(접속 확인할 사이트)가 덮어쓴다
+$LoginSites = [ordered]@{
     cs  = @{ Label = 'Cityscapes'; Env = 'CITYSCAPES'; Set = 'cityscapes'; Register = 'https://www.cityscapes-dataset.com/register/' }
     idd = @{ Label = 'IDD';        Env = 'IDD';        Set = 'idd';        Register = "$IddBase/accounts/signup/" }
 }
@@ -624,8 +625,8 @@ if ($DriveCheck) {
 # 로그인해서 받는 사이트(Cityscapes, IDD). 쿠키는 $script:Jar[사이트], 실패 이유는 $script:Why[사이트]. 비밀번호는 화면·기록 파일에 남기지 않는다
 $script:Jar = @{}
 $script:Why = @{}
-function Get-SiteUser($site) { return [Environment]::GetEnvironmentVariable("$($Sites[$site].Env)_USERNAME") }
-function Get-SitePass($site) { return [Environment]::GetEnvironmentVariable("$($Sites[$site].Env)_PASSWORD") }
+function Get-SiteUser($site) { return [Environment]::GetEnvironmentVariable("$($LoginSites[$site].Env)_USERNAME") }
+function Get-SitePass($site) { return [Environment]::GetEnvironmentVariable("$($LoginSites[$site].Env)_PASSWORD") }
 function Get-FormBody($pairs) { return (($pairs.Keys | ForEach-Object { "$_=$([uri]::EscapeDataString([string]$pairs[$_]))" }) -join '&') }
 
 function Connect-Site($site) {
@@ -693,25 +694,25 @@ function Find-IddItems {
     # 세그 묶음만(IDD Lite 는 같은 데이터를 줄인 것이라 뺀다)
     $seg = @($links | Where-Object { "$($_.Url) $($_.Text)" -match 'segment' -and "$($_.Url) $($_.Text)" -notmatch 'lite' })
     if (-not $seg.Count) { $seg = @($links | Where-Object { $_.Before -match 'segment' -and $_.Before -notmatch 'lite' -and $_.Text -match 'download|\.(zip|tar|gz)' }) }
-    $items = @()
+    $iddList = @()
     foreach ($l in $seg) {
         $p = Test-AuthFile 'idd' $l.Url
         if (-not $p.Ok -or $p.FileName -notmatch '^[\w.\- ()]+\.(zip|tar|tgz|tar\.gz|7z)$') { Write-Warn "IDD 링크를 건너뛰어요($($l.Text)): $(if ($p.Ok) { "압축 파일이 아니에요($($p.FileName))" } else { $p.Error })"; continue }
         $gb = if ($p.Size) { [math]::Max(1, [math]::Ceiling($p.Size / 1GB)) } else { 20 }
-        $items += @{ Set = 'idd'; GB = $gb; Name = $p.FileName; Url = $l.Url; Site = 'idd' }
+        $iddList += @{ Set = 'idd'; GB = $gb; Name = $p.FileName; Url = $l.Url; Site = 'idd' }
     }
-    if (-not $items.Count) {
+    if (-not $iddList.Count) {
         $script:Why['idd'] = '다운로드 페이지에서 세그 파일 링크를 찾지 못했어요'
         Write-Info "    다운로드 페이지에서 찾은 링크 $($links.Count)개(아래 목록을 담당자에게 보내 주세요):"
         $links | Select-Object -First 40 | ForEach-Object { Write-Info "      [$($_.Text)] $(($_.Url -split '\?')[0])   (앞 글: $($_.Before.Substring([math]::Max(0, $_.Before.Length - 50))))" }
     }
-    return $items
+    return $iddList
 }
 
 # 로그인해서 받는 파일 하나를 받는다(이어받기). 받을 때마다 로그인 쿠키를 aria2c 에 넘긴다. 로그인이 풀리면 다시 로그인한다
 function Get-AuthFile($it, $file, $tries = $MaxTries) {
     New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
-    $site = $it.Site; $name = $Sites[$site].Label
+    $site = $it.Site; $name = $LoginSites[$site].Label
     $conn = 4
     $stall = 0
     while ($stall -lt $tries) {
@@ -820,8 +821,8 @@ Write-Ok 'Python 3.12를 준비했어요'
 $AuthItems = @()
 $script:Skip = @{}
 $authGB = 0
-foreach ($site in $Sites.Keys) {
-    $si = $Sites[$site]
+foreach ($site in $LoginSites.Keys) {
+    $si = $LoginSites[$site]
     if ($site -eq 'cs') { if (-not $CsItems.Count) { continue } } elseif (-not (Want $si.Set)) { continue }
     $dir = Join-Path $Dest $si.Set
     if ($site -eq 'cs') {
@@ -1028,7 +1029,7 @@ if ((Want 'MFNet') -and -not (Test-Path (Join-Path $Dest 'MFNet'))) {
 }
 
 # 로그인해서 받기(Cityscapes, IDD)
-foreach ($site in $Sites.Keys) {
+foreach ($site in $LoginSites.Keys) {
     if ($script:Skip[$site]) {
         $its = if ($site -eq 'cs') { $CsItems } else { @() }
         foreach ($it in $its) { if (-not (Test-Path "$(Join-Path (Join-Path $Dest $it.Set) $it.Name).ok")) { $result["$($it.Set)/$($it.Name)"] = "건너뜀($($script:Skip[$site]))" } }
